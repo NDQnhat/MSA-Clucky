@@ -131,7 +131,7 @@ class LoyaltyPostgresTest {
     @Test
     void concurrentApprovalsPersistOneApprovedState() throws Exception {
         var request = new VoucherRequest();
-        request.setCode("TEST_" + java.util.UUID.randomUUID());
+        // Store proposals are personal campaigns: no shared voucher code.
         request.setType(com.clucky.promotionloyaltyservice.model.VoucherType.AMOUNT);
         request.setValue(java.math.BigDecimal.TEN);
         request.setStartAt(java.time.Instant.now().minusSeconds(60));
@@ -170,7 +170,7 @@ class LoyaltyPostgresTest {
 
     @Test
     void finalVoucherSlotAndSameOrderRetriesAreSerialized() throws Exception {
-        var voucher = vouchers.createVoucher(voucherRequest(1), 1L, "ADMIN", null);
+        var voucher = createLegacyVoucher(voucherRequest(1));
         long customer = randomId();
         var sequence = new AtomicLong(randomId());
         var winner = new AtomicLong();
@@ -199,7 +199,7 @@ class LoyaltyPostgresTest {
 
     @Test
     void completionAndDuplicateEventsConsumeExactlyOnce() throws Exception {
-        var voucher = vouchers.createVoucher(voucherRequest(1), 1L, "ADMIN", null);
+        var voucher = createLegacyVoucher(voucherRequest(1));
         long order = randomId();
         long customer = randomId();
         String event = UUID.randomUUID().toString();
@@ -222,7 +222,7 @@ class LoyaltyPostgresTest {
 
     @Test
     void releaseFencesDelayedRetriesAndActiveOrdersKeepTheirQuota() throws Exception {
-        var voucher = vouchers.createVoucher(voucherRequest(1), 1L, "ADMIN", null);
+        var voucher = createLegacyVoucher(voucherRequest(1));
         long aborted = randomId();
         long customer = randomId();
         race(() -> reservations.release(aborted));
@@ -230,10 +230,10 @@ class LoyaltyPostgresTest {
         long order = randomId();
         reservations.reserve(order, customer, 1, voucher.getCode(), BigDecimal.valueOf(100), BigDecimal.TEN);
         new JdbcTemplate(source).update("UPDATE promotion_service.voucher_reservations SET updated_at=now()-interval '1 day' WHERE order_id=?", order);
-        assertTrue(service.pending().stream().anyMatch(pending -> pending.orderId() == order));
+        assertTrue(reservations.pending().stream().anyMatch(pending -> pending.orderId() == order));
         reservations.settle(order, customer, "CONFIRMED", UUID.randomUUID().toString(), "test");
         assertEquals(1, vouchers.getVoucherById(voucher.getId()).getReservedCount());
-        assertFalse(service.pending().stream().anyMatch(pending -> pending.orderId() == order));
+        assertFalse(reservations.pending().stream().anyMatch(pending -> pending.orderId() == order));
         String event = UUID.randomUUID().toString();
         race(() -> reservations.settle(order, customer, "CANCELLED", event, "test"));
         reservations.settle(order, customer, "COMPLETED", UUID.randomUUID().toString(), "test");
@@ -250,7 +250,7 @@ class LoyaltyPostgresTest {
         var request = voucherRequest(2);
         request.setScope(com.clucky.promotionloyaltyservice.model.VoucherScope.STORE);
         request.setStoreId(2L);
-        var voucher = vouchers.createVoucher(request, 1L, "ADMIN", null);
+        var voucher = createLegacyVoucher(request);
         assertThrows(ApiException.class, () -> reservations.reserve(randomId(), 7, 1, voucher.getCode(), BigDecimal.valueOf(100), BigDecimal.TEN));
         assertThrows(ConflictException.class, () -> reservations.reserve(randomId(), 7, 2, voucher.getCode(), BigDecimal.valueOf(100), BigDecimal.ONE));
         new JdbcTemplate(source).update("UPDATE promotion_service.vouchers SET used_count=2 WHERE id=?", voucher.getId());
@@ -260,7 +260,7 @@ class LoyaltyPostgresTest {
 
     @Test
     void cancellationBeforeReservationCreatesAnIdempotentFence() {
-        var voucher = vouchers.createVoucher(voucherRequest(1), 1L, "ADMIN", null);
+        var voucher = createLegacyVoucher(voucherRequest(1));
         long order = randomId();
         String event = UUID.randomUUID().toString();
         reservations.settle(order, 7L, "CANCELLED", event, "test");
@@ -273,7 +273,7 @@ class LoyaltyPostgresTest {
     @Test
     void adminQuotaUpdatesRejectStaleVersionsAndCannotEraseReservations() {
         var request = voucherRequest(3);
-        var voucher = vouchers.createVoucher(request, 1L, "ADMIN", null);
+        var voucher = createLegacyVoucher(request);
         reservations.reserve(randomId(), 7, 1, voucher.getCode(), BigDecimal.valueOf(100), BigDecimal.TEN);
         request.setVersion(voucher.getVersion());
         assertThrows(ConflictException.class, () -> vouchers.updateVoucher(voucher.getId(), request, 1L, "ADMIN", null));
@@ -294,7 +294,7 @@ class LoyaltyPostgresTest {
 
     @Test
     void disableRacingReservationNeverLosesTheHeldSlot() throws Exception {
-        var voucher = vouchers.createVoucher(voucherRequest(1), 1L, "ADMIN", null);
+        var voucher = createLegacyVoucher(voucherRequest(1));
         long order = randomId();
         var branch = new AtomicInteger();
         var accepted = new AtomicInteger();
@@ -320,12 +320,15 @@ class LoyaltyPostgresTest {
     @Test
     void auditOutboxCommitsAndRollsBackWithAdminMutation() {
         var request = voucherRequest(1);
+        request.setCode(null);
         var voucher = vouchers.createVoucher(request, 1L, "ADMIN", null);
         assertEquals(1, count("SELECT count(*) FROM promotion_service.audit_outbox WHERE event->'payload'->>'targetType'='VOUCHER' AND event->'payload'->>'targetId'=?", voucher.getId().toString()));
         var transaction = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
         var rolledBackId = new AtomicLong();
         transaction.executeWithoutResult(status -> {
-            rolledBackId.set(vouchers.createVoucher(voucherRequest(1), 1L, "ADMIN", null).getId());
+            var next = voucherRequest(1);
+            next.setCode(null);
+            rolledBackId.set(vouchers.createVoucher(next, 1L, "ADMIN", null).getId());
             status.setRollbackOnly();
         });
         assertEquals(0, count("SELECT count(*) FROM promotion_service.vouchers WHERE id=?", rolledBackId.get()));
@@ -342,6 +345,27 @@ class LoyaltyPostgresTest {
         request.setStartAt(Instant.now().minusSeconds(3600));
         request.setEndAt(Instant.now().plusSeconds(3600));
         return request;
+    }
+
+    // Preserve the legacy reservation/approval regression cases without
+    // bypassing the new production rule: personal campaigns never accept
+    // a shared code through createVoucher().
+    private VoucherResponse createLegacyVoucher(VoucherRequest request) {
+        var voucher = new com.clucky.promotionloyaltyservice.model.Voucher();
+        voucher.setCampaignKind(com.clucky.promotionloyaltyservice.model.VoucherCampaignKind.LEGACY);
+        voucher.setCode(request.getCode());
+        voucher.setTitle(request.getTitle());
+        voucher.setType(request.getType());
+        voucher.setValue(request.getValue());
+        voucher.setTotalLimit(request.getTotalLimit());
+        voucher.setMinOrderAmount(request.getMinOrderAmount());
+        voucher.setStartAt(request.getStartAt());
+        voucher.setEndAt(request.getEndAt());
+        voucher.setScope(request.getScope());
+        voucher.setStoreId(request.getStoreId());
+        voucher.setStatus(request.getStatus());
+        voucher.setCreatedBy(1L);
+        return VoucherResponse.fromEntity(voucherRepository.saveAndFlush(voucher));
     }
 
     private long randomId() { return ThreadLocalRandom.current().nextLong(1_000_000, Long.MAX_VALUE - 100); }

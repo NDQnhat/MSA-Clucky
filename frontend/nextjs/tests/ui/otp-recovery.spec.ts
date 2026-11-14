@@ -85,12 +85,12 @@ test("phone-first registration requires SMS OTP and verifies its challenge", asy
   expect(submitted[1]).toEqual({ phone: "0901234567", otp: "123456", challengeId: "test-register-challenge" });
 });
 
-test("changing a verified phone demands both new-number OTP and the Clucky password", async ({ page }) => {
+test("binding an unverified phone demands both new-number OTP and the Clucky password", async ({ page }) => {
   const confirmations: Array<Record<string, string>> = [];
   let correctPassword = false;
   await page.route("**/api/users/me", route => route.fulfill({ json: {
     fullName: "Test User", email: "test@example.com", phone: "+84901234567",
-    phoneVerified: true, emailVerified: true,
+    phoneVerified: false, emailVerified: true,
   } }));
   await page.route("**/api/users/me/phone/request", route => {
     expect(route.request().postDataJSON()).toEqual({ phone: "+84987654321" });
@@ -126,4 +126,21 @@ test("changing a verified phone demands both new-number OTP and the Clucky passw
   await page.getByRole("button", { name: "Xác thực và lưu số điện thoại" }).click();
   await expect.poll(() => confirmations.length).toBe(2);
   await expect(page.getByText("Số điện thoại mới đã được xác thực và lưu.")).toBeVisible();
+});
+
+test("verified phone remains immutable and does not expose the rebind flow", async ({ page }) => {
+  let requested = false;
+  await page.route("**/api/users/me", route => route.fulfill({ json: {
+    fullName: "Test User", email: "test@example.com", phone: "+84901234567",
+    phoneVerified: true, emailVerified: true,
+  } }));
+  await page.route("**/api/users/me/phone/request", route => {
+    requested = true;
+    return route.fulfill({ status: 409, json: { code: "RESOURCE_CONFLICT" } });
+  });
+  await page.goto(customer + "/account");
+  await expect(page.getByRole("region", { name: "Số điện thoại" })).toContainText("Đã xác thực");
+  await expect(page.getByLabel("Số điện thoại muốn sử dụng")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Gửi mã OTP qua SMS" })).toHaveCount(0);
+  expect(requested).toBe(false);
 });

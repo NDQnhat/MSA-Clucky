@@ -34,9 +34,18 @@ export type PersonalVoucher = {
   campaign: VoucherCampaign;
 };
 
+async function voucherList<T>(path: string): Promise<T[]> {
+  const response: unknown = await request<unknown>(path);
+  // A misconfigured gateway/HTML fallback can return HTTP 200 with a non-list
+  // payload. Treat it as an unavailable service, never pass it to a .map/.filter
+  // in checkout or the customer's voucher wallet.
+  if (!Array.isArray(response)) throw { code: "DEPENDENCY_UNAVAILABLE", status: 503 };
+  return response as T[];
+}
+
 export const personalVoucherApi = {
-  campaigns: () => request<VoucherCampaign[]>("/api/promotions/vouchers/available"),
-  mine: () => request<PersonalVoucher[]>("/api/promotions/vouchers/mine"),
+  campaigns: () => voucherList<VoucherCampaign>("/api/promotions/vouchers/available"),
+  mine: () => voucherList<PersonalVoucher>("/api/promotions/vouchers/mine"),
   claim: (campaignId: number) => request<PersonalVoucher>(`/api/promotions/vouchers/${campaignId}/claim`, { method: "POST" }),
   detail: (instanceId: string) => request<PersonalVoucher>(`/api/promotions/vouchers/my/${encodeURIComponent(instanceId)}`),
 };
