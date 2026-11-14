@@ -12,6 +12,8 @@ import com.clucky.promotionloyaltyservice.exception.ConflictException;
 import com.clucky.promotionloyaltyservice.exception.ErrorCode;
 import com.clucky.promotionloyaltyservice.exception.ResourceNotFoundException;
 import com.clucky.promotionloyaltyservice.model.Voucher;
+import com.clucky.promotionloyaltyservice.model.VoucherApplicability;
+import com.clucky.promotionloyaltyservice.model.VoucherCampaignKind;
 import com.clucky.promotionloyaltyservice.model.VoucherScope;
 import com.clucky.promotionloyaltyservice.model.VoucherStatus;
 import com.clucky.promotionloyaltyservice.model.VoucherType;
@@ -27,6 +29,8 @@ import java.util.Optional;
 import java.util.Locale;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.Objects;
 
 @Service
 public class VoucherService {
@@ -51,10 +55,12 @@ public class VoucherService {
         }
 
         String cleanCode = request.getCode().trim().toUpperCase(Locale.ROOT);
+        if (cleanCode.startsWith("CLUCKY:LOYALTY:"))
+            return ValidateVoucherResponse.invalid(null, ErrorCode.VOUCHER_NOT_FOUND.name(), "Không tìm thấy mã voucher.");
         Optional<Voucher> optVoucher = voucherRepository.findByCodeIgnoreCase(cleanCode);
 
         if (optVoucher.isEmpty()) {
-            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_NOT_FOUND.name(), "Mã ưu đãi '" + cleanCode + "' không tồn tại trong hệ thống.");
+            return ValidateVoucherResponse.invalid(null, ErrorCode.VOUCHER_NOT_FOUND.name(), "Không tìm thấy mã voucher.");
         }
 
         Voucher voucher = optVoucher.get();
@@ -149,7 +155,9 @@ public class VoucherService {
         Instant now = Instant.now();
         List<Voucher> list = voucherRepository.findAvailableVouchers(now, storeId);
         return list.stream()
-            .map(v -> VoucherResponse.fromEntity(v, now))
+            .filter(v -> v.getCampaignKind() != VoucherCampaignKind.PERSONAL || storeId == null
+                    || v.getApplicability() == VoucherApplicability.ALL || v.getStoreIds().contains(storeId))
+            .map(v -> VoucherResponse.fromPublicEntity(v, now))
             .toList();
     }
 
@@ -159,8 +167,11 @@ public class VoucherService {
     @Transactional(readOnly = true)
     public List<VoucherResponse> getVouchers(VoucherScope scope, Long storeId, VoucherStatus status, String keyword) {
         Instant now = Instant.now();
-        List<Voucher> list = voucherRepository.findWithFilters(scope, storeId, status, keyword);
+        List<Voucher> list = voucherRepository.findWithFilters(scope, null, status, keyword);
         return list.stream()
+            .filter(v -> storeId == null || (v.getCampaignKind() == VoucherCampaignKind.PERSONAL
+                    ? v.getApplicability() == VoucherApplicability.ALL || v.getStoreIds().contains(storeId)
+                    : Objects.equals(v.getStoreId(), storeId)))
             .map(v -> VoucherResponse.fromEntity(v, now))
             .toList();
     }
@@ -192,6 +203,8 @@ public class VoucherService {
             }
             request.setScope(VoucherScope.STORE);
             request.setStoreId(actorStoreId);
+            request.setApplicability(VoucherApplicability.SELECTED);
+            request.setStoreIds(Set.of(actorStoreId));
             // By default, manager proposals require Admin approval
             request.setStatus(VoucherStatus.PENDING_APPROVAL);
         } else if (actorRole != null && !"ADMIN".equalsIgnoreCase(actorRole)) {
@@ -200,6 +213,7 @@ public class VoucherService {
 
         validateVoucherRequest(request, null);
         Voucher voucher = new Voucher();
+        voucher.setCampaignKind(VoucherCampaignKind.PERSONAL);
         mapDtoToEntity(request, voucher);
         voucher.setCreatedBy(actorId);
 
@@ -245,6 +259,8 @@ public class VoucherService {
         // Strict enforcement: store scope, target storeId, and pending approval status
         request.setScope(VoucherScope.STORE);
         request.setStoreId(targetStoreId);
+        request.setApplicability(VoucherApplicability.SELECTED);
+        request.setStoreIds(Set.of(targetStoreId));
         request.setStatus(VoucherStatus.PENDING_APPROVAL);
 
         Instant now = Instant.now();
@@ -255,6 +271,7 @@ public class VoucherService {
         validateVoucherRequest(request, null);
 
         Voucher voucher = new Voucher();
+        voucher.setCampaignKind(VoucherCampaignKind.PERSONAL);
         mapDtoToEntity(request, voucher);
         voucher.setScope(VoucherScope.STORE);
         voucher.setStoreId(targetStoreId);
@@ -353,10 +370,11 @@ public class VoucherService {
         if (request.getVersion() == null || request.getVersion() < 0) throw new BadRequestException("Expected voucher version is required");
         if (request.getVersion() != existing.getVersion())
             throw new ConflictException("Voucher changed; reload before saving");
-        if (existing.getReservedCount() > 0 && (!existing.getCode().equalsIgnoreCase(request.getCode())
+        if (existing.getReservedCount() > 0 && (!Objects.equals(existing.getCode(), request.getCode())
                 || existing.getType() != request.getType() || !sameAmount(existing.getValue(), request.getValue())
                 || !sameAmount(existing.getMinOrderAmount(), request.getMinOrderAmount()) || !sameAmount(existing.getMaxDiscount(), request.getMaxDiscount())
-                || existing.getScope() != request.getScope() || !java.util.Objects.equals(existing.getStoreId(), request.getStoreId())))
+                || existing.getScope() != request.getScope() || !Objects.equals(existing.getStoreId(), request.getStoreId())
+                || existing.getApplicability() != request.getApplicability() || !existing.getStoreIds().equals(request.getStoreIds())))
             throw new ConflictException("Reserved voucher terms cannot change until orders settle");
         if (request.getTotalLimit() != null && request.getTotalLimit() > 0
                 && request.getTotalLimit() < (long) existing.getUsedCount() + existing.getReservedCount())
@@ -378,6 +396,8 @@ public class VoucherService {
             }
             request.setScope(VoucherScope.STORE);
             request.setStoreId(actorStoreId);
+            request.setApplicability(VoucherApplicability.SELECTED);
+            request.setStoreIds(Set.of(actorStoreId));
             request.setStatus(VoucherStatus.PENDING_APPROVAL);
             existing.setApprovedBy(null);
         }
@@ -410,7 +430,9 @@ public class VoucherService {
 
         // If voucher was already used in orders, soft delete by disabling
         var before = snapshot(existing);
-        if ((existing.getUsedCount() != null && existing.getUsedCount() > 0) || voucherRepository.hasReservations(id)) {
+        if (existing.getCampaignKind() == VoucherCampaignKind.PERSONAL
+                || (existing.getUsedCount() != null && existing.getUsedCount() > 0)
+                || voucherRepository.hasReservations(id)) {
             existing.setStatus(VoucherStatus.DISABLED);
             voucherRepository.save(existing);
             voucherRepository.flush();
@@ -429,17 +451,23 @@ public class VoucherService {
     }
 
     private void validateVoucherRequest(VoucherRequest request, Long existingId) {
-        String cleanCode = request.getCode().trim().toUpperCase(Locale.ROOT);
-        request.setCode(cleanCode);
-
-        if (existingId == null) {
-            if (voucherRepository.existsByCodeIgnoreCase(cleanCode)) {
-                throw new ConflictException("Mã voucher '" + cleanCode + "' đã tồn tại trong hệ thống");
-            }
+        Voucher existing = existingId == null ? null : voucherRepository.findById(existingId).orElse(null);
+        if (existing == null || existing.getCampaignKind() == VoucherCampaignKind.PERSONAL) {
+            if (request.getCode() != null && !request.getCode().isBlank())
+                throw new BadRequestException("Campaign cá nhân không nhận mã dùng chung");
+            request.setCode(null);
+            VoucherApplicability applicability = request.getApplicability() == null ? VoucherApplicability.ALL : request.getApplicability();
+            Set<Long> selected = request.getStoreIds() == null ? Set.of() : request.getStoreIds();
+            if (applicability == VoucherApplicability.SELECTED) {
+                if (selected.isEmpty() || selected.size() > 100 || selected.stream().anyMatch(id -> id == null || id <= 0))
+                    throw new ApiException(ErrorCode.VALIDATION_ERROR);
+                selected.forEach(stores::requireExists);
+            } else if (!selected.isEmpty()) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         } else {
-            if (voucherRepository.existsByCodeIgnoreCaseAndIdNot(cleanCode, existingId)) {
-                throw new ConflictException("Mã voucher '" + cleanCode + "' đã tồn tại trong hệ thống");
-            }
+            String cleanCode = request.getCode() == null ? existing.getCode() : request.getCode().trim().toUpperCase(Locale.ROOT);
+            request.setCode(cleanCode);
+            if (voucherRepository.existsByCodeIgnoreCaseAndIdNot(cleanCode, existingId))
+                throw new ConflictException("Mã voucher đã tồn tại trong hệ thống");
         }
 
         if (request.getEndAt() != null && request.getStartAt() != null) {
@@ -454,10 +482,12 @@ public class VoucherService {
             }
         }
 
-        if (request.getScope() == VoucherScope.STORE && request.getStoreId() == null) {
+        if (existing != null && existing.getCampaignKind() == VoucherCampaignKind.LEGACY
+                && request.getScope() == VoucherScope.STORE && request.getStoreId() == null) {
             throw new BadRequestException("Voucher phạm vi chi nhánh (STORE) bắt buộc phải có storeId");
         }
-        if (request.getScope() == VoucherScope.STORE) stores.requireExists(request.getStoreId());
+        if (existing != null && existing.getCampaignKind() == VoucherCampaignKind.LEGACY
+                && request.getScope() == VoucherScope.STORE) stores.requireExists(request.getStoreId());
     }
 
     private boolean sameAmount(BigDecimal first, BigDecimal second) {
@@ -472,6 +502,9 @@ public class VoucherService {
     private Map<String, Object> snapshot(Voucher voucher) {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("code", voucher.getCode());
+        values.put("campaignKind", voucher.getCampaignKind());
+        values.put("applicability", voucher.getApplicability());
+        values.put("storeIds", voucher.getStoreIds());
         values.put("title", voucher.getTitle());
         values.put("description", voucher.getDescription());
         values.put("type", voucher.getType());
@@ -493,6 +526,11 @@ public class VoucherService {
 
     private void mapDtoToEntity(VoucherRequest dto, Voucher entity) {
         entity.setCode(dto.getCode());
+        if (entity.getCampaignKind() == VoucherCampaignKind.PERSONAL) {
+            VoucherApplicability applicability = dto.getApplicability() == null ? VoucherApplicability.ALL : dto.getApplicability();
+            entity.setApplicability(applicability);
+            entity.setStoreIds(applicability == VoucherApplicability.ALL ? Set.of() : dto.getStoreIds());
+        }
         entity.setTitle(dto.getTitle());
         entity.setDescription(dto.getDescription());
         entity.setType(dto.getType());
@@ -502,8 +540,10 @@ public class VoucherService {
         entity.setTotalLimit(dto.getTotalLimit());
         entity.setStartAt(dto.getStartAt());
         entity.setEndAt(dto.getEndAt());
-        entity.setScope(dto.getScope() != null ? dto.getScope() : VoucherScope.ALL);
-        entity.setStoreId(entity.getScope() == VoucherScope.STORE ? dto.getStoreId() : null);
+        entity.setScope(entity.getCampaignKind() == VoucherCampaignKind.PERSONAL ? VoucherScope.ALL
+                : dto.getScope() != null ? dto.getScope() : VoucherScope.ALL);
+        entity.setStoreId(entity.getCampaignKind() == VoucherCampaignKind.LEGACY
+                && entity.getScope() == VoucherScope.STORE ? dto.getStoreId() : null);
         if (dto.getStatus() != null) {
             entity.setStatus(dto.getStatus());
         }

@@ -1,0 +1,18 @@
+.panel { margin: 22px 0 28px; border: 1px solid #e9d8b4; border-radius: 24px; padding: clamp(20px, 4vw, 30px); background: linear-gradient(120deg, #fffefb, #fff6e9); box-shadow: 0 10px 32px rgba(53, 35, 18, .06); }
+.heading { display:flex; gap:14px; align-items:center; margin-bottom: 22px; }
+.heading h2 { margin:0 0 5px; font-family: var(--font-heading); font-size: 23px; color:#372018; }
+.heading p { margin:0; color:#725e53; font-size:14px; }
+.icon { display:grid; place-items:center; width:44px; height:44px; border-radius:14px; background:#fce6c0; color:#9b171b; flex-shrink:0; }
+.content { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:clamp(20px, 6vw, 64px); }
+.qr { padding:14px; background:white; border:1px solid #ebdfce; border-radius:18px; }
+.qr svg { display:block; max-width:100%; height:auto; }
+.details { flex:1; min-width:210px; max-width:400px; }
+.label { display:block; color:#785f53; font-size:13px; font-weight:700; margin-bottom:8px; }
+.code { color:#842022; font-weight:900; font-family:monospace; font-size:clamp(20px,3vw,30px); word-break:break-all; letter-spacing:.09em; }
+.hint { color:#76645e; line-height:1.6; font-size:13px; margin:10px 0; }
+.copy { background:#842022; border:0; border-radius:10px; display:inline-flex; align-items:center; gap:9px; padding:9px 14px; color:white; font-weight:700; cursor:pointer; }
+.timer { display:flex; align-items:center; gap:7px; color:#842022; font-weight:800; margin:18px 0 9px; font-variant-numeric:tabular-nums; }
+.bar { height:7px; background:#ead9c8; border-radius:10px; overflow:hidden; }
+.bar > div { height:100%; background:#c69d3a; transition:width .25s linear; }
+.notice { padding:22px; text-align:center; color:#7d4035; }
+.notice button { display:inline-flex; align-items:center; gap:8px; border:1px solid #b98b86; background:white; border-radius:9px; padding:8px 12px; cursor:pointer; }

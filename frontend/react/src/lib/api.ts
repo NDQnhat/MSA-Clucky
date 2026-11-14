@@ -325,7 +325,48 @@ export interface CreateCounterOrderPayload {
   paymentMethod?: string;
   note?: string;
   items: CounterOrderItemPayload[];
+  loyaltySubject?: string;
+  loyaltyScanProof?: string;
+  pointsUsed?: number;
+  voucherCode?: string;
 }
+
+export type CounterLoyaltyLookupKind = 'PHONE' | 'EMAIL' | 'LOYALTY_TEXT_CODE';
+
+export interface CounterLoyaltyLookup {
+  loyaltySubject: string;
+  redeemAllowed: false;
+  maskedAccount?: string | null;
+}
+
+export interface CounterLoyaltyScan {
+  scanProof: string;
+  expiresAt: string;
+  loyaltySubject: string;
+  redeemAllowed: true;
+}
+
+export interface CounterOrderPreview {
+  draftHash: string;
+  subtotal: number;
+  voucherDiscount: number;
+  tierDiscount: number;
+  pointsUsed: number;
+  pointsAmount: number;
+  pointsToEarn: number;
+  availablePoints: number;
+  totalAmount: number;
+  redeemAllowed: boolean;
+  voucherValid: boolean;
+  voucherMessage?: string | null;
+}
+
+export const counterLoyaltyApi = {
+  lookup: (data: { kind: CounterLoyaltyLookupKind; value: string; storeId: number }, signal?: AbortSignal) =>
+    api.post<CounterLoyaltyLookup>('/api/loyalty/counter/lookup', data, { signal }).then(r => r.data),
+  scan: (data: { qrToken: string; storeId: number; draftHash: string }, signal?: AbortSignal) =>
+    api.post<CounterLoyaltyScan>('/api/loyalty/counter/loyalty/scan', data, { signal }).then(r => r.data),
+};
 
 export interface PageResponse<T> {
   content: T[];
@@ -336,6 +377,10 @@ export interface PageResponse<T> {
 }
 
 export const ordersApi = {
+  counterDraftHash: (payload: CreateCounterOrderPayload, signal?: AbortSignal) =>
+    api.post<{ draftHash: string }>('/api/orders/counter/draft-hash', payload, { signal }).then(r => r.data),
+  previewCounterOrder: (payload: CreateCounterOrderPayload, signal?: AbortSignal) =>
+    api.post<CounterOrderPreview>('/api/orders/counter/preview', payload, { signal }).then(r => r.data),
   list: (
     params?: { storeId?: number; status?: string; date?: string; queueNumber?: number; page?: number; size?: number },
     signal?: AbortSignal
@@ -353,17 +398,13 @@ export const ordersApi = {
     api.get<BackendOrder>(`/api/orders/${id}`, { signal }).then((r) => r.data),
   createCounterOrder: (
     payload: CreateCounterOrderPayload,
-    idempotencyKey?: string,
+    idempotencyKey: string,
     signal?: AbortSignal
   ) => {
-    const key =
-      idempotencyKey ||
-      (typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `counter-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    if (!idempotencyKey.trim()) throw new Error('Idempotency-Key is required');
     return api
       .post<BackendOrder>('/api/orders/counter', payload, {
-        headers: { 'Idempotency-Key': key },
+        headers: { 'Idempotency-Key': idempotencyKey },
         signal,
       })
       .then((r) => r.data);

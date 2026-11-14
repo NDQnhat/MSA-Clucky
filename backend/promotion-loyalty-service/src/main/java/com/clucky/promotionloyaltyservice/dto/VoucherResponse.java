@@ -1,17 +1,25 @@
 package com.clucky.promotionloyaltyservice.dto;
 
 import com.clucky.promotionloyaltyservice.model.Voucher;
+import com.clucky.promotionloyaltyservice.model.VoucherApplicability;
+import com.clucky.promotionloyaltyservice.model.VoucherCampaignKind;
 import com.clucky.promotionloyaltyservice.model.VoucherScope;
 import com.clucky.promotionloyaltyservice.model.VoucherStatus;
 import com.clucky.promotionloyaltyservice.model.VoucherType;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Set;
 
 public class VoucherResponse {
 
     private Long id;
     private String code;
+    private VoucherCampaignKind campaignKind;
+    private VoucherApplicability applicability;
+    private Set<Long> storeIds;
+    private Integer usage;
+    private Integer maxUsage;
     private String title;
     private String description;
     private VoucherType type;
@@ -59,6 +67,11 @@ public class VoucherResponse {
         VoucherResponse dto = new VoucherResponse();
         dto.setId(v.getId());
         dto.setCode(v.getCode());
+        dto.campaignKind = v.getCampaignKind();
+        dto.applicability = v.getApplicability();
+        dto.storeIds = Set.copyOf(v.getStoreIds());
+        dto.usage = v.getUsedCount();
+        dto.maxUsage = v.getTotalLimit() == null || v.getTotalLimit() <= 0 ? null : v.getTotalLimit();
         dto.setTitle(v.getTitle());
         dto.setDescription(v.getDescription());
         dto.setType(v.getType());
@@ -85,6 +98,21 @@ public class VoucherResponse {
         return dto;
     }
 
+    /** Public cards and customer wallet never expose campaign editorial/audit actor identities. */
+    public static VoucherResponse fromPublicEntity(Voucher v, Instant now) {
+        VoucherResponse dto = fromEntity(v, now);
+        if (dto != null) {
+            dto.createdBy = null;
+            dto.approvedBy = null;
+            dto.rejectedBy = null;
+            dto.rejectedAt = null;
+            dto.rejectionReason = null;
+            dto.code = v.getCampaignKind() == com.clucky.promotionloyaltyservice.model.VoucherCampaignKind.PERSONAL
+                    ? null : dto.code;
+        }
+        return dto;
+    }
+
     // Getters and Setters
     public Long getId() {
         return id;
@@ -97,6 +125,12 @@ public class VoucherResponse {
     public String getCode() {
         return code;
     }
+
+    public VoucherCampaignKind getCampaignKind() { return campaignKind; }
+    public VoucherApplicability getApplicability() { return applicability; }
+    public Set<Long> getStoreIds() { return storeIds; }
+    public Integer getUsage() { return usage; }
+    public Integer getMaxUsage() { return maxUsage; }
 
     public void setCode(String code) {
         this.code = code;

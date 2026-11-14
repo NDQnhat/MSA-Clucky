@@ -18,7 +18,7 @@ import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { AdminModal } from '../../../components/ui/AdminModal';
 import { useAuth } from '../../../context/AuthContext';
-import type { AdminVoucher, VoucherPayload, VoucherScope, VoucherType } from '../../../types/promotion';
+import type { AdminVoucher, VoucherPayload, VoucherType } from '../../../types/promotion';
 import type { Store } from '../../../lib/api';
 
 const { TextArea } = Input;
@@ -43,14 +43,13 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
   const { user, isAdmin } = useAuth();
   const { t } = useTranslation();
   const [form] = Form.useForm();
-  const selectedScope = Form.useWatch('scope', form);
+  const selectedApplicability = Form.useWatch('applicability', form);
   const selectedType = Form.useWatch('type', form);
 
   useEffect(() => {
     if (open) {
       if (editingVoucher) {
         form.setFieldsValue({
-          code: editingVoucher.code,
           title: editingVoucher.title || '',
           description: editingVoucher.description || '',
           type: editingVoucher.type,
@@ -62,8 +61,10 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
             editingVoucher.startAt ? dayjs(editingVoucher.startAt) : null,
             editingVoucher.endAt ? dayjs(editingVoucher.endAt) : null,
           ],
-          scope: editingVoucher.scope || 'ALL',
-          storeId: editingVoucher.storeId ? Number(editingVoucher.storeId) : undefined,
+          applicability: editingVoucher.applicability ||
+            (editingVoucher.scope === 'STORE' ? 'SELECTED' : 'ALL'),
+          storeIds: editingVoucher.storeIds?.length ? editingVoucher.storeIds.map(Number)
+            : editingVoucher.storeId ? [Number(editingVoucher.storeId)] : [],
           status: editingVoucher.status || 'ACTIVE',
         });
       } else {
@@ -73,8 +74,8 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
           type: 'PERCENT',
           value: 10,
           minOrderAmount: 0,
-          scope: isAdmin ? 'ALL' : 'STORE',
-          storeId: !isAdmin && user.storeId ? Number(user.storeId) : undefined,
+          applicability: isAdmin ? 'ALL' : 'SELECTED',
+          storeIds: !isAdmin && user.storeId ? [Number(user.storeId)] : [],
           status: 'ACTIVE',
           dateRange: [dayjs(), dayjs().add(30, 'day')],
         });
@@ -83,7 +84,6 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
   }, [open, editingVoucher, form, isAdmin, user.storeId]);
 
   const handleFinish = async (values: {
-    code: string;
     title?: string;
     description?: string;
     type: VoucherType;
@@ -92,13 +92,13 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
     maxDiscount?: number;
     totalLimit?: number;
     dateRange: [Dayjs, Dayjs];
-    scope: VoucherScope;
-    storeId?: number;
+    applicability: 'ALL' | 'SELECTED';
+    storeIds?: number[];
     status?: string;
   }) => {
     const [startDay, endDay] = values.dateRange;
     const payload: VoucherPayload = {
-      code: values.code.trim().toUpperCase(),
+      code: editingVoucher?.campaignKind === 'LEGACY' ? editingVoucher.code : null,
       title: values.title?.trim(),
       description: values.description?.trim(),
       type: values.type,
@@ -108,8 +108,11 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
       totalLimit: values.totalLimit ?? null,
       startAt: startDay.toISOString(),
       endAt: endDay.toISOString(),
-      scope: values.scope,
-      storeId: values.scope === 'STORE' ? (values.storeId ?? null) : null,
+      applicability: values.applicability,
+      storeIds: values.applicability === 'SELECTED' ? values.storeIds || [] : [],
+      scope: values.applicability === 'SELECTED' ? 'STORE' : 'ALL',
+      storeId: values.applicability === 'SELECTED' && values.storeIds?.length === 1
+        ? values.storeIds[0] : null,
       status: (values.status as any) || 'ACTIVE',
     };
 
@@ -123,14 +126,14 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
     }}>
     <AdminModal
       open={open}
-      title={editingVoucher ? 'Chỉnh sửa mã Voucher' : isAdmin ? 'Tạo mới mã Voucher' : t('admin:voucherUi.propose')}
+      title={editingVoucher ? t('admin:voucherUi.editCampaign') : isAdmin ? t('admin:voucherUi.createCampaign') : t('admin:voucherUi.propose')}
       subtitle={
         editingVoucher
-          ? "Cập nhật thông tin voucher #" + editingVoucher.code
-          : 'Thiết lập mã ưu đãi, điều kiện áp dụng và thời gian hiệu lực'
+          ? t('admin:voucherUi.editCampaignHint', { id: editingVoucher.id })
+          : t('admin:voucherUi.personalCampaignHint')
       }
       width={720}
-      okText={editingVoucher ? 'Lưu thay đổi' : isAdmin ? 'Tạo Voucher' : t('admin:voucherUi.sendProposal')}
+      okText={editingVoucher ? t('admin:voucherUi.saveCampaign') : isAdmin ? t('admin:voucherUi.createCampaign') : t('admin:voucherUi.sendProposal')}
       confirmLoading={loading}
       onOk={() => form.submit()}
       onCancel={onCancel}
@@ -142,48 +145,27 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
       }}
     >
       {!isAdmin && <Alert type="info" showIcon title={t('admin:voucherUi.managerHelp')} style={{ marginBottom: 16 }} />}
+      <Alert type="info" showIcon title={t('admin:voucherUi.noSharedCode')} style={{ marginBottom: 16 }} />
       <Form
         form={form}
         layout="vertical"
         onFinish={handleFinish}
         initialValues={{
           type: 'PERCENT',
-          scope: 'ALL',
+          applicability: 'ALL',
           minOrderAmount: 0,
           status: 'ACTIVE',
         }}
       >
         <Row gutter={16}>
-          <Col xs={24} sm={12}>
-            <Form.Item
-              name="code"
-              label="Mã Voucher"
-              rules={[
-                { required: true, message: 'Vui lòng nhập mã voucher' },
-                {
-                  pattern: /^[A-Za-z0-9_-]+$/,
-                  message: 'Mã chỉ được chứa chữ cái, số, gạch dưới (_) hoặc gạch ngang (-)',
-                },
-                { max: 80, message: 'Mã tối đa 80 ký tự' },
-              ]}
-              extra="Tự động chuyển thành chữ hoa khi lưu (Ví dụ: CLUCKY20, FREESHIP30K)"
-            >
-              <Input
-                placeholder="VD: CLUCKY20"
-                style={{ textTransform: 'uppercase', fontWeight: 700 }}
-                maxLength={80}
-              />
-            </Form.Item>
-          </Col>
-
-          <Col xs={24} sm={12}>
+          <Col xs={24}>
             <Form.Item
               name="title"
-              label="Tiêu đề hiển thị"
-              rules={[{ max: 255, message: 'Tiêu đề tối đa 255 ký tự' }]}
-              extra="Tên ngắn gọn cho khách hàng dễ nhận biết"
+              label={t('admin:voucherUi.campaignTitle')}
+              rules={[{ required: true, message: t('admin:voucherUi.campaignTitleRequired') },
+                { max: 255, message: t('admin:voucherUi.campaignTitleLimit') }]}
             >
-              <Input placeholder="VD: Giảm 20% cho đơn từ 150k" />
+              <Input placeholder={t('admin:voucherUi.campaignTitlePlaceholder')} />
             </Form.Item>
           </Col>
         </Row>
@@ -304,8 +286,8 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
           <Col xs={24} sm={12}>
             <Form.Item
               name="totalLimit"
-              label="Tổng số lượt sử dụng"
-              extra="Bỏ trống nếu không giới hạn số lượt"
+              label={t('admin:voucherUi.globalUsageLimit')}
+              extra={t('admin:voucherUi.globalUsageLimitHint')}
               rules={[
                 {
                   validator: async (_, val) => {
@@ -369,10 +351,10 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
         <Row gutter={16}>
           <Col xs={24} sm={12}>
             <Form.Item
-              name="scope"
-              label="Phạm vi áp dụng"
+              name="applicability"
+              label={t('admin:voucherUi.applicability')}
               rules={[{ required: true, message: 'Vui lòng chọn phạm vi áp dụng' }]}
-              extra={!isAdmin ? 'Store Manager chỉ được tạo voucher trong phạm vi chi nhánh của mình' : undefined}
+              extra={!isAdmin ? t('admin:voucherUi.managerHelp') : undefined}
             >
               <Radio.Group
                 buttonStyle="solid"
@@ -380,32 +362,31 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
                 disabled={!isAdmin}
               >
                 <Radio.Button value="ALL" style={{ width: '50%', textAlign: 'center' }}>
-                  Toàn hệ thống
+                  {t('admin:voucherUi.allStores')}
                 </Radio.Button>
-                <Radio.Button value="STORE" style={{ width: '50%', textAlign: 'center' }}>
-                  Chi nhánh
+                <Radio.Button value="SELECTED" style={{ width: '50%', textAlign: 'center' }}>
+                  {t('admin:voucherUi.selectedStores')}
                 </Radio.Button>
               </Radio.Group>
             </Form.Item>
           </Col>
 
           <Col xs={24} sm={12}>
-            {selectedScope === 'STORE' ? (
+            {selectedApplicability === 'SELECTED' ? (
               <Form.Item
-                name="storeId"
-                label="Chi nhánh áp dụng"
+                name="storeIds"
+                label={t('admin:voucherUi.selectedStores')}
                 rules={[
-                  {
-                    required: true,
-                    message: 'Voucher phạm vi chi nhánh (STORE) bắt buộc phải chọn chi nhánh',
-                  },
+                  { required: true, type: 'array', min: 1, message: t('admin:voucherUi.chooseStoresRequired') },
                 ]}
-                extra="Mã chỉ có hiệu lực cho đơn đặt tại chi nhánh này"
+                extra={t('admin:voucherUi.selectedStoresHint')}
               >
                 <Select
-                  placeholder="Chọn chi nhánh áp dụng"
+                  mode="multiple"
+                  maxTagCount="responsive"
+                  placeholder={t('admin:voucherUi.chooseStores')}
                   disabled={!isAdmin}
-                  options={stores.map((s) => ({
+                  options={stores.filter(s => isAdmin || Number(user.storeId) === Number(s.id)).map((s) => ({
                     value: s.id,
                     label: `${s.name} (#${s.id})`,
                   }))}
@@ -413,7 +394,7 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
               </Form.Item>
             ) : (
               <div style={{ paddingTop: 30, color: '#6B6259', fontSize: 13 }}>
-                Áp dụng cho tất cả chi nhánh và các đơn đặt hàng toàn quốc.
+                {t('admin:voucherUi.allStoresHint')}
               </div>
             )}
           </Col>

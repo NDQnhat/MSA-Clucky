@@ -92,7 +92,9 @@ public class SecurityConfig {
                             "/api/promotions/vouchers/validate").permitAll();
                     auth.requestMatchers(HttpMethod.GET, "/api/promotions/vouchers/available", "/api/loyalty/policy").permitAll();
                     auth.requestMatchers(HttpMethod.POST, "/internal/loyalty/preview", "/internal/loyalty/reserve",
-                            "/internal/loyalty/voucher-reservations", "/internal/loyalty/voucher-reservations/*/release")
+                            "/internal/loyalty/counter/preview", "/internal/loyalty/counter/reserve",
+                            "/internal/loyalty/voucher-reservations", "/internal/loyalty/voucher-reservations/*/release",
+                            "/internal/loyalty/voucher-reservations/*/refund")
                             .access((authentication, context) -> new AuthorizationDecision(authentication.get() instanceof JwtAuthenticationToken token
                                     && "INTERNAL_SERVICE".equals(token.getToken().getClaimAsString("role"))
                                     && "cart-order-service".equals(token.getToken().getClaimAsString("service"))));

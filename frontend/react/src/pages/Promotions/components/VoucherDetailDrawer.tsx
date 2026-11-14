@@ -35,6 +35,7 @@ export interface VoucherDetailDrawerProps {
   open: boolean;
   voucher: AdminVoucher | null;
   storeName?: string;
+  stores?: Array<{ id: number; name: string }>;
   isAdmin: boolean;
   loading: boolean;
   error: string;
@@ -50,6 +51,7 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
   open,
   voucher,
   storeName,
+  stores = [],
   isAdmin,
   loading,
   error,
@@ -70,8 +72,8 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
   if (!voucher) return null;
 
   const usagePercent =
-    voucher.totalLimit && voucher.totalLimit > 0
-      ? Math.min(100, Math.round((voucher.usedCount / voucher.totalLimit) * 100))
+    (voucher.maxUsage ?? voucher.totalLimit) && (voucher.maxUsage ?? voucher.totalLimit)! > 0
+      ? Math.min(100, Math.round(((voucher.usage ?? voucher.usedCount) / (voucher.maxUsage ?? voucher.totalLimit)!) * 100))
       : null;
 
   const isPercent = voucher.type === 'PERCENT';
@@ -81,7 +83,7 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
 
   return (
     <Drawer
-      title="Chi tiết mã ưu đãi (Voucher)"
+      title={t('admin:voucherUi.editCampaignHint', { id: voucher.id })}
       placement="right"
       width={typeof window !== 'undefined' && window.innerWidth < 560 ? '100%' : 520}
       open={open}
@@ -96,15 +98,15 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
     >
       <div style={{ marginBottom: 24, textAlign: 'center' }}>
         <div style={{ marginBottom: 12 }}>
-          <VoucherBadge
+          {voucher.campaignKind === 'PERSONAL' || !voucher.code ? <Tag color="red">{t('admin:voucherUi.personalCampaign')}</Tag> : <VoucherBadge
             code={voucher.code}
             type={voucher.type}
             value={voucher.value}
             status={state.status}
-          />
+          />}
         </div>
         <Title level={4} style={{ margin: 0, fontFamily: 'Fredoka, Quicksand, sans-serif' }}>
-          {voucher.title || voucher.code}
+          {voucher.title || voucher.code || `#${voucher.id}`}
         </Title>
         {voucher.description && (
           <Paragraph type="secondary" style={{ marginTop: 8, fontSize: 13 }}>
@@ -116,9 +118,9 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
       <Divider style={{ margin: '16px 0' }} />
 
       <Descriptions column={1} bordered size="small" style={{ borderRadius: 12, overflow: 'hidden' }}>
-        <Descriptions.Item label="Mã voucher">
+        {voucher.campaignKind !== 'PERSONAL' && voucher.code && <Descriptions.Item label={t('admin:voucherUi.legacyCode')}>
           <Text strong copyable style={{ wordBreak: 'break-all' }}>{voucher.code}</Text>
-        </Descriptions.Item>
+        </Descriptions.Item>}
 
         <Descriptions.Item label="Loại giảm giá">
           <Tag color={isPercent ? 'volcano' : 'gold'} style={{ fontWeight: 700 }}>
@@ -145,13 +147,14 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
         )}
 
         <Descriptions.Item label="Phạm vi áp dụng">
-          {voucher.scope === 'STORE' ? (
+          {voucher.applicability === 'SELECTED' || voucher.scope === 'STORE' ? (
             <Tag icon={<ShopOutlined />} color="cyan" style={{ fontWeight: 600, whiteSpace: 'normal' }}>
-              {storeName || t('admin:voucherUi.storeUnavailable')}
+              {voucher.storeIds?.length ? voucher.storeIds.map(id => stores.find(store => store.id === Number(id))?.name || `#${id}`).join(', ')
+                : storeName || t('admin:voucherUi.storeUnavailable')}
             </Tag>
           ) : (
             <Tag icon={<GlobalOutlined />} color="purple" style={{ fontWeight: 600 }}>
-              Toàn hệ thống (ALL)
+              {t('admin:voucherUi.allStores')}
             </Tag>
           )}
         </Descriptions.Item>
@@ -171,11 +174,11 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
       </Descriptions>
 
       <section className="voucher-usage-detail" aria-label={t('admin:voucherUi.usage')}>
-        <Title level={5}>{t('admin:voucherUi.usage')}</Title>
+        <Title level={5}>{t('admin:voucherUi.globalProgress')}</Title>
         <dl className="voucher-usage-grid">
-          <div><dt>{t('admin:voucherUi.used')}</dt><dd>{voucher.usedCount.toLocaleString()}</dd></div>
+          <div><dt>{t('admin:voucherUi.used')}</dt><dd>{(voucher.usage ?? voucher.usedCount).toLocaleString()}</dd></div>
           <div><dt>{t('admin:voucherUi.reserved')}</dt><dd>{(voucher.reservedCount ?? 0).toLocaleString()}</dd></div>
-          <div><dt>{t('admin:voucherUi.limit')}</dt><dd>{voucher.totalLimit ? voucher.totalLimit.toLocaleString() : t('admin:ui.unlimited')}</dd></div>
+          <div><dt>{t('admin:voucherUi.limit')}</dt><dd>{(voucher.maxUsage ?? voucher.totalLimit) ? (voucher.maxUsage ?? voucher.totalLimit)!.toLocaleString() : t('admin:ui.unlimited')}</dd></div>
         </dl>
         {usagePercent !== null && <Progress percent={usagePercent} size="small" strokeColor="#8F1216" />}
         <Text type="secondary">{t('admin:voucherUi.usageHint')}</Text>
@@ -188,7 +191,7 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
       </section>}
       {error && <Alert type="error" showIcon title={error} style={{ marginTop: 16 }} />}
       <div style={{ marginTop: 32, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        {isAdmin && state.canApprove && !rejecting && <Popconfirm title={t('admin:voucherUi.confirmApprove', { code: voucher.code })}
+        {isAdmin && state.canApprove && !rejecting && <Popconfirm title={t('admin:voucherUi.confirmApprove', { code: voucher.title || voucher.id })}
           description={t('admin:voucherUi.approveHint')} onConfirm={() => onApprove(voucher)}
           okText={t('admin:voucherUi.approve')} cancelText={t('business:account.cancel')}
           disabled={loading || expiredProposal} okButtonProps={{ loading }}>
@@ -218,7 +221,7 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
           {isActive ? 'Vô hiệu hóa' : 'Kích hoạt lại'}
         </Button>}
 
-        {isAdmin && !state.isProposal && <Popconfirm title={t('admin:voucherUi.confirmDelete', { code: voucher.code })}
+        {isAdmin && !state.isProposal && <Popconfirm title={t('admin:voucherUi.confirmDelete', { code: voucher.title || voucher.id })}
           description={t('admin:ui.vouchersAlreadyUsedOrReservedForOrdersWill')} onConfirm={() => onDelete(voucher)}
           okText={t('admin:ui.delete')} cancelText={t('business:account.cancel')} disabled={loading}>
         <Button

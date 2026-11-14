@@ -47,9 +47,10 @@ class LoyaltySafetyTest {
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<Policy>>any())).thenReturn(List.of(policy));
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<Balance>>any(), eq(7L)))
                 .thenReturn(List.of(new Balance(7, 200, 0, 200, 200, "MEMBER")));
-        var quote = service.preview(new PreviewInput(7L, 100, new BigDecimal("2500")));
-        assertEquals(2, quote.pointsUsed());
-        assertEquals(0, new BigDecimal("2000").compareTo(quote.pointsAmount()));
+        // A request to spend more points than can be covered by merchandise
+        // must be rejected, not silently reduced to two redeemable points.
+        assertThrows(BadRequestException.class, () ->
+                service.preview(new PreviewInput(7L, 100, new BigDecimal("2500"))));
         verify(jdbc, never()).update(anyString(), any(Object[].class));
     }
 }

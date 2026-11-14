@@ -2,6 +2,7 @@ package com.clucky.promotionloyaltyservice.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ValidateVoucherResponse {
@@ -12,6 +13,7 @@ public class ValidateVoucherResponse {
     private String errorCode;
     private String reason;
     private VoucherResponse voucher;
+    private UUID voucherInstanceId;
 
     public ValidateVoucherResponse() {
     }
@@ -82,6 +84,9 @@ public class ValidateVoucherResponse {
     public VoucherResponse getVoucher() {
         return voucher;
     }
+
+    public UUID getVoucherInstanceId() { return voucherInstanceId; }
+    public void setVoucherInstanceId(UUID voucherInstanceId) { this.voucherInstanceId = voucherInstanceId; }
 
     public void setVoucher(VoucherResponse voucher) {
         this.voucher = voucher;

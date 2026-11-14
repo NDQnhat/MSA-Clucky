@@ -19,6 +19,7 @@ import styles from "./checkout.module.css";
 import { useOrder } from "@/components/order/order-provider";
 import { useSession } from "@/components/auth/use-session";
 import { loyaltyApi } from "@/lib/loyalty";
+import { personalVoucherApi, type PersonalVoucher } from "@/lib/personal-vouchers";
 import { useNavigationTask } from "@/components/ui-loader";
 import { OrderProgress } from "@/components/order/order-progress";
 import { ShippingFeeCard } from "@/components/shipping";
@@ -48,6 +49,7 @@ export default function CheckoutPage() {
   const t = useTranslations();
   const locale = useLocale();
   const loyaltyText = useTranslations("loyalty");
+  const vouchersText = useTranslations("personalVouchers");
   const shippingText = useTranslations("shipping");
 
   const { money: formatPrice } = useLocaleTools();
@@ -211,14 +213,12 @@ export default function CheckoutPage() {
     return () => { active = false; };
   }, [userId]);
 
-  // Voucher & Loyalty states (Contract slots with M5)
-  const [voucherInput, setVoucherInput] = useState("");
-  const [appliedVoucher, setAppliedVoucher] = useState<{
-    code: string;
-    discount: number;
-  } | null>(null);
+  // Only owner-scoped personal voucher instances can be selected on Web.
+  const [myVouchers, setMyVouchers] = useState<PersonalVoucher[]>([]);
+  const [selectedVoucherId, setSelectedVoucherId] = useState("");
+  const [voucherLoading, setVoucherLoading] = useState(false);
   const [voucherMsg, setVoucherMsg] = useState("");
-  useFeedback(voucherMsg ? (t.has(voucherMsg) ? t(voucherMsg) : voucherMsg) : null, appliedVoucher ? "success" : "warning");
+  useFeedback(voucherMsg || null, "warning");
   const [usePoints, setUsePoints] = useState(false);
   const [requestedPoints, setRequestedPoints] = useState(0);
   const [loyaltyBalance, setLoyaltyBalance] = useState<{ userId: number; available: number } | null>(null);
@@ -229,6 +229,28 @@ export default function CheckoutPage() {
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [previewReload, setPreviewReload] = useState(0);
   const availablePoints = loyaltyBalance?.userId === session.user?.userId ? loyaltyBalance?.available : undefined;
+  useEffect(() => {
+    let active = true;
+    setMyVouchers([]); setSelectedVoucherId(""); setVoucherMsg(""); setVoucherLoading(false);
+    if (userId === undefined) return;
+    setVoucherLoading(true);
+    void personalVoucherApi.mine().then(result => {
+      if (active) setMyVouchers(result);
+    }).catch(failure => {
+      if (active) setVoucherMsg(getErrorMessage(failure));
+    }).finally(() => { if (active) setVoucherLoading(false); });
+    return () => { active = false; };
+  }, [userId]);
+  const selectableVouchers = useMemo(() => myVouchers.filter(v => {
+    if (v.state !== "ISSUED") return false;
+    const campaign = v.campaign;
+    if (!campaign || campaign.effectiveStatus !== "ACTIVE") return false;
+    if (campaign.applicability === "SELECTED"
+        && !campaign.storeIds?.some(id => Number(id) === Number(selectedStore))) return false;
+    if (campaign.scope === "STORE" && campaign.storeId && Number(campaign.storeId) !== Number(selectedStore)) return false;
+    return true;
+  }), [myVouchers, selectedStore]);
+  const selectedVoucher = selectableVouchers.find(v => v.instanceId === selectedVoucherId) ?? null;
   useEffect(() => {
     let active = true;
     setLoyaltyBalance(null); setLoyaltyError(false); setUsePoints(false); setRequestedPoints(0);
@@ -264,19 +286,19 @@ export default function CheckoutPage() {
 
   const previewPayload = useMemo(() => ({
     storeId: Number(selectedStore), type: orderType, items: payloadItems ?? [],
-    voucherCode: appliedVoucher?.code,
+    voucherInstanceId: selectedVoucher?.instanceId,
     pointsUsed: usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
     receiverAddress: orderType === "DELIVERY" ? deliveryAddress.trim() : undefined,
     latitude: orderType === "DELIVERY" ? effectiveDeliveryPoint?.latitude : undefined,
     longitude: orderType === "DELIVERY" ? effectiveDeliveryPoint?.longitude : undefined,
-  }), [selectedStore, orderType, payloadItems, appliedVoucher?.code, usePoints, requestedPoints, availablePoints, deliveryAddress, effectiveDeliveryPoint]);
+  }), [selectedStore, orderType, payloadItems, selectedVoucher?.instanceId, usePoints, requestedPoints, availablePoints, deliveryAddress, effectiveDeliveryPoint]);
   const previewKey = JSON.stringify([userId, previewPayload, previewReload]);
   const [quote, setQuote] = useState<{ key: string; data: OrderPreviewResult } | null>(null);
   const [deliveryQuote, setDeliveryQuote] = useState<{ key: string; data: ShippingQuote } | null>(null);
   const deliveryCheck = deliveryQuote?.key === previewKey ? deliveryQuote.data : undefined;
   const previewData = quote?.key === previewKey ? quote.data : null;
   const shippingFee = orderType === "PICKUP" ? 0 : (previewData?.shippingFee ?? 0);
-  const voucherDiscount = previewData ? Math.max(0, previewData.discountAmount - (previewData.tierDiscount ?? 0)) : (appliedVoucher?.discount ?? 0);
+  const voucherDiscount = previewData ? Math.max(0, previewData.discountAmount - (previewData.tierDiscount ?? 0)) : 0;
   const pointsDiscount = previewData?.pointsAmount ?? (usePoints ? 5000 : 0);
   const calculatedTotal = Math.max(0, subtotal + shippingFee - voucherDiscount - pointsDiscount);
   const totalAmount = previewData?.totalAmount ?? (orderType === "PICKUP" ? calculatedTotal : null);
@@ -305,7 +327,7 @@ export default function CheckoutPage() {
       orderApi.preview(previewPayload).then(result => {
         if (!active) return;
         setDeliveryQuote(result.shipping ? { key: previewKey, data: result.shipping } : null);
-        if (result.orderValid === false || (previewPayload.voucherCode && !result.voucherValid)) {
+        if (result.orderValid === false || (previewPayload.voucherInstanceId && result.voucherValid === false)) {
           setPreviewError(result.message || getErrorMessage({ code: "RESOURCE_CONFLICT" }));
           return;
         }
@@ -316,42 +338,6 @@ export default function CheckoutPage() {
     }, 300);
     return () => { active = false; clearTimeout(timer); };
   }, [ready, session.ready, selectedStore, storeClosedReason, payloadItems, needsDeliveryAddress, needsDeliveryPoint, previewKey, previewPayload]);
-
-  const handleApplyVoucher = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!payloadItems || cartPending || !selectedStore) return;
-    const cleanCode = voucherInput.trim().toUpperCase();
-    if (!cleanCode) {
-      setAppliedVoucher(null);
-      setVoucherMsg("");
-      return;
-    }
-    orderApi
-      .preview({
-        storeId: Number(selectedStore),
-        type: orderType,
-        items: payloadItems,
-        voucherCode: cleanCode,
-        pointsUsed: usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
-        receiverAddress: orderType === "DELIVERY" ? deliveryAddress.trim() : undefined,
-        latitude: orderType === "DELIVERY" ? effectiveDeliveryPoint?.latitude : undefined,
-        longitude: orderType === "DELIVERY" ? effectiveDeliveryPoint?.longitude : undefined,
-      })
-      .then((res) => {
-        if (res && res.valid && res.discountAmount > 0) {
-          setAppliedVoucher({ code: cleanCode, discount: res.discountAmount });
-          setVoucherMsg("business.checkout.theDiscountHasBeenApplied");
-        } else {
-          setAppliedVoucher(null);
-          setVoucherMsg(res?.message || "business.checkout.theVoucherIsInvalidOrHasReachedItsUsageLimit");
-        }
-      })
-      .catch((err: any) => {
-        setAppliedVoucher(null);
-        const msg = getErrorMessage(err);
-        setVoucherMsg(msg || "business.checkout.theVoucherIsInvalidOrHasReachedItsUsageLimit");
-      });
-  };
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -376,7 +362,7 @@ export default function CheckoutPage() {
       type: orderType,
       paymentMethod: paymentMethod,
       items: payloadItems,
-      voucherCode: appliedVoucher?.code,
+      voucherInstanceId: selectedVoucher?.instanceId,
       pointsUsed: usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
       receiverName: receiverName.trim(),
       receiverPhone: receiverPhone.trim(),
@@ -731,51 +717,45 @@ export default function CheckoutPage() {
                 <div className={styles.voucherCard}>
                   <label htmlFor="checkout-voucher" className={styles.voucherLabel}>
                     <TicketPercent size={20} aria-hidden="true" />
-                    {t("business.checkout.promoCode")}
+                    {vouchersText("checkoutLabel")}
                   </label>
                   <div className={styles.promoBlock}>
-                  <input
+                  <select
                     id="checkout-voucher"
-                    aria-describedby={voucherMsg ? "checkout-voucher-feedback" : undefined}
-                    aria-invalid={Boolean(voucherMsg && !appliedVoucher)}
-                    type="text"
-                    value={voucherInput}
-                    onChange={(e) => setVoucherInput(e.target.value)}
-                    placeholder={t(
-                      "business.checkout.enterAPromoCodeEGCluckygiam",
-                    )}
+                    value={selectedVoucher?.instanceId ?? ""}
+                    onChange={event => { setSelectedVoucherId(event.target.value); setVoucherMsg(""); }}
+                    disabled={!isAuthenticated || voucherLoading}
                     className={`${styles.input} ${styles.promoInput}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={handleApplyVoucher}
-                    className={styles.applyBtn}
                   >
-                    {t("business.checkout.apply")}
-                  </button>
+                    <option value="">{vouchersText("checkoutNone")}</option>
+                    {selectableVouchers.map(v => <option key={v.instanceId} value={v.instanceId}>
+                      {v.campaign.title} · {v.campaign.type === "PERCENT" ? `${v.campaign.value}%` : formatPrice(v.campaign.value)}
+                    </option>)}
+                  </select>
                   </div>
+                  {!voucherLoading && isAuthenticated && selectableVouchers.length === 0 && (
+                    <p className={styles.voucherFeedback}>{vouchersText("checkoutEmpty")} <Link href="/vouchers">{vouchersText("checkoutExplore")}</Link></p>
+                  )}
 
                 {voucherMsg && (
                   <p
                     id="checkout-voucher-feedback"
                     role="status"
                     className={styles.voucherFeedback}
-                    data-success={Boolean(appliedVoucher)}
                   >
-                    {t.has(voucherMsg) ? t(voucherMsg) : voucherMsg}
+                    {voucherMsg}
                   </p>
                 )}
-                {appliedVoucher && (
+                {selectedVoucher && (
                   <div className={styles.appliedVoucher}>
-                    <span><Check size={16} aria-hidden="true" />{appliedVoucher.code}</span>
+                    <span><Check size={16} aria-hidden="true" />{vouchersText("checkoutApplied", { title: selectedVoucher.campaign.title })}</span>
                   <button
                     type="button"
                     className={styles.removeVoucher}
-                    aria-label={t("business.checkout.removeVoucher", { code: appliedVoucher.code })}
-                    title={t("business.checkout.removeVoucher", { code: appliedVoucher.code })}
+                    aria-label={vouchersText("checkoutNone")}
+                    title={vouchersText("checkoutNone")}
                     onClick={() => {
-                      setAppliedVoucher(null);
-                      setVoucherInput("");
+                      setSelectedVoucherId("");
                       setVoucherMsg("");
                     }}
                   >

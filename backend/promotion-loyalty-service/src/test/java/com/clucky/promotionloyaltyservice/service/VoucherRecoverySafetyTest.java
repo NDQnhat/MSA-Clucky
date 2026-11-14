@@ -18,7 +18,7 @@ class VoucherRecoverySafetyTest {
     void transport404CannotReleaseAReservationButAuthoritativeMissingCan() {
         var loyalty = mock(LoyaltyService.class);
         var vouchers = mock(VoucherReservationService.class);
-        when(loyalty.pending()).thenReturn(List.of(new LoyaltyService.PendingOrder(8, 7)));
+        when(loyalty.pending()).thenReturn(List.of(new LoyaltyService.PendingOrder(8, 7L)));
         var builder = RestClient.builder();
         var server = MockRestServiceServer.bindTo(builder).build();
         server.expect(requestTo("http://orders/internal/loyalty/orders/8"))
@@ -28,12 +28,15 @@ class VoucherRecoverySafetyTest {
                 "{\"orderId\":8,\"customerId\":null,\"status\":\"MISSING\"}", MediaType.APPLICATION_JSON));
         var credential = mock(InternalServiceCredential.class);
         when(credential.token()).thenReturn("test-service-token");
-        var events = new LoyaltyEvents(loyalty, vouchers, new ObjectMapper(), mock(Validator.class), builder, "http://orders", credential);
+        var events = new LoyaltyEvents(loyalty, mock(CounterLoyaltyService.class), vouchers,
+                new ObjectMapper(), mock(Validator.class), builder, "http://orders", credential);
         events.reconcile();
-        verifyNoInteractions(vouchers);
+        // Reconciliation reads pending voucher reservations, but a transport
+        // 404 must never settle or release any of them.
+        verify(vouchers, never()).settle(anyLong(), any(), anyString(), any(), any());
         events.reconcile();
-        verify(vouchers).settle(8, 7, "MISSING", null, null);
-        verify(loyalty).settle(8, 7, "MISSING", null, null);
+        verify(vouchers).settle(8, 7L, "MISSING", null, null);
+        verify(loyalty).settle(8, 7L, "MISSING", null, null);
         server.verify();
     }
 }

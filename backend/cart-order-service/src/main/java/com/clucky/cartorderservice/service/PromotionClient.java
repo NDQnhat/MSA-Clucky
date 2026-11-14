@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 @Component
 public class PromotionClient {
@@ -30,20 +31,35 @@ public class PromotionClient {
     public record VoucherValidationRequest(
             String code,
             Long storeId,
-            BigDecimal orderAmount
-    ) {}
+            BigDecimal orderAmount,
+            UUID voucherInstanceId
+    ) {
+        public VoucherValidationRequest(String code, Long storeId, BigDecimal orderAmount) {
+            this(code, storeId, orderAmount, null);
+        }
+    }
 
+    public record VoucherPolicy(Long id, Long version) {}
     public record VoucherValidationResponse(
             boolean valid,
             BigDecimal discountAmount,
-            String reason
+            String reason,
+            UUID voucherInstanceId,
+            VoucherPolicy voucher
     ) {}
 
     public record VoucherResult(
             boolean valid,
             String message,
-            BigDecimal discountAmount
-    ) {}
+            BigDecimal discountAmount,
+            UUID voucherInstanceId,
+            Long campaignId,
+            Long campaignVersion
+    ) {
+        public VoucherResult(boolean valid, String message, BigDecimal discountAmount) {
+            this(valid, message, discountAmount, null, null, null);
+        }
+    }
 
 
 
@@ -51,12 +67,18 @@ public class PromotionClient {
 
 
     public VoucherResult validateVoucher(String rawCode, Long storeId, BigDecimal subtotal) {
-        if (rawCode == null || rawCode.isBlank()) {
+        return validateVoucher(rawCode, null, storeId, subtotal);
+    }
+
+    public VoucherResult validateVoucher(String rawCode, UUID voucherInstanceId, Long storeId, BigDecimal subtotal) {
+        if ((rawCode == null || rawCode.isBlank()) && voucherInstanceId == null) {
             return new VoucherResult(false, null, BigDecimal.ZERO);
         }
-
-        String code = rawCode.trim().toUpperCase();
-        VoucherValidationRequest req = new VoucherValidationRequest(code, storeId, subtotal);
+        if (voucherInstanceId != null && rawCode != null && !rawCode.isBlank()) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "Only one voucher per order");
+        }
+        String code = rawCode == null ? null : rawCode.trim().toUpperCase(java.util.Locale.ROOT);
+        VoucherValidationRequest req = new VoucherValidationRequest(code, storeId, subtotal, voucherInstanceId);
 
         try {
             VoucherValidationResponse res = restClient.post()
@@ -75,7 +97,10 @@ public class PromotionClient {
                 throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
             }
             if (res.valid() && res.discountAmount() != null && res.discountAmount().signum() >= 0) {
-                return new VoucherResult(true, "Đã áp dụng mã giảm giá thành công", res.discountAmount());
+                return new VoucherResult(true, "Đã áp dụng mã giảm giá thành công",
+                        res.discountAmount(), res.voucherInstanceId(),
+                        res.voucher() == null ? null : res.voucher().id(),
+                        res.voucher() == null ? null : res.voucher().version());
             }
 
             return new VoucherResult(false, res.reason(), BigDecimal.ZERO);
@@ -88,8 +113,7 @@ public class PromotionClient {
             }
             throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         } catch (Exception ex) {
-            LOG.warn("Promotion service voucher validation unavailable or rejected code={} storeId={} error={}",
-                    code, storeId, ex.getMessage());
+            LOG.warn("Promotion service voucher validation unavailable storeId={}", storeId);
             throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         }
     }

@@ -1,617 +1,306 @@
-'use client';
-import { notify, useFeedback } from "@/components/feedback";
+"use client";
 
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { useTranslations } from "next-intl";
+import { ArrowRight, CalendarDays, Check, CheckCheck, Copy, Gift, LockKeyhole, MapPin, RefreshCw, ShieldCheck, ShoppingBag, Sparkles, Tag, TicketPercent, X } from "lucide-react";
+import { useSession } from "@/components/auth/use-session";
+import { getSessionState } from "@/lib/session";
 import { useLocaleTools } from "@/lib/i18n/hooks";
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import {
-  Tag,
-  Copy,
-  Check,
-  Search,
-  Sparkles,
-  ArrowRight,
-  Clock,
-  Store as StoreIcon,
-  CheckCircle2,
-  AlertCircle,
-  HelpCircle,
-  RotateCcw,
-  Zap,
-} from 'lucide-react';
-import Link from '@/components/ui-loader/navigation-link';
-import { useNavigationTask } from '@/components/ui-loader';
-import { VoucherBadge } from '@/components/promotion/voucher-badge';
-import type { Voucher } from '@/lib/types/promotion';
-import {
-  fetchAvailableVouchers,
-  formatVoucherDiscount,
-  formatVoucherCondition,
-  getVoucherStatus,
-} from '@/lib/promotion';
-import { catalogApi, promotionApi, getErrorMessage, type StoreItem } from '@/lib/api';
-import styles from './vouchers.module.css';
+import { catalogApi, getErrorMessage, type StoreItem } from "@/lib/api";
+import { personalVoucherApi, type PersonalVoucher, type VoucherCampaign } from "@/lib/personal-vouchers";
+import Link from "@/components/ui-loader/navigation-link";
+import styles from "./personal-vouchers.module.css";
 
-type TabStatus = 'ALL' | 'ACTIVE' | 'UPCOMING' | 'EXPIRED';
-type FilterType = 'ALL' | 'AMOUNT' | 'PERCENT' | 'STORE';
+type Tab = "discover" | "mine";
 
 export default function VouchersPage() {
-  const t = useTranslations();
-  const { locale, money: formatPrice } = useLocaleTools();
-
-  const [vouchers, setVouchers] = useState<Voucher[]>([]);
-  const [storeList, setStoreList] = useState<StoreItem[]>([]);
+  const t = useTranslations("personalVouchers");
+  const { money, date } = useLocaleTools();
+  const { ready, user } = useSession();
+  const userId = user?.userId;
+  const [tab, setTab] = useState<Tab>("discover");
+  const [campaigns, setCampaigns] = useState<VoucherCampaign[]>([]);
+  const [stores, setStores] = useState<StoreItem[]>([]);
+  const [owned, setOwned] = useState<PersonalVoucher[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  useFeedback(error);
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [detail, setDetail] = useState<PersonalVoucher | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const detailEpoch = useRef(0);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [version, setVersion] = useState(0);
 
-  // Filters & Search
-  const [activeTab, setActiveTab] = useState<TabStatus>('ALL');
-  const [filterType, setFilterType] = useState<FilterType>('ALL');
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // Quick Voucher Checker state
-  const [checkCode, setCheckCode] = useState('');
-  const [checkAmount, setCheckAmount] = useState<number>(150000);
-  const [checkStoreId, setCheckStoreId] = useState<string>('');
-  const [checkResult, setCheckResult] = useState<{
-    tested: boolean;
-    valid: boolean;
-    discount: number;
-    reason?: string;
-    voucher?: Voucher;
-  } | null>(null);
-  useFeedback(checkResult ? (checkResult.valid ? t("business.promotionUi.applied") : checkResult.reason) : null, checkResult?.valid ? "success" : "warning");
-
-  useNavigationTask(loading);
-
-  const loadVouchers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [voucherData, storesData] = await Promise.all([
-        fetchAvailableVouchers(),
-        catalogApi.getStores(false).catch(() => [] as StoreItem[]),
-      ]);
-      setVouchers(voucherData);
-      if (Array.isArray(storesData)) {
-        setStoreList(storesData);
-      }
-    } catch {
-      setError(t("business.promotionUi.vouchersLoadError"));
-    } finally {
-      setLoading(false);
-    }
-  }, [t]);
+  const closeDetail = useCallback(() => {
+    detailEpoch.current += 1;
+    setDetail(null);
+    setDetailError("");
+    setDetailLoading(false);
+    setCopyState("idle");
+  }, []);
+  useEffect(() => {
+    closeDetail();
+    setOwned([]);
+  }, [userId, closeDetail]);
+  const detailOpen = Boolean(detail || detailLoading || detailError);
+  useEffect(() => {
+    if (!detailOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+    const keydown = (event: KeyboardEvent) => { if (event.key === "Escape") closeDetail(); };
+    document.addEventListener("keydown", keydown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", keydown);
+    };
+  }, [detailOpen, closeDetail]);
 
   useEffect(() => {
-    loadVouchers();
-  }, [loadVouchers]);
+    if (!ready) return;
+    let active = true;
+    setLoading(true);
+    setError("");
+    void Promise.all([
+      personalVoucherApi.campaigns(),
+      userId ? personalVoucherApi.mine() : Promise.resolve([] as PersonalVoucher[]),
+      catalogApi.getStores(false).catch(() => [] as StoreItem[]),
+    ]).then(([available, mine, locations]) => {
+      if (!active) return;
+      setCampaigns(available.filter(c => c.campaignKind === "PERSONAL"));
+      setOwned(mine);
+      setStores(locations);
+    }).catch(failure => { if (active) setError(getErrorMessage(failure)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [ready, userId, version]);
 
-  const handleCopyCode = async (code: string) => {
-    if (!code) return;
+  const mineByCampaign = useMemo(() => new Map(owned.map(item => [item.campaignId, item])), [owned]);
+  const list = tab === "mine" ? owned.map(v => ({ campaign: v.campaign, voucher: v }))
+    : campaigns.map(c => ({ campaign: c, voucher: mineByCampaign.get(c.id) }));
+
+  const loadDetail = useCallback(async (instanceId: string) => {
+    const ownerId = getSessionState().user?.userId;
+    if (!ownerId) return;
+    const epoch = ++detailEpoch.current;
+    setDetail(null); setDetailError(""); setDetailLoading(true); setCopyState("idle");
+    try {
+      const result = await personalVoucherApi.detail(instanceId);
+      if (epoch === detailEpoch.current && getSessionState().user?.userId === ownerId) setDetail(result);
+    } catch (failure) {
+      if (epoch === detailEpoch.current && getSessionState().user?.userId === ownerId) setDetailError(getErrorMessage(failure));
+    } finally {
+      if (epoch === detailEpoch.current) setDetailLoading(false);
+    }
+  }, []);
+
+  async function claim(campaignId: number) {
+    if (!user) return;
+    const ownerId = user.userId;
+    setBusyId(campaignId); setError("");
+    try {
+      const result = await personalVoucherApi.claim(campaignId);
+      // Refresh the owner's list without storing bearer codes in browser storage.
+      const mine = await personalVoucherApi.mine();
+      if (getSessionState().user?.userId !== ownerId) return;
+      setOwned(mine);
+      setTab("mine");
+      await loadDetail(result.instanceId);
+    } catch (failure) { setError(getErrorMessage(failure)); }
+    finally { setBusyId(null); }
+  }
+
+  function discount(c: VoucherCampaign) {
+    return c.type === "PERCENT" ? `${c.value}%` : money(c.value);
+  }
+
+  function progress(c: VoucherCampaign) {
+    if (c.maxUsage == null || c.maxUsage <= 0) return null;
+    return Math.min(100, Math.round(100 * (c.usage ?? 0) / c.maxUsage));
+  }
+
+  const canView = (v: PersonalVoucher) => v.state === "ISSUED";
+
+  const storeScope = (campaign: VoucherCampaign) => campaign.applicability === "ALL"
+    ? t("allStores")
+    : (campaign.storeIds ?? []).map(id => stores.find(store => Number(store.id) === Number(id))?.name ?? `#${id}`).join(", ");
+
+  async function copyCode(code: string) {
     try {
       await navigator.clipboard.writeText(code);
-      notify.success(t("business.promotionUi.copiedCode", { code }));
+      setCopyState("copied");
     } catch {
-      notify.error(t("common.feedback.copyFailed"));
+      setCopyState("failed");
     }
-  };
-
-  // Quick checker handler via Backend API (/api/promotions/vouchers/validate)
-  const handleCheckVoucher = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanCode = checkCode.trim().toUpperCase();
-    if (!cleanCode) {
-      setCheckResult({
-        tested: true,
-        valid: false,
-        discount: 0,
-        reason: t("business.promotionUi.enterCode"),
-      });
-      return;
-    }
-
-    const matched = vouchers.find(
-      (v) => v.code.toUpperCase() === cleanCode,
-    );
-
-    try {
-      const apiRes = await promotionApi.validateVoucher({
-        code: cleanCode,
-        orderAmount: checkAmount,
-        storeId: checkStoreId ? Number(checkStoreId) : null,
-      });
-
-      setCheckResult({
-        tested: true,
-        valid: Boolean(apiRes?.valid),
-        discount: Number(apiRes?.discountAmount) || 0,
-        reason: apiRes?.reason,
-        voucher: matched ?? apiRes?.voucher,
-      });
-    } catch (err: any) {
-      setCheckResult({
-        tested: true,
-        valid: false,
-        discount: 0,
-        reason:
-          getErrorMessage(err) ||
-          t("business.promotionUi.unknownCode", { code: cleanCode }),
-      });
-    }
-  };
-
-  // Filter vouchers
-  const filteredVouchers = useMemo(() => {
-    return vouchers.filter((v) => {
-      const status = getVoucherStatus(v);
-
-      // Search match
-      if (searchQuery.trim()) {
-        const query = searchQuery.trim().toLowerCase();
-        const codeMatch = v.code.toLowerCase().includes(query);
-        const titleMatch = (v.title || '').toLowerCase().includes(query);
-        const descMatch = (v.description || '').toLowerCase().includes(query);
-        if (!codeMatch && !titleMatch && !descMatch) return false;
-      }
-
-      // Tab match
-      if (activeTab === 'ACTIVE' && status !== 'ACTIVE') return false;
-      if (activeTab === 'UPCOMING' && status !== 'UPCOMING') return false;
-      if (activeTab === 'EXPIRED' && status !== 'EXPIRED' && status !== 'EXHAUSTED') return false;
-
-      // Filter type match
-      if (filterType === 'AMOUNT' && v.type !== 'AMOUNT') return false;
-      if (filterType === 'PERCENT' && v.type !== 'PERCENT') return false;
-      if (filterType === 'STORE' && v.scope !== 'STORE') return false;
-
-      return true;
-    });
-  }, [vouchers, activeTab, filterType, searchQuery]);
-
-  const activeCount = useMemo(() => {
-    return vouchers.filter((v) => getVoucherStatus(v) === 'ACTIVE').length;
-  }, [vouchers]);
+  }
 
   return (
-    <div className={styles.container}>
-      {/* 1. Hero Banner */}
-      <section className={styles.hero} aria-labelledby="voucher-hero-heading">
-        <div className={styles.heroTag}>
-          <Sparkles size={13} aria-hidden="true" />
-          <span>Clucky Promotions</span>
-        </div>
-        <h1 id="voucher-hero-heading" className={styles.heroTitle}>
-          {t("business.promotionUi.voucherHero")}
-        </h1>
-        <p className={styles.heroDesc}>
-          {t("business.promotionUi.voucherIntro")}
-        </p>
-      </section>
-
-      {/* 2. Quick Voucher Checker & Simulator */}
-      <section className={styles.checkerCard} aria-labelledby="voucher-checker-title">
-        <div className={styles.checkerHeader}>
-          <div className={styles.checkerIconWrap}>
-            <Zap size={20} aria-hidden="true" />
-          </div>
-          <div>
-            <h2 id="voucher-checker-title" className={styles.checkerTitle}>
-              {t("business.promotionUi.quickCheck")}
-            </h2>
-            <p className={styles.checkerSub}>
-              {t("business.promotionUi.quickCheckBody")}
-            </p>
+    <main className={styles.page}>
+      <header className={styles.hero}>
+        <div className={styles.heroContent}>
+          <span className={styles.eyebrow}><Sparkles size={16} aria-hidden="true" /> Clucky Club <span className={styles.eyebrowDivider} /> {t("heroBadge")}</span>
+          <h1>{t("title")}</h1>
+          <p>{t("intro")}</p>
+          <div className={styles.heroStats}>
+            <div><strong>{campaigns.length}</strong><span>{t("availableOffers")}</span></div>
+            <span className={styles.statDivider} aria-hidden="true" />
+            <div><strong>{owned.filter(voucher => voucher.state === "ISSUED").length}</strong><span>{t("readyToUse")}</span></div>
           </div>
         </div>
-
-        <form onSubmit={handleCheckVoucher} className={styles.checkerForm}>
-          <div className={styles.inputGroup}>
-            <label htmlFor="chk-code" className={styles.inputLabel}>
-              {t("business.promotionUi.voucherCode")}
-            </label>
-            <input
-              id="chk-code"
-              type="text"
-              placeholder="VD: CLUCKYGIAM20"
-              value={checkCode}
-              onChange={(e) => setCheckCode(e.target.value.toUpperCase())}
-              className={styles.inputField}
-            />
+        <div className={styles.heroVisual} aria-hidden="true">
+          <div className={styles.heroTicket}>
+            <div className={styles.heroTicketHeader}><span>CLUCKY CLUB</span><TicketPercent size={24} /></div>
+            <div className={styles.heroTicketMain}><Gift size={37} strokeWidth={1.6} /><strong>{campaigns.length.toString().padStart(2, "0")}</strong><span>{t("heroTicketCaption")}</span></div>
+            <div className={styles.heroTicketFoot}><span>CRISPY OUTSIDE.</span><span>HAPPY INSIDE.</span></div>
           </div>
-
-          <div className={styles.inputGroup}>
-            <label htmlFor="chk-amount" className={styles.inputLabel}>
-              {t("business.promotionUi.orderValue")}
-            </label>
-            <input
-              id="chk-amount"
-              type="number"
-              min={0}
-              step={10000}
-              value={checkAmount}
-              onChange={(e) => setCheckAmount(Number(e.target.value))}
-              className={styles.inputField}
-            />
-          </div>
-
-          <div className={styles.inputGroup}>
-            <label htmlFor="chk-store" className={styles.inputLabel}>
-              {t("business.promotionUi.applicableStore")}
-            </label>
-            <select
-              id="chk-store"
-              value={checkStoreId}
-              onChange={(e) => setCheckStoreId(e.target.value)}
-              className={styles.inputField}
-            >
-              <option value="">{t("business.promotionUi.allStores")}</option>
-              {storeList.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button type="submit" className={styles.checkerBtn} aria-label={t("business.promotionUi.checkDiscount")}>
-            <Check size={16} aria-hidden="true" />
-            {t("business.promotionUi.check")}
-          </button>
-        </form>
-
-        {/* Checker Results */}
-        {checkResult && checkResult.tested && (
-          <div>
-            {checkResult.valid ? (
-              <div className={styles.checkerResultValid} role="status">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <CheckCircle2 size={20} color="#16a34a" aria-hidden="true" />
-                  <div>
-                    <strong>{t("business.promotionUi.applied")}</strong> {t("business.promotionUi.save")}{' '}
-                    <span style={{ fontSize: 16, fontWeight: 800, color: '#15803d' }}>
-                      {formatPrice(checkResult.discount)}
-                    </span>{' '}
-                    {t("business.promotionUi.forOrder")} {formatPrice(checkAmount)}.
-                    <div style={{ fontSize: 12, marginTop: 2, color: '#166534' }}>
-                      {t("business.promotionUi.remainingTotal")} <strong>{formatPrice(Math.max(0, checkAmount - checkResult.discount))}</strong>
-                    </div>
-                  </div>
-                </div>
-                {(checkResult.voucher || checkCode.trim()) && (
-                  <button
-                    type="button"
-                    onClick={() => handleCopyCode(checkResult.voucher?.code || checkCode.trim().toUpperCase())}
-                    className={styles.copyCodeBtn}
-                    style={{ background: '#ffffff' }}
-                  >
-                    <Copy size={13} aria-hidden="true" />
-                    {t("business.promotionUi.getCode")} {checkResult.voucher?.code || checkCode.trim().toUpperCase()}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className={styles.checkerResultInvalid} role="alert">
-                <AlertCircle size={18} color="#dc2626" aria-hidden="true" />
-                <span>{checkResult.reason || t("business.promotionUi.ineligible")}</span>
-              </div>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* 3. Filter & Search Toolbar */}
-      <section className={styles.toolbar} aria-label={t("business.promotionUi.offerFilters")}>
-        <div className={styles.searchRow}>
-          <div className={styles.searchWrap}>
-            <Search size={18} className={styles.searchIcon} aria-hidden="true" />
-            <input
-              type="text"
-              placeholder={t("business.promotionUi.searchPlaceholder")}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={styles.searchInput}
-              aria-label={t("business.promotionUi.searchVouchers")}
-            />
-          </div>
+          <div className={styles.heroSparkleOne}>✦</div><div className={styles.heroSparkleTwo}>✧</div>
         </div>
+      </header>
 
-        {/* Status Tabs */}
-        <div className={styles.tabList} role="tablist" aria-label={t("business.promotionUi.voucherStatus")}>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'ALL'}
-            onClick={() => setActiveTab('ALL')}
-            className={`${styles.tabBtn} ${activeTab === 'ALL' ? styles.tabBtnActive : ''}`}
-          >
-            {t("business.promotionUi.allCount")}{vouchers.length})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'ACTIVE'}
-            onClick={() => setActiveTab('ACTIVE')}
-            className={`${styles.tabBtn} ${activeTab === 'ACTIVE' ? styles.tabBtnActive : ''}`}
-          >
-            {t("business.promotionUi.availableCount")}{activeCount})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'UPCOMING'}
-            onClick={() => setActiveTab('UPCOMING')}
-            className={`${styles.tabBtn} ${activeTab === 'UPCOMING' ? styles.tabBtnActive : ''}`}
-          >
-            {t("business.promotionUi.upcoming")}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'EXPIRED'}
-            onClick={() => setActiveTab('EXPIRED')}
-            className={`${styles.tabBtn} ${activeTab === 'EXPIRED' ? styles.tabBtnActive : ''}`}
-          >
-            {t("business.promotionUi.expiredExhausted")}
-          </button>
-        </div>
-
-        {/* Type Filter Chips */}
-        <div className={styles.chipGroup} aria-label={t("business.promotionUi.offerType")}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#75675e' }}>{t("business.promotionUi.filterType")}</span>
-          <button
-            type="button"
-            onClick={() => setFilterType('ALL')}
-            className={`${styles.chipBtn} ${filterType === 'ALL' ? styles.chipBtnActive : ''}`}
-          >
-            {t("business.promotionUi.all")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterType('AMOUNT')}
-            className={`${styles.chipBtn} ${filterType === 'AMOUNT' ? styles.chipBtnActive : ''}`}
-          >
-            {t("business.promotionUi.amountOff")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterType('PERCENT')}
-            className={`${styles.chipBtn} ${filterType === 'PERCENT' ? styles.chipBtnActive : ''}`}
-          >
-            {t("business.promotionUi.percentOff")}
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilterType('STORE')}
-            className={`${styles.chipBtn} ${filterType === 'STORE' ? styles.chipBtnActive : ''}`}
-          >
-            {t("business.promotionUi.storeOffers")}
-          </button>
-        </div>
-      </section>
-
-      {/* 4. Voucher Grid / List */}
-      {loading ? (
-        <div className={styles.grid} aria-busy="true" aria-label={t("business.promotionUi.loadingVouchers")}>
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div
-              key={i}
-              className={styles.ticketCard}
-              style={{ minHeight: 220, padding: 20 }}
-            >
-              <div style={{ height: 28, background: '#f5ede0', borderRadius: 8, marginBottom: 12 }} />
-              <div style={{ height: 16, width: '70%', background: '#f5ede0', borderRadius: 6, marginBottom: 10 }} />
-              <div style={{ height: 40, background: '#f5ede0', borderRadius: 8, marginTop: 'auto' }} />
+      <div className={styles.contentGrid}>
+        <section className={styles.listColumn} aria-label={t("tabs")}>
+          <div className={styles.sectionHead}>
+            <div>
+              <span className={styles.sectionKicker}>{t("sectionKicker")}</span>
+              <h2>{t("sectionTitle")}</h2>
             </div>
-          ))}
-        </div>
-      ) : error ? (
-        <div className={styles.emptyState} role="alert">
-          <div className={styles.emptyIcon} style={{ background: '#fee2e2', color: '#dc2626' }}>
-            <AlertCircle size={28} aria-hidden="true" />
+            <button type="button" className={styles.refreshButton} disabled={loading} aria-label={t("refresh")} onClick={() => setVersion(value => value + 1)}>
+              <RefreshCw size={17} aria-hidden="true" /> <span>{t("refreshShort")}</span>
+            </button>
           </div>
-          <h3 className={styles.emptyTitle}>{t("business.promotionUi.errorTitle")}</h3>
-          <p className={styles.emptyDesc}>{error}</p>
-          <button type="button" onClick={loadVouchers} className={styles.resetBtn}>
-            <RotateCcw size={14} style={{ display: 'inline', marginRight: 6 }} aria-hidden="true" />
-            {t("business.promotionUi.reload")}
-          </button>
-        </div>
-      ) : filteredVouchers.length === 0 ? (
-        <div className={styles.emptyState}>
-          <div className={styles.emptyIcon}>
-            <Tag size={28} aria-hidden="true" />
+          <div className={styles.tabs} role="tablist" aria-label={t("tabs")}>
+            <button type="button" role="tab" aria-selected={tab === "discover"} className={tab === "discover" ? styles.activeTab : ""}
+              onClick={() => setTab("discover")}><Gift size={17} aria-hidden="true" />{t("discover")} <span className={styles.tabCount}>{campaigns.length}</span></button>
+            <button type="button" role="tab" aria-selected={tab === "mine"} className={tab === "mine" ? styles.activeTab : ""}
+              onClick={() => setTab("mine")}><TicketPercent size={17} aria-hidden="true" />{t("mine")} <span className={styles.tabCount}>{owned.length}</span></button>
           </div>
-          <h3 className={styles.emptyTitle}>{t("business.promotionUi.noVouchers")}</h3>
-          <p className={styles.emptyDesc}>
-            {t("business.promotionUi.noVouchersBody")}
-          </p>
-          <button
-            type="button"
-            onClick={() => {
-              setActiveTab('ALL');
-              setFilterType('ALL');
-              setSearchQuery('');
-            }}
-            className={styles.resetBtn}
-          >
-            {t("business.promotionUi.resetFilters")}
-          </button>
-        </div>
-      ) : (
-        <div className={styles.grid}>
-          {filteredVouchers.map((voucher) => {
-            const status = getVoucherStatus(voucher);
-            const isUsable = status === 'ACTIVE';
-            const discountLabel = formatVoucherDiscount(
-              voucher.type,
-              voucher.value,
-              voucher.maxDiscount,
-              locale
-            );
-            const conditionLabel = formatVoucherCondition(
-              voucher.minOrderAmount,
-              voucher.maxDiscount,
-              voucher.type,
-              locale
-            );
 
-            const hasLimit = typeof voucher.totalLimit === 'number' && voucher.totalLimit > 0;
-            const usedRatio = hasLimit
-              ? Math.min(100, Math.round(((voucher.usedCount || 0) / voucher.totalLimit!) * 100))
-              : 0;
+          {error && <div className={styles.error} role="alert"><span>{error}</span><button type="button" onClick={() => setVersion(value => value + 1)}>{t("retry")}</button></div>}
+          {(loading || !ready) && <div role="status" className={styles.emptyState}><RefreshCw size={26} className={styles.spin} aria-hidden="true" /><h3>{t("loading")}</h3></div>}
+          {!loading && ready && !user && <div className={styles.signInBanner}>
+            <span className={styles.bannerIcon}><LockKeyhole size={21} aria-hidden="true" /></span>
+            <div><strong>{t("signInTitle")}</strong><p>{t("signInDescription")}</p></div>
+            <Link href="/login?redirect=/vouchers" className={styles.signInButton}>{t("signIn")} <ArrowRight size={16} aria-hidden="true" /></Link>
+          </div>}
+          {!loading && ready && list.length === 0 && <div className={styles.emptyState}>
+            <span className={styles.emptyIcon}><TicketPercent size={32} strokeWidth={1.7} aria-hidden="true" /></span>
+            <h3>{t(tab === "mine" ? "mineEmpty" : "discoverEmpty")}</h3>
+            <p>{t(tab === "mine" ? "mineEmptyHint" : "discoverEmptyHint")}</p>
+            {tab === "mine" && <button type="button" className={styles.secondaryButton} onClick={() => setTab("discover")}>{t("discover")} <ArrowRight size={16} aria-hidden="true" /></button>}
+          </div>}
 
-            const formatDate = (iso: string) => {
-              try {
-                const d = new Date(iso);
-                return `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
-              } catch {
-                return iso;
-              }
-            };
-
-            return (
-              <article
-                key={voucher.id}
-                className={`${styles.ticketCard} ${!isUsable ? styles.ticketCardDisabled : ''}`}
-                aria-label={`Voucher ${voucher.code}: ${discountLabel}`}
-              >
-                {/* Top bar with discount value & status badge */}
-                <div className={styles.ticketTopBar}>
-                  <div className={styles.ticketValueCol}>
-                    <span className={styles.ticketAmount}>{discountLabel}</span>
-                    <span className={styles.ticketMaxDiscount}>{conditionLabel}</span>
-                  </div>
-
-                  <VoucherBadge voucher={voucher} variant="compact" />
+          {!loading && ready && list.length > 0 && <div className={styles.offerList}>
+            {list.map(({ campaign, voucher }) => {
+              const percent = progress(campaign);
+              const inactive = Boolean(campaign.effectiveStatus && campaign.effectiveStatus !== "ACTIVE");
+              const spent = voucher && voucher.state !== "ISSUED";
+              return <article key={voucher?.instanceId ?? campaign.id} className={styles.card + (spent ? " " + styles.cardUnavailable : "")}>
+                <div className={styles.ticketFace}>
+                  <span className={styles.ticketFaceIcon}><TicketPercent size={23} aria-hidden="true" /></span>
+                  <strong className={styles.discount}>{discount(campaign)}</strong>
+                  <span className={styles.discountCaption}>{t("discountLabel")}</span>
+                  <span className={styles.ticketSerial}>CLUCKY CLUB</span>
                 </div>
-
-                {/* Ticket Body */}
-                <div className={styles.ticketBody}>
-                  <h3 className={styles.ticketTitle}>{voucher.title || t("business.promotionUi.offerName", { code: voucher.code })}</h3>
-                  <p className={styles.ticketDesc}>
-                    {voucher.description || t("business.promotionUi.onlineCustomers")}
-                  </p>
-
-                  <div className={styles.ticketMetaRow}>
-                    <span className={styles.ticketMetaItem}>
-                      <Clock size={13} aria-hidden="true" />
-                      <span>HSD: {formatDate(voucher.endAt)}</span>
-                    </span>
-
-                    {voucher.scope === 'STORE' ? (
-                      <span className={styles.ticketMetaItem} style={{ color: '#0369a1' }}>
-                        <StoreIcon size={13} aria-hidden="true" />
-                        <span>{voucher.storeName || storeList.find((s) => s.id === Number(voucher.storeId))?.name || t("business.promotionUi.selectedStores")}</span>
-                      </span>
-                    ) : (
-                      <span className={styles.ticketMetaItem} style={{ color: '#15803d' }}>
-                        <StoreIcon size={13} aria-hidden="true" />
-                        <span>{t("business.promotionUi.allClucky")}</span>
-                      </span>
-                    )}
+                <div className={styles.cardContent}>
+                  <div className={styles.cardTop}>
+                    <span className={styles.cardCategory}><Sparkles size={14} aria-hidden="true" /> {t("cardCategory")}</span>
+                    {voucher
+                      ? <span className={styles.stateBadge + (voucher.state === "ISSUED" ? " " + styles.stateAvailable : "")}>{t("state." + voucher.state)}</span>
+                      : inactive && <span className={styles.stateBadge}>{t("unavailable")}</span>}
                   </div>
-
-                  {/* Usage progress bar if total limit exists */}
-                  {hasLimit && (
-                    <div className={styles.usageProgressWrap}>
-                      <div className={styles.usageLabelRow}>
-                        <span>{t("business.promotionUi.used")}</span>
-                        <span>
-                          {voucher.usedCount}/{voucher.totalLimit} {t("business.promotionUi.uses")}{usedRatio}%)
-                        </span>
+                  <h3>{campaign.title}</h3>
+                  {campaign.description && <p className={styles.description}>{campaign.description}</p>}
+                  <div className={styles.cardDetails}>
+                    <span><ShoppingBag size={15} aria-hidden="true" />{t("minimum", { amount: money(campaign.minOrderAmount) })}</span>
+                    <span><CalendarDays size={15} aria-hidden="true" />{t("validUntil", { date: date(voucher?.expiresAt ?? campaign.endAt, { dateStyle: "medium" }) })}</span>
+                    <span title={storeScope(campaign)}><MapPin size={15} aria-hidden="true" />{storeScope(campaign)}</span>
+                    {campaign.type === "PERCENT" && Number(campaign.maxDiscount) > 0 && <span><Tag size={15} aria-hidden="true" />{t("maxDiscount", { amount: money(campaign.maxDiscount!) })}</span>}
+                  </div>
+                  <div className={styles.cardBottom}>
+                    <div className={styles.usage}>
+                      <div className={styles.usageText}>
+                        <span>{t("globalUsage")}</span>
+                        <strong>{percent === null ? t("unlimited", { used: campaign.usage ?? 0 }) : t("usageProgress", { used: campaign.usage ?? 0, limit: campaign.maxUsage!, percent })}</strong>
                       </div>
-                      <div className={styles.usageProgressBar}>
-                        <div
-                          className={styles.usageProgressFill}
-                          style={{
-                            width: `${usedRatio}%`,
-                            background: usedRatio > 80 ? '#dc2626' : '#d97706',
-                          }}
-                        />
-                      </div>
+                      {percent !== null && <div className={styles.track} role="progressbar" aria-label={t("globalUsage")}
+                        aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}><div style={{ width: percent + "%" }} /></div>}
                     </div>
-                  )}
+                    <div className={styles.actions}>
+                      {voucher
+                        ? canView(voucher) && <button type="button" className={styles.primary} onClick={() => void loadDetail(voucher.instanceId)}>{t("viewCode")}<ArrowRight size={17} aria-hidden="true" /></button>
+                        : <button type="button" className={styles.primary} disabled={!user || inactive || busyId !== null}
+                            onClick={() => void claim(campaign.id)}>{busyId === campaign.id ? t("claiming") : user ? t("claim") : t("signIn")}<ArrowRight size={17} aria-hidden="true" /></button>}
+                    </div>
+                  </div>
                 </div>
+              </article>;
+            })}
+          </div>}
+        </section>
 
-                {/* Ticket Footer Actions */}
-                <div className={styles.ticketFooter}>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyCode(voucher.code)}
-                    className={styles.copyCodeBtn}
-                    title={t("business.promotionUi.clickCopy")}
-                    aria-label={t("business.promotionUi.copyCode", { code: voucher.code })}
-                  >
-                    <span>{voucher.code}</span>
-                    <Copy size={13} aria-hidden="true" />
-                  </button>
-
-                  {isUsable ? (
-                    <Link
-                      href="/menu"
-                      onClick={() => handleCopyCode(voucher.code)}
-                      className={styles.applyNowBtn}
-                      aria-label={t("business.promotionUi.orderWithCode", { code: voucher.code })}
-                    >
-                      <span>{t("business.promotionUi.useNow")}</span>
-                      <ArrowRight size={14} aria-hidden="true" />
-                    </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled
-                      className={styles.applyNowBtn}
-                      style={{ background: '#d1d5db', cursor: 'not-allowed' }}
-                    >
-                      {status === 'UPCOMING' ? t("business.promotionUi.notStarted") : t("business.promotionUi.noLongerValid")}
-                    </button>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-
-      {/* 5. FAQ / Promotion Policy Guide */}
-      <section className={styles.guideSection} aria-labelledby="voucher-faq-title">
-        <h2 id="voucher-faq-title" className={styles.guideTitle}>
-          <HelpCircle size={22} color="#8f1216" aria-hidden="true" />
-          {t("business.promotionUi.voucherRules")}
-        </h2>
-        <div className={styles.guideGrid}>
-          <div className={styles.guideItem}>
-            <h3 className={styles.guideItemTitle}>{t("business.promotionUi.useCodeTitle")}</h3>
-            <p className={styles.guideItemDesc}>
-              {t("business.promotionUi.useCodeStart")} <strong>{t("business.promotionUi.checkout")}</strong> {t("business.promotionUi.useCodeEnd")}
-            </p>
+        <aside className={styles.sideColumn} aria-label={t("howTitle")}>
+          <div className={styles.guideCard}>
+            <div className={styles.guideIcon}><Gift size={25} aria-hidden="true" /></div>
+            <span className={styles.guideKicker}>CLUCKY CLUB</span>
+            <h2>{t("howTitle")}</h2>
+            <p className={styles.guideIntro}>{t("howIntro")}</p>
+            <ol className={styles.guideSteps}>
+              <li><span>01</span><div><strong>{t("step1Title")}</strong><p>{t("step1Text")}</p></div></li>
+              <li><span>02</span><div><strong>{t("step2Title")}</strong><p>{t("step2Text")}</p></div></li>
+              <li><span>03</span><div><strong>{t("step3Title")}</strong><p>{t("step3Text")}</p></div></li>
+            </ol>
           </div>
+          <div className={styles.securityCard}><ShieldCheck size={20} aria-hidden="true" /><div><strong>{t("securityTitle")}</strong><p>{t("securityText")}</p></div></div>
+        </aside>
+      </div>
 
-          <div className={styles.guideItem}>
-            <h3 className={styles.guideItemTitle}>{t("business.promotionUi.combineTitle")}</h3>
-            <p className={styles.guideItemDesc}>
-              {t("business.promotionUi.combineStart")} <strong>{t("business.promotionUi.oneVoucher")}</strong> {t("business.promotionUi.combineEnd")}
-            </p>
-          </div>
-
-          <div className={styles.guideItem}>
-            <h3 className={styles.guideItemTitle}>{t("business.promotionUi.validityTitle")}</h3>
-            <p className={styles.guideItemDesc}>
-              {t("business.promotionUi.validityBody")}
-            </p>
-          </div>
-
-          <div className={styles.guideItem}>
-            <h3 className={styles.guideItemTitle}>{t("business.promotionUi.scopeTitle")}</h3>
-            <p className={styles.guideItemDesc}>
-              {t("business.promotionUi.scopeBody")}
-            </p>
-          </div>
-        </div>
-      </section>
-
-    </div>
+      {detailOpen && <div className={styles.overlay} role="presentation" onMouseDown={event => {
+        if (event.target === event.currentTarget) closeDetail();
+      }}>
+        <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby="voucher-detail-heading">
+          <button type="button" ref={closeRef} className={styles.close} aria-label={t("close")} onClick={closeDetail}><X size={21} aria-hidden="true" /></button>
+          {detailLoading && <div className={styles.detailStatus} role="status"><RefreshCw className={styles.spin} size={28} aria-hidden="true" /><h2 id="voucher-detail-heading">{t("loading")}</h2></div>}
+          {detailError && <div className={styles.detailStatus} role="alert"><h2 id="voucher-detail-heading">{t("detailTitle")}</h2><p className={styles.error}>{detailError}</p><button type="button" className={styles.secondaryButton} onClick={closeDetail}>{t("close")}</button></div>}
+          {detail && canView(detail) && detail.code && <div className={styles.detailLayout}>
+            <div className={styles.detailInfo}>
+              <div className={styles.detailBrand}><span className={styles.detailMark}><Gift size={21} aria-hidden="true" /></span> Clucky Club</div>
+              <span className={styles.detailEyebrow}>{t("detailTitle")}</span>
+              <strong className={styles.detailDiscount}>{discount(detail.campaign)}</strong>
+              <h2 id="voucher-detail-heading">{detail.campaign.title}</h2>
+              {detail.campaign.description && <p className={styles.detailDescription}>{detail.campaign.description}</p>}
+              <div className={styles.detailFacts}>
+                <div><ShoppingBag size={18} aria-hidden="true" /><span>{t("minimum", { amount: money(detail.campaign.minOrderAmount) })}</span></div>
+                <div><CalendarDays size={18} aria-hidden="true" /><span>{t("validUntil", { date: date(detail.expiresAt ?? detail.campaign.endAt, { dateStyle: "medium" }) })}</span></div>
+                <div><MapPin size={18} aria-hidden="true" /><span>{storeScope(detail.campaign)}</span></div>
+                {detail.campaign.type === "PERCENT" && Number(detail.campaign.maxDiscount) > 0 && <div><Tag size={18} aria-hidden="true" /><span>{t("maxDiscount", { amount: money(detail.campaign.maxDiscount!) })}</span></div>}
+              </div>
+              <div className={styles.detailNote}><Check size={18} aria-hidden="true" /><span>{t("state.ISSUED")}</span></div>
+            </div>
+            <div className={styles.detailQrColumn}>
+              <span className={styles.qrEyebrow}><span className={styles.liveDot} />{t("readyToScan")}</span>
+              <h3>{t("presentCode")}</h3>
+              <div className={styles.qr}><QRCodeSVG size={228} level="M" marginSize={2} title={t("qrTitle")}
+                value={detail.qrPayload ?? ("CLUCKY:V1:" + detail.code)} fgColor="#16100D" /></div>
+              <span className={styles.codeLabel}>{t("yourCode")}</span>
+              <strong className={styles.bearerCode}>{detail.code}</strong>
+              <button type="button" className={styles.copyButton} onClick={() => void copyCode(detail.code!)}>
+                {copyState === "copied" ? <CheckCheck size={18} aria-hidden="true" /> : <Copy size={18} aria-hidden="true" />}
+                {t(copyState === "copied" ? "copied" : "copy")}
+              </button>
+              {copyState === "failed" && <p role="alert" className={styles.copyError}>{t("copyFailed")}</p>}
+              <p className={styles.warning}><LockKeyhole size={15} aria-hidden="true" />{t("bearerNotice")}</p>
+            </div>
+          </div>}
+          {detail && (!canView(detail) || !detail.code) && <div className={styles.detailStatus}>
+            <TicketPercent size={38} aria-hidden="true" />
+            <h2 id="voucher-detail-heading">{detail.campaign.title}</h2>
+            <p>{canView(detail) ? t("codeUnavailable") : t("state." + detail.state)}</p>
+          </div>}
+        </section>
+      </div>}
+    </main>
   );
 }

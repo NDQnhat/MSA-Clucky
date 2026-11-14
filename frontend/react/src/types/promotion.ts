@@ -11,7 +11,12 @@ export type VoucherStatus =
 
 export interface AdminVoucher {
   id: string | number;
-  code: string;
+  code?: string | null;
+  campaignKind?: 'LEGACY' | 'PERSONAL';
+  applicability?: 'ALL' | 'SELECTED';
+  storeIds?: number[];
+  usage?: number;
+  maxUsage?: number | null;
   title?: string;
   description?: string;
   type: VoucherType;
@@ -40,7 +45,9 @@ export interface AdminVoucher {
 
 export interface VoucherPayload {
   version?: number;
-  code: string;
+  code?: string | null;
+  applicability?: 'ALL' | 'SELECTED';
+  storeIds?: number[];
   title?: string;
   description?: string;
   type: VoucherType;

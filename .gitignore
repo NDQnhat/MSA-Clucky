@@ -47,6 +47,7 @@ Thumbs.db
 
 # Local logs and runtime data
 secrets/
+/.backups/
 **/*firebase-adminsdk*.json
 *.log
 *.tmp

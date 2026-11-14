@@ -30,7 +30,8 @@ class VoucherProposalSafetyTest {
 
     private VoucherRequest request() {
         var request = new VoucherRequest();
-        request.setCode("PROPOSAL");
+        // New personal campaigns do not accept a shared voucher code.
+        request.setCode(null);
         request.setType(VoucherType.AMOUNT);
         request.setValue(BigDecimal.TEN);
         request.setStartAt(Instant.now().minusSeconds(10));
@@ -53,7 +54,9 @@ class VoucherProposalSafetyTest {
         actor("STORE_MANAGER", 2L);
         assertThrows(ApiException.class, () -> controller.getVouchers(null, 3L, null, null));
         controller.getVouchers(VoucherScope.ALL, null, null, null);
-        verify(repository).findWithFilters(VoucherScope.STORE, 2L, null, null);
+        // Manager's store visibility is enforced after campaign discovery:
+        // PERSONAL campaigns can target multiple stores.
+        verify(repository).findWithFilters(null, null, null, null);
     }
 
     @Test

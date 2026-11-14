@@ -263,8 +263,8 @@ class LoyaltyPostgresTest {
         var voucher = vouchers.createVoucher(voucherRequest(1), 1L, "ADMIN", null);
         long order = randomId();
         String event = UUID.randomUUID().toString();
-        reservations.settle(order, 7, "CANCELLED", event, "test");
-        reservations.settle(order, 7, "CANCELLED", event, "test");
+        reservations.settle(order, 7L, "CANCELLED", event, "test");
+        reservations.settle(order, 7L, "CANCELLED", event, "test");
         assertThrows(ConflictException.class, () -> reservations.reserve(order, 7, 1, voucher.getCode(), BigDecimal.valueOf(100), BigDecimal.TEN));
         assertEquals(0, vouchers.getVoucherById(voucher.getId()).getReservedCount());
         assertEquals(1, count("SELECT count(*) FROM promotion_service.voucher_order_events WHERE event_id=?", event));

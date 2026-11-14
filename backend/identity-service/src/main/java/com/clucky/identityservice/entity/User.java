@@ -56,6 +56,9 @@ public class User {
     @Column(name = "phone_verified", nullable = false)
     private Boolean phoneVerified = false;
 
+    @Column(name = "phone_binding_version", nullable = false)
+    private Long phoneBindingVersion = 0L;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -99,6 +102,8 @@ public class User {
     public void setEmailVerified(Boolean emailVerified) { this.emailVerified = emailVerified; }
     public Boolean getPhoneVerified() { return phoneVerified; }
     public void setPhoneVerified(Boolean phoneVerified) { this.phoneVerified = phoneVerified; }
+    public Long getPhoneBindingVersion() { return phoneBindingVersion; }
+    public void setPhoneBindingVersion(Long phoneBindingVersion) { this.phoneBindingVersion = phoneBindingVersion; }
 
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }

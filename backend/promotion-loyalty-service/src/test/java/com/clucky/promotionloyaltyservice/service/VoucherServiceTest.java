@@ -133,7 +133,8 @@ class VoucherServiceTest {
         ValidateVoucherResponse resp = voucherService.validateVoucher(req);
 
         assertFalse(resp.isValid());
-        assertTrue(resp.getReason().contains("không tồn tại"));
+        assertEquals("VOUCHER_NOT_FOUND", resp.getErrorCode());
+        assertTrue(resp.getReason().contains("Không tìm thấy"));
     }
 
     @Test
@@ -196,23 +197,21 @@ class VoucherServiceTest {
     }
 
     @Test
-    void createVoucher_conflictCode_throwsException() {
-        when(voucherRepository.existsByCodeIgnoreCase("CLUCKY15")).thenReturn(true);
+    void personalCampaignRejectsCallerSuppliedSharedCode() {
 
         VoucherRequest req = new VoucherRequest();
         req.setCode("CLUCKY15");
 
-        assertThrows(ConflictException.class, () ->
+        assertThrows(BadRequestException.class, () ->
             voucherService.createVoucher(req, 1L, "ADMIN", null)
         );
+        verify(voucherRepository, never()).save(any(Voucher.class));
     }
 
     @Test
     void createVoucher_endAtBeforeStartAt_throwsException() {
-        when(voucherRepository.existsByCodeIgnoreCase("NEWCODE")).thenReturn(false);
-
         VoucherRequest req = new VoucherRequest();
-        req.setCode("NEWCODE");
+        req.setCode(null);
         req.setStartAt(Instant.now().plus(2, ChronoUnit.DAYS));
         req.setEndAt(Instant.now().plus(1, ChronoUnit.DAYS));
 
@@ -222,26 +221,24 @@ class VoucherServiceTest {
     }
 
     @Test
-    void createVoucher_storeScopeWithoutStoreId_throwsException() {
-        when(voucherRepository.existsByCodeIgnoreCase("STORENOID")).thenReturn(false);
-
+    void createVoucher_selectedStoreScopeWithoutStoreIds_throwsException() {
         VoucherRequest req = new VoucherRequest();
-        req.setCode("STORENOID");
+        req.setCode(null);
         req.setType(VoucherType.AMOUNT);
         req.setValue(BigDecimal.valueOf(10000));
         req.setStartAt(Instant.now());
         req.setEndAt(Instant.now().plus(5, ChronoUnit.DAYS));
         req.setScope(VoucherScope.STORE);
         req.setStoreId(null);
+        req.setApplicability(com.clucky.promotionloyaltyservice.model.VoucherApplicability.SELECTED);
 
-        assertThrows(BadRequestException.class, () ->
+        assertThrows(com.clucky.promotionloyaltyservice.exception.ApiException.class, () ->
             voucherService.createVoucher(req, 1L, "ADMIN", null)
         );
     }
 
     @Test
     void createVoucher_validRequest_savesAndReturnsDto() {
-        when(voucherRepository.existsByCodeIgnoreCase("SUCCESS10")).thenReturn(false);
         when(voucherRepository.save(any(Voucher.class))).thenAnswer(invocation -> {
             Voucher v = invocation.getArgument(0);
             v.setId(99L);
@@ -249,7 +246,8 @@ class VoucherServiceTest {
         });
 
         VoucherRequest req = new VoucherRequest();
-        req.setCode("SUCCESS10");
+        req.setCode(null);
+        req.setTitle("Giảm 10.000đ");
         req.setType(VoucherType.AMOUNT);
         req.setValue(BigDecimal.valueOf(10000));
         req.setStartAt(Instant.now());
@@ -260,7 +258,8 @@ class VoucherServiceTest {
 
         assertNotNull(result);
         assertEquals(99L, result.getId());
-        assertEquals("SUCCESS10", result.getCode());
+        assertNull(result.getCode(), "Personal campaign must not expose a shared code");
+        assertEquals("Giảm 10.000đ", result.getTitle());
         verify(voucherRepository).save(any(Voucher.class));
     }
 

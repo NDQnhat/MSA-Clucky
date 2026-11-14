@@ -8,7 +8,11 @@ import com.clucky.promotionloyaltyservice.repository.VoucherRepository;
 import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.Map;
+import java.util.List;
 import java.util.Set;
+import java.util.UUID;
+import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,11 +22,35 @@ public class VoucherReservationService {
     private final VoucherRepository repository;
     private final VoucherService vouchers;
     private final JdbcTemplate jdbc;
+    private final PersonalVoucherService personal;
 
-    public VoucherReservationService(VoucherRepository repository, VoucherService vouchers, JdbcTemplate jdbc) {
+    @Autowired
+    public VoucherReservationService(VoucherRepository repository, VoucherService vouchers, JdbcTemplate jdbc,
+            PersonalVoucherService personal) {
         this.repository = repository;
         this.vouchers = vouchers;
         this.jdbc = jdbc;
+        this.personal = personal;
+    }
+
+    // Keeps legacy direct-instantiation callers compatible.
+    public VoucherReservationService(VoucherRepository repository, VoucherService vouchers, JdbcTemplate jdbc) {
+        this(repository, vouchers, jdbc, null);
+    }
+
+    @Transactional
+    public UUID reserve(long orderId, Long customerId, long storeId, String code, UUID voucherInstanceId,
+            BigDecimal orderAmount, BigDecimal discountAmount) {
+        lockOrder(orderId);
+        boolean personalCode = code != null && (code.toUpperCase(Locale.ROOT).startsWith("CK1")
+                || code.toUpperCase(Locale.ROOT).startsWith("CLUCKY:V1:"));
+        if (voucherInstanceId != null || personalCode) {
+            if (personal == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+            return personal.reserve(orderId, customerId, storeId, code, voucherInstanceId, orderAmount, discountAmount);
+        }
+        if (customerId == null) throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        reserve(orderId, customerId.longValue(), storeId, code, orderAmount, discountAmount);
+        return null;
     }
 
     @Transactional
@@ -66,8 +94,8 @@ public class VoucherReservationService {
     }
 
     @Transactional
-    public void settle(long orderId, long customerId, String status, String eventId, String correlationId) {
-        if (orderId <= 0 || customerId <= 0 || status == null || eventId != null && (eventId.isBlank() || eventId.length() > 160
+    public void settle(long orderId, Long customerId, String status, String eventId, String correlationId) {
+        if (orderId <= 0 || customerId != null && customerId <= 0 || status == null || eventId != null && (eventId.isBlank() || eventId.length() > 160
                 || correlationId == null || !correlationId.matches("[A-Za-z0-9._-]{1,128}"))) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         if (!Set.of("PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "SHIPPING", "COMPLETED", "CANCELLED", "MISSING").contains(status))
             throw new IllegalArgumentException("Invalid voucher settlement status");
@@ -77,14 +105,15 @@ public class VoucherReservationService {
         var rows = jdbc.queryForList("SELECT * FROM promotion_service.voucher_reservations WHERE order_id=? FOR UPDATE", orderId);
         if (rows.isEmpty()) return;
         var row = rows.getFirst();
-        if (row.get("customer_id") != null && number(row, "customer_id") != customerId)
+        if (!Objects.equals(row.get("customer_id"), customerId))
             throw new ConflictException("Order owner mismatch");
         if (eventId != null) {
             int inserted = jdbc.update("INSERT INTO promotion_service.voucher_order_events(event_id,order_id,customer_id,status,correlation_id) VALUES (?,?,?,?,?) ON CONFLICT (event_id) DO NOTHING",
                     eventId, orderId, customerId, status, correlationId);
             if (inserted == 0) {
-                var previous = jdbc.queryForList("SELECT order_id,customer_id FROM promotion_service.voucher_order_events WHERE event_id=?", eventId).getFirst();
-                if (number(previous, "order_id") != orderId || number(previous, "customer_id") != customerId)
+                var previous = jdbc.queryForList("SELECT order_id,customer_id,status,correlation_id FROM promotion_service.voucher_order_events WHERE event_id=?", eventId).getFirst();
+                if (number(previous, "order_id") != orderId || !Objects.equals(previous.get("customer_id"), customerId)
+                        || !status.equals(previous.get("status")) || !correlationId.equals(previous.get("correlation_id")))
                     throw new ConflictException("Event identity mismatch");
                 return;
             }
@@ -95,6 +124,14 @@ public class VoucherReservationService {
     }
 
     private void finish(Map<String, Object> row, String state, String eventId, String correlationId) {
+        if (row.get("voucher_instance_id") != null) {
+            if (personal == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+            personal.finish(row, state, eventId);
+            if (correlationId != null)
+                jdbc.update("UPDATE promotion_service.voucher_reservations SET correlation_id=? WHERE order_id=?",
+                        correlationId,number(row, "order_id"));
+            return;
+        }
         if (!"RESERVED".equals(row.get("state"))) return;
         var voucher = repository.findByIdWithLock(number(row, "voucher_id"))
                 .orElseThrow(() -> new ApiException(ErrorCode.VOUCHER_NOT_FOUND));
@@ -111,6 +148,25 @@ public class VoucherReservationService {
 
     private void lockOrder(long orderId) {
         jdbc.query("SELECT pg_advisory_xact_lock(?)", (row, index) -> 0, orderId);
+    }
+
+    @Transactional
+    public void recordRefund(long orderId, String refundId) {
+        if (personal == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        lockOrder(orderId);
+        personal.recordRefund(orderId,refundId);
+    }
+
+    public record PendingVoucher(Long orderId, Long customerId) {}
+
+    /** Includes guest counter orders, which have no loyalty wallet reservation. */
+    @Transactional(readOnly = true)
+    public List<PendingVoucher> pending() {
+        return jdbc.query("SELECT order_id,customer_id FROM promotion_service.voucher_reservations"
+                + " WHERE state='RESERVED' AND updated_at < now() - interval '5 minutes'"
+                + " ORDER BY updated_at LIMIT 100",
+                (rs, index) -> new PendingVoucher(rs.getLong("order_id"),
+                        rs.getObject("customer_id") == null ? null : rs.getLong("customer_id")));
     }
 
     private long number(Map<String, Object> row, String field) { return ((Number) row.get(field)).longValue(); }

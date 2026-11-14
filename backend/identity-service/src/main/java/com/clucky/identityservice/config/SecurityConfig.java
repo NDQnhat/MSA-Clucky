@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
@@ -23,6 +24,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -86,6 +88,12 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.PUT, "/api/auth/internal/branch-accounts/{storeId}").permitAll();
                     auth.requestMatchers(HttpMethod.GET, "/api/auth/internal/branch-accounts/{storeId}").permitAll();
                     auth.requestMatchers(HttpMethod.GET, "/api/auth/internal/customers/{customerId}/notification-contact").permitAll();
+                    auth.requestMatchers(HttpMethod.POST, "/internal/identity/verified-email/resolve")
+                            .access((authentication, context) -> new AuthorizationDecision(
+                                    authentication.get() instanceof JwtAuthenticationToken token
+                                    && "INTERNAL_SERVICE".equals(token.getToken().getClaimAsString("role"))
+                                    && "promotion-loyalty-service".equals(token.getToken().getClaimAsString("service"))
+                                    && Long.toString(Long.MAX_VALUE - 1).equals(token.getToken().getSubject())));
                     auth.requestMatchers("/internal/**", "/api/payments/webhook/**").denyAll();
                     auth.anyRequest().authenticated();
                 })

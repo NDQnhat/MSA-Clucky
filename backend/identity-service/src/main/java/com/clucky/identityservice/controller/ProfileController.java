@@ -105,12 +105,13 @@ public class ProfileController {
     public Profile update(@AuthenticationPrincipal Jwt jwt, @Valid @RequestBody ProfileInput input) {
         User user = user(jwt, true);
         user.setFullName(input.fullName().trim());
-        // Omitting phone updates only the name; supplied phone must be the same
-        // previously verified identity, allowing +84 / 0 display variants.
+        // A profile update never binds or replaces the login/recovery phone.
+        // First-time binding belongs to the SMS verification flow.
         if (input.phone() != null
                 && !PhoneNumbers.equivalent(user.getPhone(), input.phone().trim())) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                    HttpStatus.CONFLICT, "Phone number can only change after OTP verification");
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT,
+                    java.util.Map.of("phone",
+                            Boolean.TRUE.equals(user.getPhoneVerified()) ? "ALREADY_VERIFIED" : "OTP_REQUIRED"));
         }
         user.setUpdatedAt(Instant.now());
         users.saveAndFlush(user);

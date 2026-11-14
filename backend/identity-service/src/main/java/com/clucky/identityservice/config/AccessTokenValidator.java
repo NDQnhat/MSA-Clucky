@@ -39,6 +39,14 @@ public final class AccessTokenValidator implements OAuth2TokenValidator<Jwt> {
                 return invalid();
             }
 
+            // Internal service identities are reserved and must never be
+            // accepted from an ordinary user-shaped JWT.
+            if (role == Role.INTERNAL_SERVICE
+                    && (userId != Long.MAX_VALUE - 1
+                        || !"promotion-loyalty-service".equals(token.getClaimAsString("service")))) {
+                return invalid();
+            }
+
             if (sessionRevocationService != null) {
                 String sid = token.getClaimAsString("sid");
                 if (sid == null || sid.isBlank() || token.getIssuedAt() == null

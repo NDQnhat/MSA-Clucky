@@ -18,7 +18,7 @@ public final class LoyaltyMath {
         long maximum = Math.min(available, remaining.divide(BigDecimal.valueOf(policy.pointValue()), 0, RoundingMode.DOWN).longValueExact());
         int used = Math.toIntExact(Math.min(requested, maximum));
         BigDecimal redeemed = BigDecimal.valueOf(used).multiply(BigDecimal.valueOf(policy.pointValue()));
-        int earned = remaining.subtract(redeemed).divide(BigDecimal.valueOf(policy.spendPerPoint()), 0, RoundingMode.DOWN).intValueExact();
-        return new Quote(policy.version(), Math.toIntExact(available), used, redeemed, earned, tier, discount);
+        long earned = remaining.subtract(redeemed).divide(BigDecimal.valueOf(policy.spendPerPoint()), 0, RoundingMode.DOWN).longValueExact();
+        return new Quote(policy.version(), available, used, redeemed, earned, tier, discount);
     }
 }

@@ -23,8 +23,10 @@ import enLoyalty from "../../locales/en/loyalty.json" with { type: "json" };
 import enMaps from "../../locales/en/maps.json" with { type: "json" };
 import viShipping from "../../locales/vi/shipping.json" with { type: "json" };
 import enShipping from "../../locales/en/shipping.json" with { type: "json" };
+import viPersonalVouchers from "../../locales/vi/personalVouchers.json" with { type: "json" };
+import enPersonalVouchers from "../../locales/en/personalVouchers.json" with { type: "json" };
 
 export const resources = {
-  vi: { shipping: viShipping, payments: viPayments, loyalty: viLoyalty, maps: viMaps, business: viBusiness, common: viCommon, auth: viAuth, home: viHome, menu: viMenu, admin: viAdmin, orders: viOrders, errors: viErrors },
-  en: { shipping: enShipping, payments: enPayments, loyalty: enLoyalty, maps: enMaps, business: enBusiness, common: enCommon, auth: enAuth, home: enHome, menu: enMenu, admin: enAdmin, orders: enOrders, errors: enErrors },
+  vi: { shipping: viShipping, payments: viPayments, loyalty: viLoyalty, personalVouchers: viPersonalVouchers, maps: viMaps, business: viBusiness, common: viCommon, auth: viAuth, home: viHome, menu: viMenu, admin: viAdmin, orders: viOrders, errors: viErrors },
+  en: { shipping: enShipping, payments: enPayments, loyalty: enLoyalty, personalVouchers: enPersonalVouchers, maps: enMaps, business: enBusiness, common: enCommon, auth: enAuth, home: enHome, menu: enMenu, admin: enAdmin, orders: enOrders, errors: enErrors },
 };

@@ -243,6 +243,7 @@ export interface OrderPreviewPayload {
   type: "DELIVERY" | "PICKUP";
   items: CartItemPayload[];
   voucherCode?: string;
+  voucherInstanceId?: string;
   pointsUsed?: number;
   receiverAddress?: string;
 }
@@ -284,6 +285,7 @@ export interface CreateOrderPayload {
   paymentMethod: "COD" | "BANK_TRANSFER";
   items: CartItemPayload[];
   voucherCode?: string;
+  voucherInstanceId?: string;
   pointsUsed?: number;
   receiverName: string;
   receiverPhone: string;
