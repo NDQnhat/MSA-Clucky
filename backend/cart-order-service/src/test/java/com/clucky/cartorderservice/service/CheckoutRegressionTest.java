@@ -33,6 +33,7 @@ import org.springframework.web.client.RestClient;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -44,6 +45,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class CheckoutRegressionTest {
     @Test
     void checkoutTracksReservationBeforeCallingPromotionWithExactVoucherDiscount() {
+        UUID voucherInstanceId = UUID.fromString("12345678-1234-4123-8123-1234567890ab");
         var orders = mock(OrderRepository.class);
         var carts = mock(CartService.class);
         var catalog = mock(CatalogClient.class);
@@ -58,24 +60,28 @@ class CheckoutRegressionTest {
                 BigDecimal.valueOf(100), List.of(), java.util.Map.of(1L, 1L)));
         when(shipping.calculateShippingFee(anyString(), anyLong(), any(), any())).thenReturn(
                 new ShippingClient.ShippingFeeResult(true, BigDecimal.ZERO, "PICKUP", null, null, null));
-        when(promotion.validateVoucher(anyString(), anyLong(), any())).thenReturn(new PromotionClient.VoucherResult(true, null, BigDecimal.TEN));
+        when(promotion.validateVoucher(isNull(), eq(voucherInstanceId), eq(1L), eq(BigDecimal.valueOf(100))))
+                .thenReturn(new PromotionClient.VoucherResult(true, null, BigDecimal.TEN, voucherInstanceId, 41L, 2L));
         when(loyalty.preview(any(), any())).thenReturn(new LoyaltyClient.Quote(1, 0, 0, BigDecimal.ZERO, 0, "MEMBER", BigDecimal.valueOf(5)));
         when(orders.save(any())).thenAnswer(call -> {
             com.clucky.cartorderservice.entity.Order order = call.getArgument(0); order.setId(8L); return order;
         });
-        doThrow(new ApiException(ErrorCode.RESOURCE_CONFLICT)).when(loyalty).reserveVoucher(8, 1, 1, "SAVE", BigDecimal.valueOf(100), BigDecimal.TEN);
+        doThrow(new ApiException(ErrorCode.RESOURCE_CONFLICT)).when(loyalty)
+                .reserveVoucher(8, 1L, 1L, null, voucherInstanceId, BigDecimal.valueOf(100), BigDecimal.TEN);
         var service = new OrderService(orders, mock(OrderItemRepository.class), mock(OrderStatusHistoryRepository.class), carts,
-                new AccessGuard(), new ObjectMapper(), mock(OrderEventPublisher.class), catalog, promotion, shipping, loyalty, recovery, profiles);
+                new AccessGuard(), new ObjectMapper(), mock(OrderEventPublisher.class), catalog, promotion, shipping,
+                loyalty, null, recovery, profiles, mock(org.springframework.jdbc.core.JdbcTemplate.class));
         var jwt = Jwt.withTokenValue("test").header("alg", "HS256").subject("1").claim("role", "CUSTOMER").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, List.of()));
         try {
-            var request = new CreateOrderRequest(1L, "PICKUP", "Customer", "0900000000", null, null, "BANK_TRANSFER", "SAVE", 0, null, null, null, null, null);
+            var request = new CreateOrderRequest(1L, "PICKUP", "Customer", "0900000000", null, null,
+                    "BANK_TRANSFER", null, 0, null, null, null, null, null, voucherInstanceId);
             assertEquals(ErrorCode.RESOURCE_CONFLICT, assertThrows(ApiException.class, () -> service.createOrder(request)).getCode());
             var sequence = inOrder(recovery, loyalty);
             sequence.verify(loyalty).preview(0, BigDecimal.valueOf(90));
             sequence.verify(recovery).lock(8);
             sequence.verify(recovery).track(8);
-            sequence.verify(loyalty).reserveVoucher(8, 1, 1, "SAVE", BigDecimal.valueOf(100), BigDecimal.TEN);
+            sequence.verify(loyalty).reserveVoucher(8, 1L, 1L, null, voucherInstanceId, BigDecimal.valueOf(100), BigDecimal.TEN);
             verify(carts, never()).clearCart(anyString());
             verify(loyalty, never()).reserve(anyLong(), anyLong(), any(), any());
         } finally { SecurityContextHolder.clearContext(); }
@@ -94,7 +100,7 @@ class CheckoutRegressionTest {
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         PromotionClient client = new PromotionClient(builder.build(), "http://promotion");
         server.expect(requestTo("http://promotion/api/promotions/vouchers/validate"))
-                .andExpect(content().json("{\"code\":\"SAVE\",\"storeId\":1,\"orderAmount\":100000}", true))
+                .andExpect(content().json("{\"code\":\"SAVE\",\"storeId\":1,\"orderAmount\":100000,\"voucherInstanceId\":null}", true))
                 .andRespond(withSuccess("{\"valid\":true,\"discountAmount\":20000}", MediaType.APPLICATION_JSON));
         assertEquals(new BigDecimal("20000"), client.validateVoucher("save", 1L, new BigDecimal("100000")).discountAmount());
         server.verify();
@@ -131,6 +137,7 @@ class CheckoutRegressionTest {
 
     @Test
     void rejectedVoucherDoesNotSaveOrderOrClearCart() {
+        UUID voucherInstanceId = UUID.fromString("12345678-1234-4123-8123-1234567890ac");
         OrderRepository orders = mock(OrderRepository.class);
         CartService carts = mock(CartService.class);
         CatalogClient catalog = mock(CatalogClient.class);
@@ -142,7 +149,7 @@ class CheckoutRegressionTest {
                 new CatalogClient.CatalogValidationResponse(true, true, null, BigDecimal.TEN, List.of(), java.util.Map.of(1L, 1L)));
         when(shipping.calculateShippingFee(anyString(), anyLong(), any(), any()))
                 .thenReturn(new ShippingClient.ShippingFeeResult(true, BigDecimal.ZERO, "PICKUP", null, null, null));
-        when(promotion.validateVoucher(anyString(), anyLong(), any()))
+        when(promotion.validateVoucher(isNull(), eq(voucherInstanceId), eq(1L), eq(BigDecimal.TEN)))
                 .thenReturn(new PromotionClient.VoucherResult(false, "Expired", BigDecimal.ZERO));
         OrderService service = new OrderService(orders, mock(OrderItemRepository.class), mock(OrderStatusHistoryRepository.class),
                 carts, mock(AccessGuard.class), new ObjectMapper(), mock(OrderEventPublisher.class), catalog, promotion, shipping, mock(LoyaltyClient.class),
@@ -150,13 +157,35 @@ class CheckoutRegressionTest {
         Jwt jwt = Jwt.withTokenValue("test").header("alg", "HS256").subject("1").claim("role", "CUSTOMER").build();
         SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, List.of()));
         try {
-            CreateOrderRequest request = new CreateOrderRequest(1L, "PICKUP", "Customer", "0900000000", null, null, "COD", "SAVE", 0, null, null, null, null, null);
+            CreateOrderRequest request = new CreateOrderRequest(1L, "PICKUP", "Customer", "0900000000",
+                    null, null, "COD", null, 0, null, null, null, null, null, voucherInstanceId);
             assertEquals(ErrorCode.VOUCHER_INACTIVE, assertThrows(ApiException.class, () -> service.createOrder(request)).getCode());
             verifyNoInteractions(orders);
             verify(carts, never()).clearCart(anyString());
         } finally {
             SecurityContextHolder.clearContext();
         }
+    }
+
+    @Test
+    void webCheckoutRejectsTypedVoucherCodeEvenWhenCodeIsKnown() {
+        OrderRepository orders = mock(OrderRepository.class);
+        CartService carts = mock(CartService.class);
+        PromotionClient promotion = mock(PromotionClient.class);
+        OrderService service = new OrderService(orders, mock(OrderItemRepository.class),
+                mock(OrderStatusHistoryRepository.class), carts, mock(AccessGuard.class),
+                new ObjectMapper(), mock(OrderEventPublisher.class), mock(CatalogClient.class),
+                promotion, mock(ShippingClient.class), mock(LoyaltyClient.class),
+                mock(VoucherCheckoutRecovery.class), mock(CustomerProfileClient.class));
+        var jwt = Jwt.withTokenValue("test").header("alg", "HS256").subject("1").claim("role", "CUSTOMER").build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, List.of()));
+        try {
+            var request = new CreateOrderRequest(1L, "PICKUP", "Customer", "0900000000",
+                    null, null, "COD", "SAVE", 0, null, null, null, null, null);
+            assertEquals(ErrorCode.VALIDATION_ERROR,
+                    assertThrows(ApiException.class, () -> service.createOrder(request)).getCode());
+            verifyNoInteractions(orders, carts, promotion);
+        } finally { SecurityContextHolder.clearContext(); }
     }
 
     @Test

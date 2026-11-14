@@ -41,7 +41,10 @@ public class UserProfileService {
 
     @Transactional
     public UserResponse updateMyProfile(UpdateProfileRequest request) {
-        User user = loadActor();
+        // Serialize profile writes with first-time OTP binding to avoid
+        // saving a stale verification flag during concurrent name updates.
+        User user = users.findByIdForUpdate(actorId())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
         user.setFullName(request.fullName().trim());
         if (request.phone() != null
                 && !PhoneNumbers.equivalent(user.getPhone(), request.phone().trim())) {

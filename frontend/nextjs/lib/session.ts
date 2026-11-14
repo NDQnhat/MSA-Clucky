@@ -11,6 +11,12 @@ type SessionState = { user: SessionUser | null; ready: boolean; error: unknown; 
 const initialState: SessionState = { user: null, ready: false, error: null, revision: 0 };
 let state = initialState;
 const listeners = new Set<() => void>();
+const beforeLogout = new Set<() => Promise<unknown>>();
+/** Components with short-lived server leases close them before logout removes cookies. */
+export function onBeforeLogout(callback: () => Promise<unknown>) {
+  beforeLogout.add(callback);
+  return () => { beforeLogout.delete(callback); };
+}
 const client = "customer";
 const changeKey = `clucky-${client}-session-change`;
 let refreshFlight: Promise<SessionUser> | null = null;
@@ -158,6 +164,7 @@ export async function signIn<T extends SessionUser | { status: string; pendingTo
 
 export async function endSession(path = "/api/auth/logout", body?: unknown) {
   return sessionLock(async () => {
+    await Promise.allSettled([...beforeLogout].map(callback => callback()));
     const result = await send<{ message?: string }>(path, { method: "POST", body: JSON.stringify(body) });
     publish(null, true);
     return result;

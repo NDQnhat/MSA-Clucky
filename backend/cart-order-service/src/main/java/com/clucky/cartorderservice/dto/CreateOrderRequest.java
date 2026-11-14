@@ -20,8 +20,15 @@ public record CreateOrderRequest(
         List<CartItemDto> items,
         @jakarta.validation.constraints.DecimalMin("-90") @jakarta.validation.constraints.DecimalMax("90") Double latitude,
         @jakarta.validation.constraints.DecimalMin("-180") @jakarta.validation.constraints.DecimalMax("180") Double longitude,
-        @jakarta.validation.constraints.DecimalMin("0") @jakarta.validation.constraints.Digits(integer = 12, fraction = 0) java.math.BigDecimal expectedTotal
+        @jakarta.validation.constraints.DecimalMin("0") @jakarta.validation.constraints.Digits(integer = 12, fraction = 0) java.math.BigDecimal expectedTotal,
+        java.util.UUID voucherInstanceId
 ) {
+    public CreateOrderRequest(Long storeId, String type, String receiverName, String receiverPhone, String deliveryAddress,
+            String note, String paymentMethod, String voucherCode, Integer pointsUsed, Instant scheduledAt,
+            List<CartItemDto> items, Double latitude, Double longitude, java.math.BigDecimal expectedTotal) {
+        this(storeId, type, receiverName, receiverPhone, deliveryAddress, note, paymentMethod, voucherCode, pointsUsed,
+                scheduledAt, items, latitude, longitude, expectedTotal, null);
+    }
     @jakarta.validation.constraints.AssertTrue
     public boolean isCoordinatePairValid() {
         return (latitude == null && longitude == null) || (latitude != null && longitude != null

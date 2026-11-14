@@ -133,7 +133,9 @@ public class AuthService {
             }
             challenges.verifySms(user, "REGISTER", request.challengeId(), request.otp());
             user.setPhoneVerified(true);
+            user.setPhoneBindingVersion(user.getPhoneBindingVersion() + 1);
             userRepository.saveAndFlush(user);
+            challenges.recordPhoneVerified(user);
             return issueSession(user);
         }
         // Legacy email-only accounts may finish registration using their existing email OTP.

@@ -8,6 +8,7 @@ import Link from "@/components/ui-loader/navigation-link";
 import { useSession } from "@/components/auth/use-session";
 import { useLocaleTools } from "@/lib/i18n/hooks";
 import { loyaltyApi, type LoyaltyOverview, type LoyaltyPolicy } from "@/lib/loyalty";
+import { LiveLoyaltyCode } from "@/components/loyalty/live-loyalty-code";
 import styles from "./loyalty.module.css";
 
 export default function LoyaltyPage() {
@@ -64,6 +65,7 @@ export default function LoyaltyPage() {
       <div className={styles.guestLeft}><div className={styles.guestIconWrap}><Gift size={26} aria-hidden="true" /></div><div><h2 className={styles.guestTitle}>{t("guestTitle")}</h2><p className={styles.guestDesc}>{t("guestText")}</p></div></div>
       <Link href="/login?redirect=/loyalty" className={styles.loginBtn}><LogIn size={16} aria-hidden="true" />{t("login")}</Link>
     </section>}
+    {ready && user && <LiveLoyaltyCode key={user.userId} customerId={user.userId} />}
 
     {points && currentPolicy && currentTier && !error && <section className={styles.statusCard} aria-busy={loading} aria-label={t("available")}>
       <div className={styles.statusHeader}>

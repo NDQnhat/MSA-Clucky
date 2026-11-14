@@ -118,7 +118,8 @@ export const PromotionsPage: React.FC = () => {
   const reviewRows = vouchers.filter(voucher => {
     if (!voucherState(voucher).isProposal) return false;
     if (reviewStatus !== 'ALL' && voucher.status !== reviewStatus) return false;
-    if (reviewStore !== 'ALL' && Number(voucher.storeId) !== reviewStore) return false;
+    if (reviewStore !== 'ALL' && Number(voucher.storeId) !== reviewStore
+        && !voucher.storeIds?.some(storeId => Number(storeId) === reviewStore)) return false;
     const term = reviewSearch.trim().toLocaleLowerCase();
     return !term || [voucher.code, voucher.title, voucherStoreName(voucher, stores), voucher.rejectionReason]
       .some(value => value?.toLocaleLowerCase().includes(term));
@@ -140,19 +141,21 @@ export const PromotionsPage: React.FC = () => {
   const filteredVouchers = useMemo(() => {
     return liveVouchers.filter((v) => {
       // 1. Role-based isolation: Store Manager only sees ALL vouchers or vouchers of their store
+      const applicability = v.applicability || (v.scope === 'STORE' ? 'SELECTED' : 'ALL');
+      const storeIds = v.storeIds?.length ? v.storeIds : v.storeId ? [Number(v.storeId)] : [];
       if (!isAdmin && user.storeId) {
-        if (v.scope === 'STORE' && v.storeId !== null && Number(v.storeId) !== Number(user.storeId)) {
+        if (applicability === 'SELECTED' && !storeIds.some(id => Number(id) === Number(user.storeId))) {
           return false;
         }
       }
 
       // 2. Scope filter
-      if (scopeFilter === 'SCOPE_ALL' && v.scope !== 'ALL') return false;
-      if (scopeFilter === 'SCOPE_STORE' && v.scope !== 'STORE') return false;
+      if (scopeFilter === 'SCOPE_ALL' && applicability !== 'ALL') return false;
+      if (scopeFilter === 'SCOPE_STORE' && applicability !== 'SELECTED') return false;
 
       // 3. Store filter (for admin)
       if (storeFilter !== 'ALL') {
-        if (v.scope !== 'STORE' || Number(v.storeId) !== Number(storeFilter)) {
+        if (applicability !== 'SELECTED' || !storeIds.some(id => Number(id) === Number(storeFilter))) {
           return false;
         }
       }
@@ -168,7 +171,7 @@ export const PromotionsPage: React.FC = () => {
       // 5. Keyword search
       if (searchTerm.trim()) {
         const term = searchTerm.toLowerCase();
-        const codeMatch = v.code.toLowerCase().includes(term);
+        const codeMatch = v.code?.toLowerCase().includes(term) ?? false;
         const titleMatch = v.title?.toLowerCase().includes(term) ?? false;
         const descMatch = v.description?.toLowerCase().includes(term) ?? false;
         if (!codeMatch && !titleMatch && !descMatch) {
@@ -259,7 +262,9 @@ export const PromotionsPage: React.FC = () => {
     try {
         const saved = await promotionsApi.updateVoucher(voucher.id, {
           version: voucher.version,
-          code: voucher.code,
+          code: voucher.campaignKind === 'LEGACY' ? voucher.code : null,
+          applicability: voucher.applicability || (voucher.scope === 'STORE' ? 'SELECTED' : 'ALL'),
+          storeIds: voucher.storeIds?.length ? voucher.storeIds : voucher.storeId ? [Number(voucher.storeId)] : [],
           title: voucher.title,
           description: voucher.description,
           type: voucher.type,
@@ -290,8 +295,8 @@ export const PromotionsPage: React.FC = () => {
 
       message.success(
         newStatus === 'ACTIVE'
-          ? 'Đã kích hoạt lại mã "' + voucher.code + '"'
-          : 'Đã tạm vô hiệu hóa mã "' + voucher.code + '"'
+          ? t('admin:voucherUi.campaignActivated')
+          : t('admin:voucherUi.campaignDisabled')
       );
       await fetchVouchers();
     } catch (err) {
@@ -364,31 +369,28 @@ export const PromotionsPage: React.FC = () => {
   // Harmonious, carefully balanced Table Columns
   const columns: TableColumnsType<AdminVoucher> = [
     {
-      title: 'Mã Voucher',
+      title: t('admin:voucherUi.campaignColumn'),
       dataIndex: 'code',
       key: 'code',
       width: 200,
       render: (_, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <VoucherBadge
-              code={record.code}
-              type={record.type}
-              value={record.value}
-              status={record.effectiveStatus || record.status}
-              size="medium"
-            />
+            {record.campaignKind === 'PERSONAL' || !record.code
+              ? <Tag color="red">{t('admin:voucherUi.personalCampaign')}</Tag>
+              : <VoucherBadge code={record.code} type={record.type} value={record.value}
+                  status={record.effectiveStatus || record.status} size="medium" />}
           </div>
-            <Tooltip title="Sao chép mã">
+            {record.campaignKind === 'LEGACY' && record.code && <Tooltip title={t('admin:voucherUi.copyLegacyCode')}>
               <Button
                 type="text"
                 size="small"
                 aria-label={'Sao chép mã ' + record.code}
                 icon={<CopyOutlined style={{ color: '#8F1216', fontSize: 13 }} />}
-                onClick={() => handleCopyCode(record.code)}
+                onClick={() => handleCopyCode(record.code!)}
                 style={{ width: 24, height: 24, padding: 0, flexShrink: 0 }}
               />
-            </Tooltip>
+            </Tooltip>}
         </div>
       ),
     },
@@ -407,7 +409,7 @@ export const PromotionsPage: React.FC = () => {
               lineHeight: 1.3,
             }}
           >
-            {record.title || record.code}
+            {record.title || record.code || `#${record.id}`}
           </div>
           {record.description && (
             <div
@@ -469,7 +471,7 @@ export const PromotionsPage: React.FC = () => {
       key: 'scope',
       width: 175,
       render: (_, record) => {
-        if (record.scope === 'STORE') {
+        if (record.applicability === 'SELECTED' || record.scope === 'STORE') {
           return (
             <Tag
               icon={<ShopOutlined />}
@@ -487,9 +489,10 @@ export const PromotionsPage: React.FC = () => {
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
               }}
-              title={voucherStoreName(record, stores) || t('admin:voucherUi.storeUnavailable')}
+              title={(record.storeIds?.length ? record.storeIds.map(id => stores.find(store => store.id === Number(id))?.name || `#${id}`).join(', ') : voucherStoreName(record, stores)) || t('admin:voucherUi.storeUnavailable')}
             >
-              {voucherStoreName(record, stores) || t('admin:voucherUi.storeUnavailable')}
+              {record.storeIds?.length ? t('admin:voucherUi.branchCount', { count: record.storeIds.length })
+                : voucherStoreName(record, stores) || t('admin:voucherUi.storeUnavailable')}
             </Tag>
           );
         }
@@ -530,21 +533,23 @@ export const PromotionsPage: React.FC = () => {
       ),
     },
     {
-      title: 'Lượt sử dụng',
+      title: t('admin:voucherUi.globalProgress'),
       key: 'usage',
       width: 145,
       render: (_, record) => {
-        const percent = record.totalLimit
-          ? Math.min(100, Math.round((record.usedCount / record.totalLimit) * 100))
+        const limit = record.maxUsage ?? record.totalLimit;
+        const used = record.usage ?? record.usedCount;
+        const percent = limit && limit > 0
+          ? Math.min(100, Math.round((used / limit) * 100))
           : null;
         return (
           <div style={{ width: '100%', maxWidth: 125 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
               <span style={{ fontWeight: 800, color: '#8F1216', fontFamily: 'Fredoka, Quicksand, sans-serif', fontSize: 14 }}>
-                {record.usedCount}
+                {used}
               </span>
               <span style={{ color: '#6B6259', fontWeight: 600 }}>
-                / {record.totalLimit ? record.totalLimit : '∞'}
+                / {limit && limit > 0 ? limit : '∞'}
               </span>
             </div>
             <Text type="secondary" style={{ fontSize: 11 }}>{t("admin:ui.reserved")} {record.reservedCount ?? 0}</Text>
@@ -601,7 +606,7 @@ export const PromotionsPage: React.FC = () => {
           </Tooltip>}
           {isAdmin && !voucherState(record).isProposal && <Popconfirm
             title="Xác nhận xóa voucher?"
-            description={t("admin:ui.deleteVoucher") + record.code + t("admin:ui.vouchersAlreadyUsedOrReservedForOrdersWill")}
+            description={t('admin:voucherUi.deleteCampaignHint')}
             okText={t("admin:ui.delete")}
             cancelText={t("business:account.cancel")}
             okButtonProps={{ danger: true }}
@@ -885,6 +890,7 @@ export const PromotionsPage: React.FC = () => {
         open={drawerOpen}
         voucher={selectedVoucher}
         storeName={selectedVoucher ? voucherStoreName(selectedVoucher, stores) : undefined}
+        stores={stores}
         isAdmin={isAdmin}
         loading={actionLoading}
         error={actionError}

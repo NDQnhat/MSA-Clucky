@@ -9,12 +9,14 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 public class ValidateVoucherRequest {
 
-    @NotBlank(message = "Mã voucher không được để trống")
     @Size(max = 80, message = "Mã voucher tối đa 80 ký tự")
     private String code;
+
+    private UUID voucherInstanceId;
 
     @NotNull(message = "Số tiền đơn hàng không được để trống")
     @DecimalMin(value = "0.0", message = "Số tiền đơn hàng không được âm")
@@ -44,6 +46,9 @@ public class ValidateVoucherRequest {
     public String getCode() {
         return code;
     }
+
+    public UUID getVoucherInstanceId() { return voucherInstanceId; }
+    public void setVoucherInstanceId(UUID voucherInstanceId) { this.voucherInstanceId = voucherInstanceId; }
 
     public void setCode(String code) {
         this.code = code;

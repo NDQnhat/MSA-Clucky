@@ -47,9 +47,10 @@ public interface VoucherRepository extends JpaRepository<Voucher, Long>, JpaSpec
         WHERE v.status = 'ACTIVE'
           AND v.startAt <= :now
           AND v.endAt >= :now
-          AND (v.totalLimit IS NULL OR v.totalLimit <= 0 OR v.usedCount + v.reservedCount < v.totalLimit)
+          AND (v.campaignKind = 'PERSONAL' OR v.totalLimit IS NULL OR v.totalLimit <= 0 OR v.usedCount + v.reservedCount < v.totalLimit)
           AND (
-               (:storeId IS NOT NULL AND (v.scope = 'ALL' OR (v.scope = 'STORE' AND v.storeId = :storeId)))
+               v.campaignKind = 'PERSONAL'
+            OR (:storeId IS NOT NULL AND (v.scope = 'ALL' OR (v.scope = 'STORE' AND v.storeId = :storeId)))
             OR (:storeId IS NULL AND v.scope = 'ALL')
           )
         ORDER BY v.id DESC

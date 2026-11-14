@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,15 +28,38 @@ public class IdentityChallenges {
     private final EmailEventPublisher publisher;
     private final UserRepository users;
     private final AuthProperties authProperties;
+    private final CustomerPhoneVerifiedOutbox phoneVerifiedOutbox;
 
+    @Autowired
     public IdentityChallenges(JdbcTemplate jdbc, BridgeOtpClient bridge, OtpService otp,
-            EmailEventPublisher publisher, UserRepository users, AuthProperties authProperties) {
+            EmailEventPublisher publisher, UserRepository users, AuthProperties authProperties,
+            CustomerPhoneVerifiedOutbox phoneVerifiedOutbox) {
         this.jdbc = jdbc;
         this.bridge = bridge;
         this.otp = otp;
         this.publisher = publisher;
         this.users = users;
         this.authProperties = authProperties;
+        this.phoneVerifiedOutbox = phoneVerifiedOutbox;
+    }
+
+    /** Compatibility for in-process callers; Spring uses the outbox-enabled constructor. */
+    @Deprecated
+    public IdentityChallenges(JdbcTemplate jdbc, BridgeOtpClient bridge, OtpService otp,
+            EmailEventPublisher publisher, UserRepository users, AuthProperties authProperties) {
+        this(jdbc, bridge, otp, publisher, users, authProperties, null);
+    }
+
+    /** Must be invoked in the same transaction as the completed registration OTP. */
+    @Transactional
+    public void recordPhoneVerified(User user) {
+        customer(user);
+        if (!Boolean.TRUE.equals(user.getPhoneVerified()) || user.getPhone() == null) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
+        }
+        if (phoneVerifiedOutbox != null) {
+            phoneVerifiedOutbox.enqueue(user);
+        }
     }
 
     @Transactional
@@ -94,12 +118,10 @@ public class IdentityChallenges {
     @Transactional
     public String sendPhoneBinding(User user, String requestedPhone) {
         customer(user);
-        String target = PhoneNumbers.normalize(requestedPhone);
-        if (PhoneNumbers.equivalent(user.getPhone(), target)
-                && Boolean.TRUE.equals(user.getPhoneVerified())) {
-            throw new ApiException(ErrorCode.RESOURCE_CONFLICT,
-                    Map.of("phone", "ALREADY_VERIFIED"));
+        if (Boolean.TRUE.equals(user.getPhoneVerified())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("phone", "ALREADY_VERIFIED"));
         }
+        String target = PhoneNumbers.normalize(requestedPhone);
         ensurePhoneAvailable(user, target);
         otp.limitIssuance("account:" + user.getId(), "PHONE_BIND");
         otp.limitIssuance(target, "PHONE_BIND");
@@ -146,6 +168,9 @@ public class IdentityChallenges {
                     && PhoneNumbers.equivalent(user.getPhone(), target)) return;
             throw new ApiException(ErrorCode.INVALID_OTP);
         }
+        if (Boolean.TRUE.equals(user.getPhoneVerified())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("phone", "ALREADY_VERIFIED"));
+        }
         if (!expiresAt(challenge.get("expires_at")).isAfter(Instant.now())) {
             throw new ApiException(ErrorCode.OTP_EXPIRED);
         }
@@ -154,6 +179,7 @@ public class IdentityChallenges {
         try {
             user.setPhone(target);
             user.setPhoneVerified(true);
+            user.setPhoneBindingVersion(user.getPhoneBindingVersion() + 1);
             users.saveAndFlush(user);
         } catch (DataIntegrityViolationException conflict) {
             throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("phone", "ALREADY_EXISTS"));
@@ -166,6 +192,7 @@ public class IdentityChallenges {
         jdbc.update("UPDATE " + SMS + " SET used=true WHERE user_id=? "
                 + "AND purpose IN ('PASSWORD_RESET','PASSWORD_CHANGE') AND NOT used",
                 user.getId());
+        recordPhoneVerified(user);
     }
 
     private void ensurePhoneAvailable(User user, String target) {
@@ -185,11 +212,10 @@ public class IdentityChallenges {
     @Transactional
     public String sendEmailBinding(User user, String recipient) {
         customer(user);
-        String email = normalizedEmail(recipient);
-        if (email.equals(user.getEmail()) && Boolean.TRUE.equals(user.getEmailVerified())) {
-            throw new ApiException(ErrorCode.RESOURCE_CONFLICT,
-                    Map.of("email", "ALREADY_VERIFIED"));
+        if (Boolean.TRUE.equals(user.getEmailVerified())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("email", "ALREADY_VERIFIED"));
         }
+        String email = normalizedEmail(recipient);
         if (users.existsByEmail(email) && !email.equals(user.getEmail())) {
             throw new ApiException(ErrorCode.EMAIL_EXISTS);
         }
@@ -209,6 +235,9 @@ public class IdentityChallenges {
     @Transactional
     public void confirmEmailBinding(User user, String recipient, String challengeId, String code) {
         customer(user);
+        if (Boolean.TRUE.equals(user.getEmailVerified())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("email", "ALREADY_VERIFIED"));
+        }
         UUID id = parseId(challengeId);
         String email = normalizedEmail(recipient);
         var found = jdbc.queryForList("SELECT user_id,email,expires_at,used FROM "

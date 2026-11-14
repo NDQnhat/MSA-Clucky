@@ -8,8 +8,10 @@ export default defineConfig({
   reporter: process.env.CI
     ? [["github"], ["html", { open: "never" }]]
     : "list",
-  workers: 2,
-  timeout: 30000,
+  // Production Next.js + admin preview + API fixtures share the CI runner.
+  // A single browser worker avoids startup contention and SSR hydration races.
+  workers: process.env.CI ? 1 : 2,
+  timeout: 60000,
   use: { browserName: "chromium", headless: true, trace: "retain-on-failure" },
   webServer: [
     {

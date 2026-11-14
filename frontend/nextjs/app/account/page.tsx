@@ -135,12 +135,10 @@ export default function AccountPage() {
   async function requestEmailOtp(event: FormEvent) {
     event.preventDefault();
     if (busy || emailBusy || phoneBusy) return;
+    if (savedProfile.emailVerified === true) { setEmailError("auth.security.verifiedContactLocked"); return; }
     const email = emailDraft.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setEmailError("auth.validation.checkEmail"); return;
-    }
-    if (savedProfile.emailVerified === true && savedProfile.email?.toLowerCase() === email.toLowerCase()) {
-      setEmailError("auth.security.emailAlreadyVerified"); return;
     }
     setEmailBusy(true); setEmailError(""); setNotice(""); setEmailChallenge(null); setEmailOtp("");
     try {
@@ -153,6 +151,7 @@ export default function AccountPage() {
   async function confirmEmail(event: FormEvent) {
     event.preventDefault();
     if (busy || emailBusy || phoneBusy || !emailChallenge) return;
+    if (savedProfile.emailVerified === true) { setEmailError("auth.security.verifiedContactLocked"); return; }
     if (!/^\d{6}$/.test(emailOtp)) { setEmailError("auth.validation.sixDigits"); return; }
     if (!emailCurrentPassword) { setEmailError("auth.security.contactPasswordRequired"); return; }
     setEmailBusy(true); setEmailError(""); setNotice("");
@@ -170,12 +169,10 @@ export default function AccountPage() {
   async function requestPhoneOtp(event: FormEvent) {
     event.preventDefault();
     if (busy || phoneBusy || emailBusy) return;
+    if (savedProfile.phoneVerified === true) { setPhoneError("auth.security.verifiedContactLocked"); return; }
     const phone = canonicalPhone(phoneDraft);
     if (!/^(?:0\d{9}|\+[1-9]\d{7,14})$/.test(phone)) {
       setPhoneError("auth.validation.phoneFormat"); return;
-    }
-    if (savedProfile.phoneVerified === true && canonicalPhone(savedProfile.phone) === phone) {
-      setPhoneError("auth.security.phoneAlreadyVerified"); return;
     }
     setPhoneBusy(true); setPhoneError(""); setNotice(""); setPhoneChallenge(null); setPhoneOtp("");
     try {
@@ -188,6 +185,7 @@ export default function AccountPage() {
   async function confirmPhone(event: FormEvent) {
     event.preventDefault();
     if (busy || phoneBusy || emailBusy || !phoneChallenge) return;
+    if (savedProfile.phoneVerified === true) { setPhoneError("auth.security.verifiedContactLocked"); return; }
     if (!/^\d{6}$/.test(phoneOtp)) { setPhoneError("auth.validation.sixDigits"); return; }
     if (!phoneCurrentPassword) { setPhoneError("auth.security.contactPasswordRequired"); return; }
     setPhoneBusy(true); setPhoneError(""); setNotice("");
@@ -425,18 +423,20 @@ export default function AccountPage() {
                         ? <span className={styles.verifiedBadge}><Check size={14} aria-hidden="true" />{t("auth.security.verified")}</span>
                         : <span className={styles.pendingBadge}>{t("auth.security.unverified")}</span>}
                     </div>
-                    <form className={styles.form} onSubmit={requestPhoneOtp}>
+                    {savedProfile.phoneVerified === true ? (
+                      <p className={styles.contactHint}>{t("auth.security.verifiedContactLocked")}</p>
+                    ) : <form className={styles.form} onSubmit={requestPhoneOtp}>
                       <Input type="tel" inputMode="tel" label={t("auth.security.newPhone")}
                         autoComplete="tel" placeholder={t("auth.fields.phonePlaceholder")}
                         value={phoneDraft} onChange={e => { setPhoneDraft(e.target.value); setPhoneChallenge(null); setPhoneOtp(""); setPhoneCurrentPassword(""); setPhoneError(""); }}
                         disabled={busy || phoneBusy || emailBusy} required
                         error={phoneError && phoneError !== "auth.security.contactPasswordInvalid" ? t(phoneError) : undefined} />
                       <button className={styles.primary} type="submit"
-                        disabled={busy || phoneBusy || emailBusy || !phoneDraft.trim() || (savedProfile.phoneVerified === true && canonicalPhone(savedProfile.phone) === canonicalPhone(phoneDraft))}>
+                        disabled={busy || phoneBusy || emailBusy || !phoneDraft.trim()}>
                         {phoneBusy ? t("auth.otp.sending") : t("auth.security.sendPhoneCode")}
                       </button>
-                    </form>
-                    {phoneChallenge && (
+                    </form>}
+                    {savedProfile.phoneVerified !== true && phoneChallenge && (
                       <form className={styles.otpForm} onSubmit={confirmPhone}>
                         <p>{t("auth.security.phoneCodeHint", { phone: canonicalPhone(phoneDraft) })}</p>
                         <Input label={t("auth.otp.label")} inputMode="numeric" autoComplete="one-time-code"
@@ -451,9 +451,6 @@ export default function AccountPage() {
                           {t("auth.security.confirmPhone")}
                         </button>
                       </form>
-                    )}
-                    {savedProfile.phoneVerified === true && canonicalPhone(savedProfile.phone) !== canonicalPhone(phoneDraft) && (
-                      <p className={styles.contactHint}>{t("auth.security.currentStaysActive")}</p>
                     )}
                   </section>
                   <section className={styles.contactCard} aria-label={t("auth.security.emailHeading")}>
@@ -471,18 +468,20 @@ export default function AccountPage() {
                         ? <span className={styles.verifiedBadge}><Check size={14} aria-hidden="true" />{t("auth.security.verified")}</span>
                         : <span className={styles.pendingBadge}>{t("auth.security.unverified")}</span>}
                     </div>
-                    <form className={styles.form} onSubmit={requestEmailOtp}>
+                    {savedProfile.emailVerified === true ? (
+                      <p className={styles.contactHint}>{t("auth.security.verifiedContactLocked")}</p>
+                    ) : <form className={styles.form} onSubmit={requestEmailOtp}>
                       <Input type="email" label={t("auth.security.newEmail")} autoComplete="email"
                         placeholder="ban@clucky.vn" value={emailDraft}
                         onChange={e => { setEmailDraft(e.target.value); setEmailChallenge(null); setEmailOtp(""); setEmailCurrentPassword(""); setEmailError(""); }}
                         disabled={busy || emailBusy || phoneBusy} required
                         error={emailError && emailError !== "auth.security.contactPasswordInvalid" ? t(emailError) : undefined} />
                       <button className={styles.primary} type="submit"
-                        disabled={busy || emailBusy || phoneBusy || !emailDraft.trim() || (savedProfile.emailVerified === true && savedProfile.email?.toLowerCase() === emailDraft.trim().toLowerCase())}>
+                        disabled={busy || emailBusy || phoneBusy || !emailDraft.trim()}>
                         {emailBusy ? t("auth.otp.sending") : t("auth.security.sendEmailCode")}
                       </button>
-                    </form>
-                    {emailChallenge && (
+                    </form>}
+                    {savedProfile.emailVerified !== true && emailChallenge && (
                       <form className={styles.otpForm} onSubmit={confirmEmail}>
                         <p>{t("auth.security.emailCodeHint")}</p>
                         <Input label={t("auth.otp.label")} inputMode="numeric" autoComplete="one-time-code"
@@ -497,9 +496,6 @@ export default function AccountPage() {
                           {t("auth.security.confirmEmail")}
                         </button>
                       </form>
-                    )}
-                    {savedProfile.emailVerified === true && savedProfile.email?.toLowerCase() !== emailDraft.trim().toLowerCase() && (
-                      <p className={styles.contactHint}>{t("auth.security.currentStaysActive")}</p>
                     )}
                     {savedProfile.emailVerified !== true && <p className={styles.contactHint}>{t("auth.security.noEmailNotices")}</p>}
                   </section>

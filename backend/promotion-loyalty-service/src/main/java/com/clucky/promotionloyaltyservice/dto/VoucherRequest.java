@@ -1,12 +1,14 @@
 package com.clucky.promotionloyaltyservice.dto;
 
 import com.clucky.promotionloyaltyservice.model.VoucherScope;
+import com.clucky.promotionloyaltyservice.model.VoucherApplicability;
 import com.clucky.promotionloyaltyservice.model.VoucherStatus;
 import com.clucky.promotionloyaltyservice.model.VoucherType;
 import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Set;
 
 public class VoucherRequest {
 
@@ -17,10 +19,12 @@ public class VoucherRequest {
 
     public void setVersion(Long version) { this.version = version; }
 
-    @NotBlank(message = "Mã voucher không được để trống")
     @Size(max = 80, message = "Mã voucher tối đa 80 ký tự")
     @Pattern(regexp = "^[A-Za-z0-9_-]+$", message = "Mã voucher chỉ chứa chữ cái, số, gạch dưới hoặc gạch ngang")
     private String code;
+
+    private VoucherApplicability applicability = VoucherApplicability.ALL;
+    private Set<@Positive Long> storeIds = Set.of();
 
     @Size(max = 255, message = "Tiêu đề tối đa 255 ký tự")
     private String title;
@@ -65,6 +69,11 @@ public class VoucherRequest {
     public String getCode() {
         return code;
     }
+
+    public VoucherApplicability getApplicability() { return applicability; }
+    public void setApplicability(VoucherApplicability applicability) { this.applicability = applicability; }
+    public Set<Long> getStoreIds() { return storeIds; }
+    public void setStoreIds(Set<Long> storeIds) { this.storeIds = storeIds; }
 
     public void setCode(String code) {
         this.code = code;

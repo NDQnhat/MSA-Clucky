@@ -65,6 +65,100 @@ public class OrderService {
     private final JdbcTemplate jdbc;
     private final Random random = new SecureRandom();
 
+    /** Server and POS use the same identity for a counter draft; points are excluded. */
+    private String counterDraftHash(CreateCounterOrderRequest request, long storeId) {
+        try {
+            Map<String,Object> normalized = new LinkedHashMap<>();
+            normalized.put("storeId", storeId);
+            // QR scan supplies the wallet subject only after scanning; proof binds
+            // the resolved customer separately inside Promotion.
+            normalized.put("voucherCode", request.voucherCode());
+            normalized.put("voucherInstanceId", request.voucherInstanceId());
+            normalized.put("items", request.items().stream().map(item -> {
+                Map<String,Object> line = new LinkedHashMap<>();
+                line.put("productId", item.productId());
+                line.put("comboId", item.comboId());
+                line.put("quantity", item.quantity() == null ? 1 : item.quantity());
+                line.put("optionIds", item.resolveOptionIds().stream().sorted().toList());
+                line.put("toppingIds", item.toppingIds() == null ? List.of() : item.toppingIds().stream().sorted().toList());
+                return line;
+            }).toList());
+            return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(objectMapper.writeValueAsBytes(normalized)));
+        } catch (java.security.NoSuchAlgorithmException | com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalStateException("Cannot encode counter draft", failure);
+        }
+    }
+    private String hashedScanProof(String proof) {
+        if (proof == null || proof.isBlank()) return null;
+        try {
+            return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(proof.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new IllegalStateException("SHA-256 unavailable");
+        }
+    }
+
+    private long effectiveCounterStore(Long requested) {
+        accessGuard.requireCounterStaff();
+        CurrentActor actor = CurrentActor.require();
+        if (actor.role() == Role.ADMIN) {
+            if (requested == null || requested <= 0) throw new ApiException(ErrorCode.VALIDATION_ERROR, "storeId required");
+            return requested;
+        }
+        if (actor.storeId() == null || actor.storeId() <= 0) throw new AccessDeniedException("Store missing");
+        return actor.storeId();
+    }
+
+    private List<CartItemDto> counterItems(CreateCounterOrderRequest request, long storeId) {
+        if (request.items() == null || request.items().isEmpty())
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "Danh sách món không được để trống");
+        List<CartItemDto> items = new ArrayList<>();
+        for (CounterOrderItemRequest item : request.items()) {
+            CartItemDto dto = new CartItemDto();
+            dto.setProductId(item.productId());
+            dto.setComboId(item.comboId());
+            dto.setQuantity(item.quantity() != null && item.quantity() > 0 ? item.quantity() : 1);
+            dto.setOptionIds(item.resolveOptionIds());
+            dto.setToppingIds(item.toppingIds() != null ? item.toppingIds() : List.of());
+            dto.setNote(item.note());
+            dto.setStoreId(storeId);
+            items.add(dto);
+        }
+        return items;
+    }
+
+    public String counterDraftHash(CreateCounterOrderRequest request) {
+        return counterDraftHash(request, effectiveCounterStore(request.storeId()));
+    }
+
+    public CounterOrderPreviewResponse previewCounterOrder(CreateCounterOrderRequest request) {
+        long storeId = effectiveCounterStore(request.storeId());
+        String draftHash = counterDraftHash(request, storeId);
+        var catalog = catalogClient.validateItems(storeId, counterItems(request, storeId));
+        if (!catalog.valid() || !catalog.storeOpen()) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "Món hoặc chi nhánh không còn khả dụng");
+        }
+        BigDecimal subtotal = catalog.subtotal();
+        var voucher = promotionClient.validateVoucher(request.voucherCode(), request.voucherInstanceId(), storeId, subtotal);
+        if ((request.voucherCode() != null && !request.voucherCode().isBlank() || request.voucherInstanceId() != null)
+                && !voucher.valid()) throw new ApiException(ErrorCode.VOUCHER_INACTIVE);
+        BigDecimal afterVoucher = subtotal.subtract(voucher.discountAmount()).max(BigDecimal.ZERO);
+        LoyaltyClient.CounterQuote points = request.loyaltySubject() != null
+                ? loyaltyClient.counterPreview(request.loyaltySubject(), request.loyaltyScanProof(), request.pointsUsed(),
+                        afterVoucher, CurrentActor.require().userId(), storeId, draftHash)
+                : null;
+        if (points == null && request.pointsUsed() > 0)
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "Phải quét QR Loyalty để dùng điểm");
+        BigDecimal tier = points == null ? BigDecimal.ZERO : points.tierDiscount();
+        BigDecimal pointsAmount = points == null ? BigDecimal.ZERO : points.pointsAmount();
+        BigDecimal total = afterVoucher.subtract(tier).subtract(pointsAmount).max(BigDecimal.ZERO);
+        return new CounterOrderPreviewResponse(draftHash, subtotal, voucher.discountAmount(), tier,
+                points == null ? 0 : points.pointsUsed(), pointsAmount,
+                points == null ? 0 : points.pointsToEarn(), points == null ? 0 : points.availablePoints(),
+                total, points != null && points.redeemAllowed(), voucher.valid(), voucher.message());
+    }
+
     public OrderService(
             OrderRepository orderRepository,
             OrderItemRepository orderItemRepository,
@@ -122,6 +216,10 @@ public class OrderService {
 
     public OrderPreviewResponse previewOrder(OrderPreviewRequest request, HttpServletRequest httpRequest) {
         accessGuard.requireCustomer();
+        if (request.voucherCode() != null && !request.voucherCode().isBlank()) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR,
+                    "Checkout Web chỉ áp dụng voucher cá nhân đã nhận trong tài khoản");
+        }
         List<CartItemDto> items = resolvePreviewItems(request, httpRequest);
         if (items.isEmpty()) {
             return new OrderPreviewResponse(
@@ -171,7 +269,8 @@ public class OrderService {
         BigDecimal shippingFee = shippingResult.fee() != null ? shippingResult.fee() : BigDecimal.ZERO;
 
         // Validate voucher with Promotion Service (P1-02)
-        PromotionClient.VoucherResult voucherCalc = promotionClient.validateVoucher(request.voucherCode(), storeId, subtotal);
+        PromotionClient.VoucherResult voucherCalc = promotionClient.validateVoucher(
+                request.voucherCode(), request.voucherInstanceId(), storeId, subtotal);
         BigDecimal discountAmount = voucherCalc.discountAmount();
 
         // Validate loyalty points with Promotion Service (P1-02)
@@ -216,6 +315,10 @@ public class OrderService {
     @Transactional(timeout = 60)
     public OrderResponse createOrder(CreateOrderRequest request) {
         accessGuard.requireCustomer();
+        if (request.voucherCode() != null && !request.voucherCode().isBlank()) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR,
+                    "Checkout Web chỉ áp dụng voucher cá nhân đã nhận trong tài khoản");
+        }
         Long customerId = CurrentActor.require().userId();
 
         String userCartKey = RedisConfig.key("cart", customerId.toString());
@@ -275,8 +378,10 @@ public class OrderService {
         BigDecimal shippingFee = shippingResult.fee() != null ? shippingResult.fee() : BigDecimal.ZERO;
 
         // Validate voucher with Promotion Service (P1-02: No hardcoded voucher strings)
-        PromotionClient.VoucherResult voucherCalc = promotionClient.validateVoucher(request.voucherCode(), request.storeId(), subtotal);
-        if (request.voucherCode() != null && !request.voucherCode().isBlank() && !voucherCalc.valid()) {
+        PromotionClient.VoucherResult voucherCalc = promotionClient.validateVoucher(
+                request.voucherCode(), request.voucherInstanceId(), request.storeId(), subtotal);
+        if ((request.voucherCode() != null && !request.voucherCode().isBlank()
+                || request.voucherInstanceId() != null) && !voucherCalc.valid()) {
             throw new ApiException(ErrorCode.VOUCHER_INACTIVE);
         }
         BigDecimal discountAmount = voucherCalc.discountAmount();
@@ -338,7 +443,18 @@ public class OrderService {
         order.setShippingFee(shippingFee);
         order.setTotalAmount(totalAmount);
         order.setPaymentMethod(paymentMethod);
-        order.setVoucherCode(voucherCalc.valid() ? request.voucherCode().trim() : null);
+        if (totalAmount.signum() == 0) {
+            // A fully discounted order has nothing to collect. Keep it
+            // eligible for the same paid-order loyalty/voucher settlement,
+            // without issuing a zero-value transfer or cash collection.
+            order.setPaymentStatus("COLLECTED");
+            order.setCollectionMethod("NO_PAYMENT");
+            order.setCollectedCash(BigDecimal.ZERO);
+            order.setDeclaredTransfer(BigDecimal.ZERO);
+        }
+        // Personal credentials never enter Order persistence or outbound events.
+        order.setVoucherCode(voucherCalc.valid() && request.voucherCode() != null
+                && voucherCalc.voucherInstanceId() == null ? request.voucherCode().trim() : null);
         order.setReceiverName(request.receiverName().trim());
         order.setReceiverPhone(request.receiverPhone().trim());
         order.setDeliveryAddress(request.deliveryAddress() == null ? null : request.deliveryAddress().trim());
@@ -349,11 +465,29 @@ public class OrderService {
         order = orderRepository.save(order);
 
         voucherRecovery.lock(order.getId());
-        if (order.getVoucherCode() != null) {
+        if (order.getVoucherCode() != null || request.voucherInstanceId() != null) {
             voucherRecovery.track(order.getId());
-            loyaltyClient.reserveVoucher(order.getId(), customerId, order.getStoreId(), order.getVoucherCode(), subtotal, voucherCalc.discountAmount());
+            loyaltyClient.reserveVoucher(order.getId(), customerId, order.getStoreId(),
+                    order.getVoucherCode(), request.voucherInstanceId(), subtotal, voucherCalc.discountAmount());
         }
-        loyaltyClient.reserve(order.getId(), customerId, subtotal.subtract(voucherCalc.discountAmount()).max(BigDecimal.ZERO), loyaltyCalc);
+        if (voucherCalc.valid()) {
+            jdbc.update("""
+                    UPDATE order_service.orders SET
+                      customer_voucher_instance_id=?, voucher_campaign_id=?,
+                      voucher_policy_version=?, voucher_discount_amount=?
+                    WHERE id=?
+                    """, request.voucherInstanceId(), voucherCalc.campaignId(),
+                    voucherCalc.campaignVersion(), voucherCalc.discountAmount(), order.getId());
+        }
+        LoyaltyClient.Quote reserved = loyaltyClient.reserveWithReceipt(
+                order.getId(), customerId,
+                subtotal.subtract(voucherCalc.discountAmount()).max(BigDecimal.ZERO), loyaltyCalc);
+        jdbc.update("""
+                UPDATE order_service.orders
+                SET loyalty_wallet_id=?,loyalty_subject_type='CUSTOMER',loyalty_policy_version=?,
+                    loyalty_auth_method='ACCOUNT',points_to_earn=?
+                WHERE id=?
+                """, reserved.walletId(), reserved.policyVersion(), reserved.pointsToEarn(), order.getId());
 
         List<OrderItem> savedItems = new ArrayList<>();
         for (int i = 0; i < items.size(); i++) {
@@ -499,6 +633,22 @@ public class OrderService {
         }
 
         BigDecimal subtotal = catalogValidation.subtotal();
+        String draftHash = counterDraftHash(request, effectiveStoreId);
+        PromotionClient.VoucherResult counterVoucher = promotionClient.validateVoucher(
+                request.voucherCode(), request.voucherInstanceId(), effectiveStoreId, subtotal);
+        boolean wantsVoucher = (request.voucherCode() != null && !request.voucherCode().isBlank())
+                || request.voucherInstanceId() != null;
+        if (wantsVoucher && !counterVoucher.valid())
+            throw new ApiException(ErrorCode.VOUCHER_INACTIVE, "Voucher không còn áp dụng được");
+        BigDecimal merchandiseAfterVoucher = subtotal.subtract(counterVoucher.discountAmount()).max(BigDecimal.ZERO);
+        LoyaltyClient.CounterQuote counterLoyalty = request.loyaltySubject() == null
+                ? null : loyaltyClient.counterPreview(request.loyaltySubject(), request.loyaltyScanProof(),
+                    request.pointsUsed(), merchandiseAfterVoucher, actor.userId(), effectiveStoreId, draftHash);
+        if (counterLoyalty == null && request.pointsUsed() > 0)
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "Chỉ QR Loyalty mới được dùng điểm");
+        BigDecimal tierDiscount = counterLoyalty == null ? BigDecimal.ZERO : counterLoyalty.tierDiscount();
+        BigDecimal redeemedAmount = counterLoyalty == null ? BigDecimal.ZERO : counterLoyalty.pointsAmount();
+        BigDecimal amountToCollect = merchandiseAfterVoucher.subtract(tierDiscount).subtract(redeemedAmount).max(BigDecimal.ZERO);
 
         // Generate daily queueNumber (1-999) per store
         int queueNumber = generateDailyQueueNumber(effectiveStoreId);
@@ -506,6 +656,12 @@ public class OrderService {
         String diningOption = "DINE_IN".equalsIgnoreCase(request.diningOption()) ? "DINE_IN" : "TAKE_AWAY";
         String paymentMethod = (request.paymentMethod() != null && !request.paymentMethod().isBlank())
                 ? request.paymentMethod().trim().toUpperCase() : "CASH";
+        if (amountToCollect.signum() == 0
+                && ("TRANSFER".equals(paymentMethod) || "BANK_TRANSFER".equals(paymentMethod)
+                    || "SPLIT".equals(paymentMethod))) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR,
+                    "Đơn hàng 0đ không cần chuyển khoản; vui lòng chọn hình thức tại quầy");
+        }
 
         Order order = new Order();
         order.setOrderCode(generateOrderCode());
@@ -516,14 +672,19 @@ public class OrderService {
         order.setQueueNumber(queueNumber);
         order.setType("PICKUP");
         order.setStatus("CONFIRMED");
-        order.setPaymentStatus("PENDING");
+        order.setPaymentStatus(amountToCollect.signum() == 0 ? "COLLECTED" : "PENDING");
+        if (amountToCollect.signum() == 0) {
+            order.setCollectionMethod("NO_PAYMENT");
+            order.setCollectedCash(BigDecimal.ZERO);
+            order.setDeclaredTransfer(BigDecimal.ZERO);
+        }
         order.setPaymentMethod(paymentMethod);
         order.setSubtotal(subtotal);
-        order.setDiscountAmount(BigDecimal.ZERO);
-        order.setPointsUsed(0);
-        order.setPointsAmount(BigDecimal.ZERO);
+        order.setDiscountAmount(counterVoucher.discountAmount().add(tierDiscount));
+        order.setPointsUsed(counterLoyalty == null ? 0 : counterLoyalty.pointsUsed());
+        order.setPointsAmount(redeemedAmount);
         order.setShippingFee(BigDecimal.ZERO);
-        order.setTotalAmount(subtotal);
+        order.setTotalAmount(amountToCollect);
         order.setReceiverName("Khách tại quầy #" + String.format("%03d", queueNumber));
         order.setReceiverPhone("Tại quầy");
         order.setDeliveryAddress("Tại quầy");
@@ -532,6 +693,38 @@ public class OrderService {
 
         order = orderRepository.save(order);
         jdbc.update("UPDATE order_service.counter_order_operations SET order_id=? WHERE store_id=? AND idempotency_key=?", order.getId(), effectiveStoreId, idempotencyKey.trim());
+        jdbc.update("""
+                UPDATE order_service.orders SET
+                    loyalty_policy_version=?, loyalty_auth_method=?, points_to_earn=?,
+                    customer_voucher_instance_id=?, voucher_campaign_id=?,
+                    voucher_policy_version=?, voucher_discount_amount=?, loyalty_subject_type=?,
+                    loyalty_scan_proof_id=?
+                WHERE id=?
+                """, counterLoyalty == null ? null : counterLoyalty.policyVersion(),
+                counterLoyalty == null ? null : counterLoyalty.redeemAllowed() ? "QR_SCAN" : "CONTACT",
+                counterLoyalty == null ? 0 : counterLoyalty.pointsToEarn(),
+                counterVoucher.voucherInstanceId(), counterVoucher.campaignId(),
+                counterVoucher.campaignVersion(), counterVoucher.discountAmount(),
+                request.loyaltySubject() == null ? null : "COUNTER",
+                hashedScanProof(request.loyaltyScanProof()), order.getId());
+
+        // The Order owns the price. Promotion independently verifies/locks the
+        // voucher and points using this order ID and the server-calculated quote.
+        voucherRecovery.lock(order.getId());
+        if (wantsVoucher) {
+            voucherRecovery.track(order.getId());
+            loyaltyClient.reserveVoucher(order.getId(), null, effectiveStoreId,
+                    request.voucherCode(), request.voucherInstanceId(), subtotal, counterVoucher.discountAmount());
+        }
+        if (counterLoyalty != null) {
+            LoyaltyClient.CounterQuote reserved = loyaltyClient.counterReserve(
+                    order.getId(), request.loyaltySubject(), request.loyaltyScanProof(),
+                    merchandiseAfterVoucher, counterLoyalty, actor.userId(), effectiveStoreId, draftHash);
+            if (reserved.walletId() == null || reserved.walletId() <= 0)
+                throw new ApiException(ErrorCode.UPSTREAM_ERROR, "Loyalty wallet was not reserved");
+            jdbc.update("UPDATE order_service.orders SET loyalty_wallet_id=? WHERE id=?",
+                    reserved.walletId(), order.getId());
+        }
 
         List<OrderItem> savedItems = new ArrayList<>();
         for (int i = 0; i < items.size(); i++) {

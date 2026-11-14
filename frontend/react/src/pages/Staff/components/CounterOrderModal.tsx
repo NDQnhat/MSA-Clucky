@@ -14,6 +14,9 @@ import {
   Flame,
   Lock,
   Clock,
+  Camera,
+  UserRound,
+  Ticket,
 } from "lucide-react";
 import {
   POS_CATEGORIES,
@@ -30,9 +33,13 @@ import {
   getErrorMessage,
   ordersApi,
   paymentsApi,
+  counterLoyaltyApi,
   type CounterOrderItemPayload,
   type CreateCounterOrderPayload,
+  type CounterLoyaltyLookupKind,
+  type CounterOrderPreview,
 } from "../../../lib/api";
+import { CounterQrScanner } from './CounterQrScanner';
 import styles from "./counter-order.module.css";
 import { FoodImage } from "../../../components/ui/FoodImage";
 import { posUnavailableReason } from "../../../lib/pos-availability";
@@ -49,6 +56,44 @@ const currencyFormatter = new Intl.NumberFormat("vi-VN");
 const formatVnd = (val: number) => {
   return currencyFormatter.format(val) + " đ";
 };
+
+type SafeCounterDraft = {
+  savedAt: number;
+  cartItems: PosCartItem[];
+  diningOption: DiningOption;
+  paymentMethod: PaymentMethod;
+  orderNote: string;
+  isCashCollected: boolean;
+  cashTenderedInput: number;
+};
+type TabCounterDraft = SafeCounterDraft & {
+  voucherInput: string;
+  voucherCode: string;
+  loyaltyKind: CounterLoyaltyLookupKind;
+  loyaltyInput: string;
+};
+
+// Keep bearer voucher text in JS memory only (not sessionStorage). No QR proof,
+// loyalty subject or point redemption authority is ever persisted.
+const counterTabDrafts = new Map<string, TabCounterDraft>();
+const COUNTER_DRAFT_TTL_MS = 12 * 60 * 60 * 1000;
+
+function isSafeCounterDraft(value: unknown): value is SafeCounterDraft {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as SafeCounterDraft;
+  return Number.isFinite(data.savedAt) && Date.now() - data.savedAt < COUNTER_DRAFT_TTL_MS
+    && data.savedAt <= Date.now() && Array.isArray(data.cartItems) && data.cartItems.length <= 100
+    && data.cartItems.every(item => item && typeof item.id === 'string'
+      && typeof item.productId === 'string' && typeof item.name === 'string'
+      && Array.isArray(item.options) && item.options.every(option => option
+        && typeof option.choiceId === 'string' && Number.isFinite(option.extraPrice))
+      && Number.isInteger(item.quantity) && item.quantity > 0
+      && Number.isFinite(item.unitPrice) && Number.isFinite(item.lineTotal))
+    && (data.diningOption === 'DINE_IN' || data.diningOption === 'TAKE_AWAY')
+    && (data.paymentMethod === 'CASH' || data.paymentMethod === 'BANK_TRANSFER' || data.paymentMethod === 'SPLIT')
+    && typeof data.orderNote === 'string' && typeof data.isCashCollected === 'boolean'
+    && Number.isFinite(data.cashTenderedInput);
+}
 
 const CounterProductCard = memo(function CounterProductCard({ product, storeReason, onSelect }: {
   product: PosProduct; storeReason?: string; onSelect: (product: PosProduct) => void;
@@ -80,6 +125,8 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   const { t } = useTranslation();
   const { user } = useAuth();
   const { currentStore, storeOpenState } = useOrders();
+  const effectiveStoreId = Number(user?.storeId || currentStore?.id || 0);
+  const draftStorageKey = `clucky:counter-draft:v1:${user.id}:${effectiveStoreId}`;
   // 1. Filter states
   const [activeCategory, setActiveCategory] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
@@ -93,6 +140,33 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isCashCollected, setIsCashCollected] = useState<boolean>(true);
   const [cashTenderedInput, setCashTenderedInput] = useState<number>(0);
+  const [loyaltyKind, setLoyaltyKind] = useState<CounterLoyaltyLookupKind>('PHONE');
+  const [loyaltyInput, setLoyaltyInput] = useState('');
+  const [loyalty, setLoyalty] = useState<{ loyaltySubject: string; maskedAccount?: string; mode: 'TYPED' | 'QR' } | null>(null);
+  const [scanProof, setScanProof] = useState<{ value: string; draftKey: string; draftHash: string; expiresAt: number } | null>(null);
+  const [pointsUsed, setPointsUsed] = useState(0);
+  const [voucherInput, setVoucherInput] = useState('');
+  const [voucherCode, setVoucherCode] = useState('');
+  const [scanner, setScanner] = useState<'LOYALTY' | 'VOUCHER' | null>(null);
+  const [identityBusy, setIdentityBusy] = useState(false);
+  const [quoteBusy, setQuoteBusy] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
+  const [quote, setQuote] = useState<{ key: string; value: CounterOrderPreview } | null>(null);
+  const [clock, setClock] = useState(() => Date.now());
+  const [hydratedDraftKey, setHydratedDraftKey] = useState('');
+  const draftKeyRef = useRef('');
+  const lookupSerial = useRef(0);
+  const scanSerial = useRef(0);
+  const submissionInFlight = useRef(false);
+  const createAttempt = useRef<{
+    fingerprint: string;
+    key: string;
+    payload: CreateCounterOrderPayload;
+    quote: CounterOrderPreview;
+  } | null>(null);
+
+  const normalizeVoucherCode = (raw: string) =>
+    raw.trim().toUpperCase().replace(/^CLUCKY:V1:/, '').trim();
 
   // 3. Option Customization Modal state
   const [customizingProduct, setCustomizingProduct] = useState<PosProduct | null>(null);
@@ -230,23 +304,99 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
     };
   }, [open, user?.storeId, currentStore?.id, catalogRevision, t]);
 
-  // Reset cart when modal reopens
+  // Switching admin routes unmounts the POS. Restore its unsent draft in the
+  // same staff/store scope rather than clearing the basket on every open.
   useEffect(() => {
     if (open) {
-      setCartItems([]);
-      setOrderNote("");
-      setDiningOption("DINE_IN");
-      setPaymentMethod("CASH");
-      setIsCashCollected(true);
-      setCashTenderedInput(0);
+      lookupSerial.current++;
+      scanSerial.current++;
+      let stored: SafeCounterDraft | null = null;
+      try {
+        const text = window.sessionStorage.getItem(draftStorageKey);
+        if (text) {
+          const candidate: unknown = JSON.parse(text);
+          if (isSafeCounterDraft(candidate)) stored = candidate;
+          else window.sessionStorage.removeItem(draftStorageKey);
+        }
+      } catch {
+        // Storage may be disabled; the in-memory tab draft still works.
+      }
+      const cached = counterTabDrafts.get(draftStorageKey);
+      const tabDraft = isSafeCounterDraft(cached) ? cached : null;
+      const restored = tabDraft ?? stored;
+      setCartItems(restored?.cartItems ?? []);
+      setOrderNote(restored?.orderNote ?? "");
+      setDiningOption(restored?.diningOption ?? "DINE_IN");
+      setPaymentMethod(restored?.paymentMethod ?? "CASH");
+      setIsCashCollected(restored?.isCashCollected ?? true);
+      setCashTenderedInput(restored?.cashTenderedInput ?? 0);
       setIsSubmitting(false);
+      setLoyaltyInput(tabDraft?.loyaltyInput ?? '');
+      setLoyaltyKind(tabDraft?.loyaltyKind ?? 'PHONE');
+      setLoyalty(null);
+      setScanProof(null);
+      setPointsUsed(0);
+      setVoucherCode(tabDraft?.voucherCode ?? '');
+      setVoucherInput(tabDraft?.voucherInput ?? '');
+      setScanner(null);
+      setQuote(null);
+      setQuoteError('');
       setCustomizingProduct(null);
+      setHydratedDraftKey(draftStorageKey);
       const timer = window.setTimeout(() => {
         searchInputRef.current?.focus();
       }, 100);
       return () => window.clearTimeout(timer);
     }
-  }, [open, user?.storeId, currentStore?.id]);
+  }, [open, draftStorageKey]);
+
+  useEffect(() => {
+    // Guard against writing initial empty React state over a saved draft
+    // before hydration has completed. A successful order removes this key.
+    if (!open || hydratedDraftKey !== draftStorageKey) return;
+    const snapshot: TabCounterDraft = {
+      savedAt: Date.now(), cartItems, orderNote, diningOption, paymentMethod,
+      isCashCollected, cashTenderedInput, voucherCode, voucherInput, loyaltyKind, loyaltyInput,
+    };
+    const isEmpty = !cartItems.length && !orderNote.trim()
+      && !voucherCode && !voucherInput.trim() && !loyaltyInput.trim()
+      && diningOption === 'DINE_IN' && paymentMethod === 'CASH';
+    if (isEmpty) counterTabDrafts.delete(draftStorageKey);
+    else counterTabDrafts.set(draftStorageKey, snapshot);
+    try {
+      if (isEmpty) window.sessionStorage.removeItem(draftStorageKey);
+      else {
+        const safe: SafeCounterDraft = {
+          savedAt: snapshot.savedAt, cartItems, orderNote, diningOption,
+          paymentMethod, isCashCollected, cashTenderedInput,
+        };
+        window.sessionStorage.setItem(draftStorageKey, JSON.stringify(safe));
+      }
+    } catch {
+      // Volatile in-memory draft remains available for route switching.
+    }
+  }, [open, hydratedDraftKey, draftStorageKey, cartItems, orderNote, diningOption,
+    paymentMethod, isCashCollected, cashTenderedInput, voucherCode, voucherInput, loyaltyKind, loyaltyInput]);
+
+  useEffect(() => {
+    if (!open) {
+      setHydratedDraftKey('');
+      lookupSerial.current++;
+      scanSerial.current++;
+      setScanner(null);
+      setLoyalty(null);
+      setLoyaltyInput('');
+      setScanProof(null);
+      setPointsUsed(0);
+      setVoucherInput('');
+      setVoucherCode('');
+      setIdentityBusy(false);
+      setQuoteBusy(false);
+      setQuote(null);
+      setQuoteError('');
+      createAttempt.current = null;
+    }
+  }, [open]);
 
   const addItemToCart = useCallback((
     product: PosProduct,
@@ -373,8 +523,55 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   const subtotal = useMemo(() => {
     return cartItems.reduce((acc, it) => acc + it.lineTotal, 0);
   }, [cartItems]);
-  const discount = 0;
-  const totalAmount = subtotal - discount;
+  const orderItems: CounterOrderItemPayload[] = useMemo(() => cartItems.map(ci => {
+    const isCombo = ci.productId.startsWith('combo-');
+    const optionIds = ci.options.map(option => Number(String(option.choiceId ?? '').replace(/^opt-/i, '')))
+      .filter(id => Number.isInteger(id) && id > 0);
+    return {
+      productId: isCombo ? undefined : Number(ci.productId),
+      comboId: isCombo ? Number(ci.productId.slice('combo-'.length)) : undefined,
+      quantity: ci.quantity,
+      optionIds: optionIds.length ? optionIds : undefined,
+      note: ci.note || undefined,
+    };
+  }), [cartItems]);
+  const draft: CreateCounterOrderPayload = useMemo(() => ({
+    storeId: effectiveStoreId,
+    diningOption,
+    paymentMethod,
+    note: orderNote.trim() || undefined,
+    items: orderItems,
+    voucherCode: voucherCode || undefined,
+  }), [effectiveStoreId, diningOption, paymentMethod, orderNote, orderItems, voucherCode]);
+  // A proof cannot be reused for another cart, store or voucher.
+  const draftKey = JSON.stringify({ storeId: effectiveStoreId, items: orderItems, voucherCode });
+  draftKeyRef.current = draftKey;
+  const liveProof = scanProof && scanProof.draftKey === draftKey && scanProof.expiresAt > Date.now() ? scanProof : null;
+  const currentLoyalty = loyalty?.mode === 'QR' && !liveProof ? null : loyalty;
+  const allowedPointsUsed = currentLoyalty?.mode === 'QR' && liveProof ? pointsUsed : 0;
+  const pricedPayload: CreateCounterOrderPayload = {
+    ...draft,
+    loyaltySubject: currentLoyalty?.loyaltySubject,
+    loyaltyScanProof: liveProof?.value,
+    pointsUsed: allowedPointsUsed,
+  };
+  // Keep an ambiguous attempt tied to the original request even if its QR expires.
+  // The backend compares the complete payload hash for this Idempotency-Key.
+  const attemptFingerprint = JSON.stringify({
+    ...draft,
+    loyaltySubject: loyalty?.loyaltySubject,
+    loyaltyScanProof: scanProof?.value,
+    pointsUsed,
+  });
+  const retryableAttempt = createAttempt.current?.fingerprint === attemptFingerprint
+    ? createAttempt.current : null;
+  const quoteKey = JSON.stringify(pricedPayload);
+  const activeQuote = retryableAttempt?.quote ?? (quote?.key === quoteKey ? quote.value : null);
+  const totalAmount = activeQuote ? Number(activeQuote.totalAmount) : subtotal;
+  const voucherDiscount = Math.max(0, Number(activeQuote?.voucherDiscount ?? 0));
+  const tierDiscount = Math.max(0, Number(activeQuote?.tierDiscount ?? 0));
+  const pointsDiscount = Math.max(0, Number(activeQuote?.pointsAmount ?? 0));
+  const hasDiscount = voucherDiscount > 0 || tierDiscount > 0 || pointsDiscount > 0;
   const effectiveCashTendered = cashTenderedInput >= totalAmount ? cashTenderedInput : totalAmount;
   const effectiveCashChange = Math.max(0, effectiveCashTendered - totalAmount);
 
@@ -382,53 +579,208 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
     setCashTenderedInput((prev) => (prev < totalAmount ? totalAmount : prev));
   }, [totalAmount]);
 
+  useEffect(() => {
+    if (!open) return;
+    const interval = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [open]);
+
+  useEffect(() => {
+    setScanProof(null);
+    setPointsUsed(0);
+    if (loyalty?.mode === 'QR') setLoyalty(null);
+    scanSerial.current++;
+    setScanner(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (createAttempt.current?.fingerprint !== attemptFingerprint) {
+      createAttempt.current = null;
+    }
+  }, [attemptFingerprint]);
+
+  useEffect(() => {
+    if (!open || !effectiveStoreId || !orderItems.length) {
+      setQuote(null);
+      setQuoteError('');
+      setQuoteBusy(false);
+      return;
+    }
+    const controller = new AbortController();
+    let live = true;
+    setQuoteBusy(true);
+    setQuoteError('');
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await ordersApi.previewCounterOrder(pricedPayload, controller.signal);
+        if (live) setQuote({ key: quoteKey, value: response });
+      } catch (error) {
+        if (live) {
+          setQuote(null);
+          setQuoteError(getErrorMessage(error));
+        }
+      } finally {
+        if (live) setQuoteBusy(false);
+      }
+    }, 220);
+    return () => { live = false; controller.abort(); window.clearTimeout(timer); };
+  // Payload identity is expressed by quoteKey; this avoids re-requesting the same quote on unrelated renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, effectiveStoreId, quoteKey]);
+
+  const handleLookup = async () => {
+    if (!effectiveStoreId || !loyaltyInput.trim() || identityBusy) return;
+    const serial = ++lookupSerial.current;
+    setIdentityBusy(true);
+    setScanProof(null);
+    setPointsUsed(0);
+    setLoyalty(null);
+    try {
+      const found = await counterLoyaltyApi.lookup({
+        kind: loyaltyKind, value: loyaltyInput.trim(), storeId: effectiveStoreId,
+      });
+      if (serial !== lookupSerial.current || !open) return;
+      setLoyalty({ loyaltySubject: found.loyaltySubject, maskedAccount: found.maskedAccount || undefined, mode: 'TYPED' });
+      message.success(t('business:counterLoyalty.earnOnly'));
+    } catch (error) {
+      if (serial === lookupSerial.current) message.error(getErrorMessage(error));
+    } finally {
+      setIdentityBusy(false);
+    }
+  };
+
+  const handleQrDetected = async (qrValue: string): Promise<boolean> => {
+    if (submissionInFlight.current) return false;
+    const mode = scanner;
+    if (mode === 'VOUCHER') {
+      if (!/^CLUCKY:V1:CK1-[A-Z2-7]{12}-[A-Z2-7]{32}$/i.test(qrValue)) {
+        message.error(t('business:counterLoyalty.wrongQrType'));
+        return false;
+      }
+      setScanner(null);
+      const normalized = normalizeVoucherCode(qrValue);
+      setVoucherInput(normalized);
+      setVoucherCode(normalized);
+      return true;
+    }
+    if (mode !== 'LOYALTY') return false;
+    if (!qrValue.startsWith('CLUCKY:LOYALTY:V1:')) {
+      message.error(t('business:counterLoyalty.wrongQrType'));
+      return false;
+    }
+    if (!effectiveStoreId || !orderItems.length) {
+      message.error(t('business:counterLoyalty.cartRequired'));
+      return false;
+    }
+    setScanner(null);
+    const serial = ++scanSerial.current;
+    const binding = draftKeyRef.current;
+    setIdentityBusy(true);
+    setLoyalty(null);
+    setScanProof(null);
+    setPointsUsed(0);
+    try {
+      // Server hashes the exact cart/store/voucher BEFORE minting a scan proof.
+      const draftResponse = await ordersApi.counterDraftHash({ ...draft, loyaltySubject: undefined, loyaltyScanProof: undefined, pointsUsed: 0 });
+      if (serial !== scanSerial.current || draftKeyRef.current !== binding || !open) return true;
+      const result = await counterLoyaltyApi.scan({
+        qrToken: qrValue, storeId: effectiveStoreId, draftHash: draftResponse.draftHash,
+      });
+      if (serial !== scanSerial.current || draftKeyRef.current !== binding || !open) return true;
+      const expiresAt = new Date(result.expiresAt).getTime();
+      if (!result.redeemAllowed || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error(t('business:counterLoyalty.scanExpired'));
+      setClock(Date.now());
+      setLoyalty({ loyaltySubject: result.loyaltySubject, mode: 'QR' });
+      setScanProof({ value: result.scanProof, draftKey: binding, draftHash: draftResponse.draftHash, expiresAt });
+      message.success(t('business:counterLoyalty.scanSuccess'));
+    } catch (error) {
+      if (serial === scanSerial.current) {
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        message.error(status === 409
+          ? t('business:counterLoyalty.scanRejected')
+          : getErrorMessage(error));
+      }
+    } finally {
+      setIdentityBusy(false);
+    }
+    return true;
+  };
+
+  const updateVoucherInput = (value: string) => {
+    setVoucherInput(value);
+    if (normalizeVoucherCode(value) !== voucherCode) {
+      // Invalidate the QR proof as soon as the voucher text is changed.
+      setScanProof(null);
+      setPointsUsed(0);
+      if (loyalty?.mode === 'QR') setLoyalty(null);
+      if (voucherCode) setVoucherCode('');
+    }
+  };
+
+  const applyVoucherInput = () => {
+    const normalized = normalizeVoucherCode(voucherInput);
+    setVoucherInput(normalized);
+    if (normalized !== voucherCode) {
+      setScanProof(null);
+      setPointsUsed(0);
+      if (loyalty?.mode === 'QR') setLoyalty(null);
+    }
+    setVoucherCode(normalized);
+  };
+
   // Submit order handler
   const handleSubmit = async () => {
-    if (cartItems.length === 0 || isSubmitting || !storeOpenState.isOpen) return;
+    if (cartItems.length === 0 || submissionInFlight.current || !storeOpenState.isOpen) return;
 
+    submissionInFlight.current = true;
     setIsSubmitting(true);
+    // Any pending lookup/scan belongs to the editable draft, not this locked order.
+    lookupSerial.current++;
+    scanSerial.current++;
+    setScanner(null);
     try {
-      const items: CounterOrderItemPayload[] = cartItems.map((ci) => {
-        const isCombo = ci.productId.startsWith("combo-");
-        const comboId = isCombo
-          ? Number(ci.productId.replace("combo-", ""))
-          : undefined;
-        const productId = !isCombo
-          ? Number.isNaN(Number(ci.productId))
-            ? 1
-            : Number(ci.productId)
-          : undefined;
-
-        const optionIds: number[] = [];
-        if (Array.isArray(ci.options)) {
-          for (const opt of ci.options) {
-            const rawId = String(opt.choiceId ?? "").replace(/^opt-/i, "");
-            const num = Number(rawId);
-            if (!Number.isNaN(num) && num > 0) {
-              optionIds.push(num);
-            }
-          }
+      let attempt = retryableAttempt;
+      if (!attempt) {
+        if (!activeQuote || quoteBusy || quoteError) {
+          message.error(t('business:counterLoyalty.quoteRequired'));
+          return;
         }
-
-        return {
-          productId: productId || undefined,
-          comboId: comboId || undefined,
-          quantity: ci.quantity,
-          optionIds: optionIds.length > 0 ? optionIds : undefined,
-          note: ci.note || undefined,
+        if (pointsUsed > 0 && (!liveProof || liveProof.expiresAt <= Date.now() || !activeQuote.redeemAllowed)) {
+          message.error(t('business:counterLoyalty.scanExpired'));
+          return;
+        }
+        const latestQuote = await ordersApi.previewCounterOrder(pricedPayload);
+        if (draftKeyRef.current !== draftKey
+            || latestQuote.draftHash !== activeQuote.draftHash
+            || latestQuote.totalAmount !== activeQuote.totalAmount
+            || latestQuote.voucherDiscount !== activeQuote.voucherDiscount
+            || latestQuote.pointsAmount !== activeQuote.pointsAmount
+            || latestQuote.pointsUsed !== activeQuote.pointsUsed
+            || (liveProof && latestQuote.draftHash !== liveProof.draftHash)) {
+          message.error(t('business:counterLoyalty.quoteChanged'));
+          setScanProof(null);
+          setPointsUsed(0);
+          setQuote(null);
+          return;
+        }
+        attempt = {
+          fingerprint: attemptFingerprint,
+          key: typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `counter-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          payload: { ...pricedPayload, items: pricedPayload.items.map(item => ({ ...item })) },
+          quote: activeQuote,
         };
-      });
-
-      const effectiveStoreId = user?.storeId ? Number(user.storeId) : currentStore?.id || 1;
-      const payload: CreateCounterOrderPayload = {
-        storeId: effectiveStoreId,
-        diningOption,
-        paymentMethod: paymentMethod,
-        note: orderNote.trim() || undefined,
-        items,
-      };
-
-      const created = await ordersApi.createCounterOrder(payload);
+        createAttempt.current = attempt;
+      }
+      const created = await ordersApi.createCounterOrder(attempt.payload, attempt.key);
+      // A definitive success is the only point at which the key can be discarded.
+      createAttempt.current = null;
+      // Never restore a draft for an order that the server has accepted.
+      counterTabDrafts.delete(draftStorageKey);
+      try { window.sessionStorage.removeItem(draftStorageKey); } catch {}
+      setHydratedDraftKey('');
 
       let latestCreated: any = created;
       if (paymentMethod === "CASH" && isCashCollected && created.id && created.orderCode) {
@@ -447,8 +799,8 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             staffNotes: t("business:counterPos.autoCollectStaffNote"),
           });
           latestCreated = { ...created };
-        } catch (payErr) {
-          console.warn("Auto counter collection warning:", payErr);
+        } catch {
+          message.warning(t('business:counterLoyalty.cashCollectionDeferred'));
         }
       }
 
@@ -466,11 +818,11 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
         await onSubmitOrder(latestCreated as any);
       }
     } catch (err: any) {
-      console.error("counter order creation failed:", err);
       message.error(t("business:staffactions.counterCreateFailed", {
         detail: err?.response?.data?.message || err?.message || t("business:staffactions.unableToCreateOrder"),
       }));
     } finally {
+      submissionInFlight.current = false;
       setIsSubmitting(false);
     }
   };
@@ -485,7 +837,10 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        if (customizingProduct) {
+        if (submissionInFlight.current) return;
+        if (scanner) {
+          setScanner(null);
+        } else if (customizingProduct) {
           setCustomizingProduct(null);
         } else {
           onClose();
@@ -494,7 +849,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
         // If Enter pressed while not focusing on textarea or inside options modal
         const target = e.target as HTMLElement;
         const isEditing = target.closest('input, textarea, select, button, [contenteditable="true"]');
-        if (!e.repeat && !isEditing && !customizingProduct && cartItems.length > 0 && storeOpenState.isOpen) {
+        if (!e.repeat && !submissionInFlight.current && !isEditing && !scanner && !customizingProduct && cartItems.length > 0 && storeOpenState.isOpen) {
           e.preventDefault();
           void submitRef.current();
         }
@@ -505,7 +860,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open, customizingProduct, cartItems.length, onClose, storeOpenState.isOpen]);
+  }, [open, scanner, customizingProduct, cartItems.length, onClose, storeOpenState.isOpen]);
 
   // Filter products by category and search
   const visibleProducts = useMemo(() => {
@@ -527,33 +882,33 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   if (!open) return null;
 
   return (
-    <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="POS Nhập Đơn Quầy">
-      <div className={styles.modalWindow}>
+    <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label={t('business:counterPos.windowTitle')}>
+      <fieldset className={styles.modalWindow} disabled={isSubmitting} aria-busy={isSubmitting}>
         {/* Header */}
         <div className={styles.modalHeader}>
           <div className={styles.headerLeft}>
             <div className={styles.posTitle}>
               <Sparkles size={20} />
-              <span>Giao Diện Nhập Đơn Quầy Fast-Food (POS)</span>
+              <span>{t('business:counterPos.windowTitle')}</span>
             </div>
             <span className={styles.posSubtitle}>
               {currentStore?.name || user?.storeName || t("business:stafforderspage.branchFallback", { id: user?.storeId || 1 })}
-              {currentStore?.address ? ` · ${currentStore.address}` : t("business:counterPos.subtitleFallback")}
+              {currentStore?.address ? ` · ${currentStore.address}` : ''}
             </span>
           </div>
 
           <div className={styles.headerShortcuts}>
             <div className={styles.shortcutHint}>
-              <span className={styles.kbd}>Esc</span> Đóng
+              <span className={styles.kbd}>Esc</span> {t('business:counterPos.close')}
             </div>
             <div className={styles.shortcutHint}>
-              <span className={styles.kbd}>Enter</span> Tạo đơn
+              <span className={styles.kbd}>Enter</span> {t('business:counterPos.create')}
             </div>
             <button
               type="button"
               className={styles.closeButton}
               onClick={onClose}
-              aria-label="Đóng cửa sổ"
+              aria-label={t('business:counterPos.close')}
             >
               <X size={20} />
             </button>
@@ -616,7 +971,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   ref={searchInputRef}
                   type="text"
                   className={styles.searchInput}
-                  placeholder="Tìm nhanh món ăn theo tên (ví dụ: Gà rán, Khoai tây, Burger)..."
+                  placeholder={t('business:counterPos.searchPlaceholder')}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -691,15 +1046,16 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
               </button>
             </div>
 
+            <div className={styles.cartSectionHeader}>
+              <strong>{t('business:counterPos.cartTitle')}</strong>
+              <span>{t('business:counterPos.cartCount', { count: cartItems.reduce((sum, item) => sum + item.quantity, 0) })}</span>
+            </div>
             {/* Danh sách món trong giỏ */}
-            <div className={styles.cartListContainer}>
+            <div className={`${styles.cartListContainer} ${cartItems.length === 0 ? styles.cartListEmpty : ''}`}>
               {cartItems.length === 0 ? (
                 <div className={styles.cartEmptyState}>
                   <Utensils size={36} strokeWidth={1.5} />
-                  <p style={{ marginTop: 12, fontWeight: 600 }}>Giỏ hàng quầy đang trống</p>
-                  <span style={{ fontSize: 12, color: "#9c9186" }}>
-                    Nhấp chọn món từ thực đơn bên trái để thêm vào đơn
-                  </span>
+                  <p style={{ marginTop: 12, fontWeight: 600 }}>{t('business:counterPos.emptyCart')}</p>
                 </div>
               ) : (
                 cartItems.map((item) => (
@@ -754,14 +1110,6 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
 
             {/* Footer giỏ hàng: Ghi chú, Phương thức, Tổng kết & Nút tạo đơn */}
             <div className={styles.cartFooter}>
-              <input
-                type="text"
-                className={styles.noteInput}
-                placeholder="Ghi chú đơn (ví dụ: Khách vội, xin thêm 2 tương ớt...)"
-                value={orderNote}
-                onChange={(e) => setOrderNote(e.target.value)}
-              />
-
               {/* Chọn nhanh hình thức thanh toán dự kiến */}
               <div className={styles.paymentMethodRow}>
                 <button
@@ -780,7 +1128,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   }`}
                   onClick={() => setPaymentMethod("BANK_TRANSFER")}
                 >
-                  CHUYỂN KHOẢN (VIETQR)
+                  VIETQR
                 </button>
                 <button
                   type="button"
@@ -793,148 +1141,190 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 </button>
               </div>
 
-              {/* Tùy chọn thu tiền mặt hoặc xem mã VietQR */}
+              {/* Thu tiền trực tiếp: chỉ hiển thị nhập tiền khi đã chọn thu tại quầy. */}
               {paymentMethod === "CASH" && (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 8,
-                    fontSize: 13,
-                    color: "#16100D",
-                    backgroundColor: "#FBF8F3",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1px solid #EDE8E1",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className={styles.cashPanel}>
+                  <label className={styles.cashCheckboxRow}>
                     <input
                       type="checkbox"
-                      id="cashCollectedCheck"
                       checked={isCashCollected}
-                      onChange={(e) => setIsCashCollected(e.target.checked)}
-                      style={{
-                        cursor: "pointer",
-                        width: 16,
-                        height: 16,
-                        accentColor: "#8F1216",
-                      }}
+                      onChange={(event) => setIsCashCollected(event.target.checked)}
                     />
-                    <label
-                      htmlFor="cashCollectedCheck"
-                      style={{ cursor: "pointer", fontWeight: 700 }}
-                    >
-                      {t("business:counterPos.confirmCashAtCounter")}
-                    </label>
-                  </div>
-
+                    {t("business:counterPos.confirmCashAtCounter")}
+                  </label>
                   {isCashCollected && totalAmount > 0 && (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 6,
-                        paddingTop: 6,
-                        borderTop: "1px dashed #E2D9CC",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                        }}
-                      >
-                        <span style={{ fontSize: 12, color: "#6B6259", fontWeight: 600 }}>
-                          {t("business:counterPos.cashTenderedLabel")}
-                        </span>
-                        <input
-                          type="number"
-                          min={totalAmount}
-                          step={1000}
+                    <div className={styles.cashDetails}>
+                      <label className={styles.cashAmountRow}>
+                        <span>{t("business:counterPos.cashTenderedLabel")}</span>
+                        <input type="number" min={totalAmount} step={1000}
                           value={cashTenderedInput || totalAmount}
-                          onChange={(e) => setCashTenderedInput(Number(e.target.value) || 0)}
-                          style={{
-                            width: 135,
-                            padding: "4px 8px",
-                            borderRadius: 6,
-                            border: "1px solid #D6C9B9",
-                            fontWeight: 700,
-                            fontSize: 13,
-                            textAlign: "right",
-                            backgroundColor: "#FFF",
-                          }}
-                        />
-                      </div>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                          onChange={(event) => setCashTenderedInput(Number(event.target.value) || 0)} />
+                      </label>
+                      <div className={styles.cashPresetRow}>
                         {[totalAmount, 100000, 200000, 500000]
-                          .filter((v, idx, arr) => v >= totalAmount && arr.indexOf(v) === idx)
-                          .map((preset) => (
-                            <button
-                              key={preset}
-                              type="button"
-                              onClick={() => setCashTenderedInput(preset)}
-                              style={{
-                                padding: "2px 8px",
-                                borderRadius: 6,
-                                border:
-                                  effectiveCashTendered === preset
-                                    ? "1px solid #8F1216"
-                                    : "1px solid #E2D9CC",
-                                backgroundColor:
-                                  effectiveCashTendered === preset ? "#FBE9E9" : "#FFF",
-                                color: effectiveCashTendered === preset ? "#8F1216" : "#4B443C",
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: "pointer",
-                              }}
-                            >
+                          .filter((value, index, values) => value >= totalAmount && values.indexOf(value) === index)
+                          .map(preset => (
+                            <button key={preset} type="button"
+                              className={`${styles.cashPresetBtn} ${effectiveCashTendered === preset ? styles.cashPresetBtnActive : ''}`}
+                              onClick={() => setCashTenderedInput(preset)}>
                               {preset === totalAmount ? t("business:counterPos.exactCash") : formatVnd(preset)}
                             </button>
                           ))}
                       </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: effectiveCashChange > 0 ? "#1E7A46" : "#6B6259",
-                        }}
-                      >
-                        <span>{t("business:counterPos.cashChangeLabel")}</span>
-                        <strong style={{ fontSize: 14 }}>
-                          {formatVnd(effectiveCashChange)}
-                        </strong>
-                      </div>
+                      {effectiveCashChange > 0 && (
+                        <div className={styles.cashChangeRow}>
+                          <span>{t("business:counterPos.cashChangeLabel")}</span>
+                          <strong>{formatVnd(effectiveCashChange)}</strong>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               )}
 
               {(paymentMethod === "BANK_TRANSFER" || paymentMethod === "SPLIT") && (
-                <p role="note" style={{ fontSize: 13, color: "#6B6259", margin: 0 }}>
+                <p role="note" className={styles.paymentHint}>
                   {t("business:counterPos.qrAfterCreation")}
                 </p>
               )}
 
-              {/* Tổng kết tiền */}
+              <section className={styles.loyaltyPanel} aria-label={t('business:counterLoyalty.title')}>
+                <div className={styles.panelHeadingRow}>
+                  <div className={styles.loyaltyHeading}><UserRound size={18} />
+                    <strong>{t('business:counterLoyalty.title')}</strong>
+                  </div>
+                  <button type="button" className={styles.scanActionBtn} disabled={identityBusy || !orderItems.length || !effectiveStoreId}
+                    onClick={() => setScanner('LOYALTY')}><Camera size={17} /> {t('business:counterLoyalty.scanLoyalty')}</button>
+                </div>
+                <div className={styles.loyaltyFormRow}>
+                  <select className={styles.loyaltySelect} aria-label={t('business:counterLoyalty.lookupType')}
+                    value={loyaltyKind} onChange={event => {
+                    setLoyaltyKind(event.target.value as CounterLoyaltyLookupKind);
+                    lookupSerial.current++;
+                    setLoyalty(null); setScanProof(null); setPointsUsed(0);
+                  }}>
+                    <option value="PHONE">{t('business:counterLoyalty.phone')}</option>
+                    <option value="EMAIL">{t('business:counterLoyalty.email')}</option>
+                    <option value="LOYALTY_TEXT_CODE">{t('business:counterLoyalty.textCode')}</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={loyaltyInput}
+                    placeholder={t('business:counterLoyalty.lookupPlaceholder')}
+                    onChange={event => {
+                      lookupSerial.current++;
+                      setLoyaltyInput(event.target.value);
+                      if (loyalty?.mode === 'TYPED') setLoyalty(null);
+                      setScanProof(null); setPointsUsed(0);
+                    }}
+                    onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void handleLookup(); } }}
+                  />
+                  <button type="button" disabled={identityBusy || !loyaltyInput.trim() || !effectiveStoreId}
+                    onClick={() => void handleLookup()}>{t('business:counterLoyalty.lookup')}</button>
+                </div>
+                {currentLoyalty && <p className={styles.loyaltyStatus} role="status">
+                  <Check size={14} /> {currentLoyalty.mode === 'QR'
+                    ? t('business:counterLoyalty.qrConfirmed')
+                    : t('business:counterLoyalty.earnOnly')}
+                  {currentLoyalty.maskedAccount ? ` · ${currentLoyalty.maskedAccount}` : ''}
+                </p>}
+                {loyalty?.mode === 'QR' && !liveProof && <p role="alert" className={styles.loyaltyWarning}>
+                  {t('business:counterLoyalty.scanExpired')}
+                </p>}
+                {currentLoyalty?.mode === 'QR' && <div className={styles.pointsRow}>
+                  <label htmlFor="counter-points-used">{t('business:counterLoyalty.pointsToUse')}</label>
+                  <input id="counter-points-used" type="number" min={0}
+                    max={Math.max(0, Number(activeQuote?.availablePoints ?? 0))}
+                    step={1} value={allowedPointsUsed}
+                    disabled={!liveProof || !currentLoyalty || !activeQuote?.redeemAllowed || quoteBusy}
+                    onChange={event => setPointsUsed(Math.min(
+                      Math.max(0, Math.floor(Number(event.target.value) || 0)),
+                      Math.max(0, Number(activeQuote?.availablePoints ?? 0)),
+                    ))} />
+                  <button type="button" disabled={!liveProof || !activeQuote?.redeemAllowed || quoteBusy}
+                    onClick={() => setPointsUsed(Math.max(0, Number(activeQuote?.availablePoints ?? 0)))}>
+                    {t('business:counterLoyalty.useMax')}
+                  </button>
+                </div>}
+                <p className={styles.loyaltyHint}>
+                  {liveProof && activeQuote?.redeemAllowed
+                    ? t('business:counterLoyalty.availablePoints', { count: activeQuote.availablePoints,
+                      seconds: Math.max(0, Math.ceil((liveProof.expiresAt - clock) / 1000)) })
+                    : t('business:counterLoyalty.optionalHint')}
+                </p>
+              </section>
+
+              <section className={styles.loyaltyPanel} aria-label={t('business:counterLoyalty.voucherTitle')}>
+                <div className={styles.panelHeadingRow}>
+                  <div className={styles.loyaltyHeading}><Ticket size={18} />
+                    <strong>{t('business:counterLoyalty.voucherTitle')}</strong>
+                  </div>
+                  <button type="button" className={styles.scanActionBtn} onClick={() => setScanner('VOUCHER')}>
+                    <Camera size={17} /> {t('business:counterLoyalty.scanVoucher')}
+                  </button>
+                </div>
+                <div className={styles.loyaltyFormRow}>
+                  <input type="text" value={voucherInput}
+                    placeholder={t('business:counterLoyalty.voucherPlaceholder')}
+                    onChange={event => updateVoucherInput(event.target.value)}
+                    onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); applyVoucherInput(); } }}
+                  />
+                  <button type="button" disabled={!voucherInput.trim() || identityBusy}
+                    onClick={applyVoucherInput}>
+                    {t('business:counterLoyalty.applyVoucher')}
+                  </button>
+                </div>
+                {voucherCode && <div className={styles.appliedVoucher}>
+                  <span><Check size={14} /> {t('business:counterLoyalty.voucherAppliedShort')}</span>
+                  <button type="button" onClick={() => { setVoucherCode(''); setVoucherInput(''); }}>
+                    {t('business:counterLoyalty.removeVoucher')}
+                  </button>
+                </div>}
+              </section>
+
+              {(quoteError || quoteBusy) && <p role={quoteError ? 'alert' : 'status'}
+                className={quoteError ? styles.loyaltyWarning : styles.loyaltyHint}>
+                {quoteError || t('business:counterLoyalty.quoting')}
+              </p>}
+
+              <input
+                type="text"
+                className={styles.noteInput}
+                placeholder={t('business:counterPos.orderNotePlaceholder')}
+                value={orderNote}
+                onChange={(e) => setOrderNote(e.target.value)}
+              />
+
+            </div>
+            <div className={styles.checkoutBar}>
+              {/* Giữ phần thanh toán cố định thật gọn; chỉ hiện các khoản giảm thực tế. */}
               <div className={styles.summaryBox}>
-                <div className={styles.summaryLine}>
-                  <span>Tạm tính ({cartItems.reduce((a, b) => a + b.quantity, 0)} món):</span>
-                  <span>{formatVnd(subtotal)}</span>
-                </div>
-                <div className={styles.summaryLine}>
-                  <span>Giảm giá:</span>
-                  <span>{formatVnd(discount)}</span>
-                </div>
+                {hasDiscount && (
+                  <div className={styles.summaryLine}>
+                    <span>{t('business:counterLoyalty.subtotal', { count: cartItems.reduce((a, b) => a + b.quantity, 0) })}</span>
+                    <span>{formatVnd(Number(activeQuote?.subtotal ?? subtotal))}</span>
+                  </div>
+                )}
+                {voucherDiscount > 0 && <div className={styles.summaryLine}>
+                  <span>{t('business:counterLoyalty.voucherDiscount')}</span>
+                  <span>-{formatVnd(voucherDiscount)}</span>
+                </div>}
+                {tierDiscount > 0 && <div className={styles.summaryLine}>
+                  <span>{t('business:counterLoyalty.tierDiscount')}</span>
+                  <span>-{formatVnd(tierDiscount)}</span>
+                </div>}
+                {pointsDiscount > 0 && <div className={styles.summaryLine}>
+                  <span>{t('business:counterLoyalty.pointsDiscount')}</span>
+                  <span>-{formatVnd(pointsDiscount)}</span>
+                </div>}
+                {Number(activeQuote?.pointsToEarn ?? 0) > 0 && <div className={styles.summaryLine}>
+                  <span>{t('business:counterLoyalty.pointsToEarn')}</span>
+                  <span>+{activeQuote?.pointsToEarn}</span>
+                </div>}
                 <div className={styles.summaryTotal}>
-                  <span>TỔNG THANH TOÁN:</span>
+                  <span>{t('business:counterLoyalty.totalDue')}</span>
                   <span className={styles.totalNumber}>
-                    {formatVnd(totalAmount)}
+                    {activeQuote ? formatVnd(totalAmount) : t('business:counterLoyalty.awaitingQuote')}
                   </span>
                 </div>
               </div>
@@ -942,7 +1332,8 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
               {/* Nút Tạo đơn quầy */}
               <button
                 type="button"
-                disabled={cartItems.length === 0 || isSubmitting || !storeOpenState.isOpen}
+                disabled={cartItems.length === 0 || isSubmitting || !storeOpenState.isOpen
+                  || (!retryableAttempt && (!activeQuote || quoteBusy || !!quoteError))}
                 className={styles.submitOrderBtn}
                 onClick={handleSubmit}
               >
@@ -956,11 +1347,11 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 ) : isSubmitting ? (
                   <>
                     <Loader2 size={18} className="animate-spin" />
-                    <span>Đang tạo đơn...</span>
+                    <span>{t('business:counterPos.creating')}</span>
                   </>
                 ) : (
                   <>
-                    <span>Tạo đơn quầy (Enter)</span>
+                    <span>{t('business:counterPos.createOrder')}</span>
                   </>
                 )}
               </button>
@@ -968,6 +1359,22 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
           </div>
         </div>
 
+        {scanner && (
+          <div className={styles.qrModalOverlay} role="dialog" aria-modal="true"
+            aria-label={scanner === 'LOYALTY' ? t('business:counterLoyalty.scanLoyalty') : t('business:counterLoyalty.scanVoucher')}>
+            <div className={styles.qrModalWindow}>
+              <div className={styles.qrModalHeader}>
+                <div>
+                  <h3>{scanner === 'LOYALTY' ? t('business:counterLoyalty.scanLoyalty') : t('business:counterLoyalty.scanVoucher')}</h3>
+                  <p>{t('business:counterLoyalty.scanInstruction')}</p>
+                </div>
+                <button type="button" className={styles.closeButton} onClick={() => setScanner(null)}
+                  aria-label={t('business:counterLoyalty.closeScanner')}><X size={20} /></button>
+              </div>
+              <CounterQrScanner key={scanner} onDetected={handleQrDetected} onClose={() => setScanner(null)} />
+            </div>
+          </div>
+        )}
         {/* Option Customizer Modal Overlay (Nếu mở chọn món) */}
         {customizingProduct && (
           <div className={styles.optionModalOverlay}>
@@ -1078,7 +1485,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             </div>
           </div>
         )}
-      </div>
+      </fieldset>
     </div>
   );
 };

@@ -14,8 +14,13 @@ public record OrderPreviewRequest(
         String receiverAddress,
         @jakarta.validation.constraints.DecimalMin("-90") @jakarta.validation.constraints.DecimalMax("90") Double latitude,
         @jakarta.validation.constraints.DecimalMin("-180") @jakarta.validation.constraints.DecimalMax("180") Double longitude,
-        List<@Valid CartItemDto> items
+        List<@Valid CartItemDto> items,
+        java.util.UUID voucherInstanceId
 ) {
+    public OrderPreviewRequest(Long storeId, String type, String voucherCode, Integer pointsUsed,
+            String receiverAddress, Double latitude, Double longitude, List<CartItemDto> items) {
+        this(storeId, type, voucherCode, pointsUsed, receiverAddress, latitude, longitude, items, null);
+    }
     @jakarta.validation.constraints.AssertTrue
     public boolean isCoordinatePairValid() {
         return (latitude == null && longitude == null) || (latitude != null && longitude != null

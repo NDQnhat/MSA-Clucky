@@ -300,7 +300,9 @@ class UserProfileServiceTest {
                 UserRepository.class.getClassLoader(),
                 new Class<?>[]{UserRepository.class},
                 (instance, method, args) -> switch (method.getName()) {
-                    case "findById" -> Optional.ofNullable(users.get((Long) args[0]));
+                    // Profile update now acquires a pessimistic row lock so OTP
+                    // binding cannot race with a concurrently updated profile.
+                    case "findById", "findByIdForUpdate" -> Optional.ofNullable(users.get((Long) args[0]));
                     case "save" -> {
                         User user = (User) args[0];
                         users.put(user.getId(), user);

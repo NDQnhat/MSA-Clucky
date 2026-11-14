@@ -25,16 +25,17 @@ import org.springframework.web.client.RestClientResponseException;
 public class LoyaltyEvents {
     private static final Logger LOG = LoggerFactory.getLogger(LoyaltyEvents.class);
     private final LoyaltyService loyalty;
+    private final CounterLoyaltyService counter;
     private final VoucherReservationService vouchers;
     private final ObjectMapper mapper;
     private final Validator validator;
     private final RestClient orders;
     private final String orderUrl;
     private final InternalServiceCredential credential;
-    public LoyaltyEvents(LoyaltyService loyalty, VoucherReservationService vouchers, ObjectMapper mapper, Validator validator,
+    public LoyaltyEvents(LoyaltyService loyalty, CounterLoyaltyService counter, VoucherReservationService vouchers, ObjectMapper mapper, Validator validator,
             @LoadBalanced RestClient.Builder builder, @Value("${clucky.loyalty.order-url:http://cart-order-service}") String orderUrl,
             InternalServiceCredential credential) {
-        this.loyalty = loyalty; this.mapper = mapper; this.validator = validator;
+        this.loyalty = loyalty; this.counter = counter; this.mapper = mapper; this.validator = validator;
         this.vouchers = vouchers;
         this.orders = builder.build(); this.orderUrl = orderUrl; this.credential = credential;
     }
@@ -44,29 +45,28 @@ public class LoyaltyEvents {
         if (!validator.validate(event).isEmpty() || !"cart-order-service".equals(event.sourceService())
                 || !record.topic().equals(event.eventType())) throw new IllegalArgumentException("Invalid loyalty event");
         var payload = event.payload();
-        if ("COUNTER".equals(payload.path("orderSource").asText()) && !payload.hasNonNull("customerId")) {
-            acknowledgment.acknowledge();
-            return;
-        }
-        if (!payload.path("orderId").isIntegralNumber() || !payload.path("customerId").isIntegralNumber()
-                || !payload.path("orderId").canConvertToLong() || !payload.path("customerId").canConvertToLong()
-                || payload.path("orderId").asLong() <= 0 || payload.path("customerId").asLong() <= 0)
+        boolean counterOrder = "COUNTER".equals(payload.path("orderSource").asText());
+        if (!payload.path("orderId").isIntegralNumber() || !payload.path("orderId").canConvertToLong()
+                || payload.path("orderId").asLong() <= 0
+                || (!counterOrder && (!payload.path("customerId").canConvertToLong()
+                    || payload.path("customerId").asLong() <= 0)))
             throw new IllegalArgumentException("Invalid loyalty event identity");
         long orderId = payload.path("orderId").asLong();
-        long customerId = payload.path("customerId").asLong();
+        Long customerId = payload.path("customerId").isIntegralNumber() ? payload.path("customerId").asLong() : null;
         OrderState state = orderState(orderId, customerId);
-        loyalty.settle(orderId, customerId, state.status(), event.eventId(), event.correlationId());
+        if (counterOrder) counter.settle(orderId, state.status(), event.eventId(), event.correlationId());
+        else loyalty.settle(orderId, customerId, state.status(), event.eventId(), event.correlationId());
         vouchers.settle(orderId, customerId, state.status(), event.eventId(), event.correlationId());
         acknowledgment.acknowledge();
     }
     public record OrderState(Long orderId, Long customerId, String status) {}
-    private OrderState orderState(long orderId, long customerId) {
+    private OrderState orderState(long orderId, Long customerId) {
         OrderState state = orders.get().uri(orderUrl + "/internal/loyalty/orders/" + orderId)
                 .headers(headers -> headers.setBearerAuth(credential.token())).retrieve().body(OrderState.class);
         if (state == null || state.orderId() == null || state.orderId() != orderId || state.status() == null)
             throw new IllegalStateException("Invalid order reconciliation response");
         if ("MISSING".equals(state.status()) && state.customerId() == null) return state;
-        if (state.customerId() == null || state.customerId() != customerId || !Set.of("PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "SHIPPING", "COMPLETED", "CANCELLED").contains(state.status()))
+        if (!java.util.Objects.equals(state.customerId(), customerId) || !Set.of("PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "SHIPPING", "COMPLETED", "CANCELLED").contains(state.status()))
             throw new IllegalStateException("Invalid order reconciliation response");
         return state;
     }
@@ -75,12 +75,26 @@ public class LoyaltyEvents {
         for (var pending : loyalty.pending()) {
             try {
                 OrderState state = orderState(pending.orderId(), pending.customerId());
-                loyalty.settle(pending.orderId(), pending.customerId(), state.status(), null, null);
+                if (pending.customerId() == null) counter.settle(pending.orderId(), state.status(), null, null);
+                else loyalty.settle(pending.orderId(), pending.customerId(), state.status(), null, null);
                 vouchers.settle(pending.orderId(), pending.customerId(), state.status(), null, null);
             } catch (RestClientResponseException failure) {
                 LOG.warn("event=loyalty_reconcile_deferred orderId={} status={}", pending.orderId(), failure.getStatusCode().value());
             } catch (Exception failure) {
                 LOG.warn("event=loyalty_reconcile_deferred orderId={}", pending.orderId());
+            }
+        }
+        // Vouchers can be reserved for an anonymous counter transaction without
+        // a loyalty wallet; they must still be reconciled against the order.
+        for (var pending : vouchers.pending()) {
+            try {
+                OrderState state = orderState(pending.orderId(), pending.customerId());
+                vouchers.settle(pending.orderId(), pending.customerId(), state.status(), null, null);
+            } catch (RestClientResponseException failure) {
+                LOG.warn("event=voucher_reconcile_deferred orderId={} status={}",
+                        pending.orderId(), failure.getStatusCode().value());
+            } catch (Exception failure) {
+                LOG.warn("event=voucher_reconcile_deferred orderId={}", pending.orderId());
             }
         }
     }

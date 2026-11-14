@@ -10,8 +10,13 @@ import com.clucky.promotionloyaltyservice.dto.VoucherResponse;
 import com.clucky.promotionloyaltyservice.exception.ApiException;
 import com.clucky.promotionloyaltyservice.exception.ErrorCode;
 import com.clucky.promotionloyaltyservice.model.VoucherScope;
+import com.clucky.promotionloyaltyservice.model.VoucherCampaignKind;
+import com.clucky.promotionloyaltyservice.model.VoucherApplicability;
 import com.clucky.promotionloyaltyservice.model.VoucherStatus;
 import com.clucky.promotionloyaltyservice.service.VoucherService;
+import com.clucky.promotionloyaltyservice.service.PersonalVoucherService;
+import org.springframework.beans.factory.annotation.Autowired;
+import java.util.UUID;
 import org.springframework.security.access.prepost.PreAuthorize;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -25,9 +30,15 @@ import java.util.List;
 public class VoucherController {
 
     private final VoucherService voucherService;
+    private final PersonalVoucherService personal;
 
-    public VoucherController(VoucherService voucherService) {
+    @Autowired
+    public VoucherController(VoucherService voucherService, PersonalVoucherService personal) {
         this.voucherService = voucherService;
+        this.personal = personal;
+    }
+    public VoucherController(VoucherService voucherService) {
+        this(voucherService, null);
     }
 
     /**
@@ -36,8 +47,29 @@ public class VoucherController {
      */
     @PostMapping("/validate")
     public ResponseEntity<ValidateVoucherResponse> validateVoucher(@Valid @RequestBody ValidateVoucherRequest request) {
-        ValidateVoucherResponse response = voucherService.validateVoucher(request);
+        String code = request.getCode() == null ? "" : request.getCode().strip().toUpperCase(java.util.Locale.ROOT);
+        boolean personalCode = code.startsWith("CK1") || code.startsWith("CLUCKY:V1:");
+        ValidateVoucherResponse response = request.getVoucherInstanceId() != null || personalCode
+                ? personal.validate(request) : voucherService.validateVoucher(request);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{campaignId}/claim")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public PersonalVoucherService.PersonalVoucherView claim(@PathVariable Long campaignId) {
+        return personal.claim(campaignId, CurrentActor.require().userId());
+    }
+
+    @GetMapping("/mine")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public List<PersonalVoucherService.PersonalVoucherView> mine() {
+        return personal.mine(CurrentActor.require().userId());
+    }
+
+    @GetMapping("/my/{instanceId}")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    public PersonalVoucherService.PersonalVoucherView myDetail(@PathVariable UUID instanceId) {
+        return personal.detail(instanceId, CurrentActor.require().userId());
     }
 
     /**
@@ -72,7 +104,9 @@ public class VoucherController {
                 throw new ApiException(ErrorCode.FORBIDDEN);
             }
             effectiveStoreId = actor.storeId();
-            scope = VoucherScope.STORE;
+            // Multi-store and ALL personal campaigns also apply to this manager's store.
+            // VoucherService filters by the authenticated storeId below.
+            scope = null;
         }
 
         List<VoucherResponse> vouchers = voucherService.getVouchers(scope, effectiveStoreId, status, keyword);
@@ -92,7 +126,10 @@ public class VoucherController {
         }
         VoucherResponse voucher = voucherService.getVoucherById(id);
         if (actor.role() == Role.STORE_MANAGER
-                && (actor.storeId() == null || !actor.storeId().equals(voucher.getStoreId()))) {
+                && (actor.storeId() == null || !(actor.storeId().equals(voucher.getStoreId())
+                    || voucher.getStoreIds() != null && voucher.getStoreIds().contains(actor.storeId())
+                    || voucher.getCampaignKind() == VoucherCampaignKind.PERSONAL
+                        && voucher.getApplicability() == VoucherApplicability.ALL))) {
             throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
         }
         return ResponseEntity.ok(voucher);

@@ -51,6 +51,14 @@ public class OrderController {
         OrderResponse response = orderService.createCounterOrder(request, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
+    @PostMapping("/counter/draft-hash")
+    public java.util.Map<String,String> counterDraftHash(@Valid @RequestBody CreateCounterOrderRequest request) {
+        return java.util.Map.of("draftHash", orderService.counterDraftHash(request));
+    }
+    @PostMapping("/counter/preview")
+    public CounterOrderPreviewResponse counterPreview(@Valid @RequestBody CreateCounterOrderRequest request) {
+        return orderService.previewCounterOrder(request);
+    }
 
     @GetMapping("/my")
     public ResponseEntity<PageResponse<OrderResponse>> getMyOrders(

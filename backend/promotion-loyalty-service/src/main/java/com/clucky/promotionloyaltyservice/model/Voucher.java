@@ -3,6 +3,8 @@ package com.clucky.promotionloyaltyservice.model;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 @Entity
 @Table(name = "vouchers", schema = "promotion_service")
@@ -12,8 +14,21 @@ public class Voucher {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true, length = 80)
+    @Column(unique = true, length = 80)
     private String code;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "campaign_kind", nullable = false, length = 16)
+    private VoucherCampaignKind campaignKind = VoucherCampaignKind.LEGACY;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "applicability", nullable = false, length = 16)
+    private VoucherApplicability applicability = VoucherApplicability.ALL;
+
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "voucher_campaign_stores", schema = "promotion_service", joinColumns = @JoinColumn(name = "campaign_id"))
+    @Column(name = "store_id", nullable = false)
+    private Set<Long> storeIds = new LinkedHashSet<>();
 
     @Column(length = 255)
     private String title;
@@ -145,6 +160,17 @@ public class Voucher {
 
     public String getCode() {
         return code;
+    }
+
+    public VoucherCampaignKind getCampaignKind() { return campaignKind; }
+    public void setCampaignKind(VoucherCampaignKind kind) { this.campaignKind = kind; }
+    public VoucherApplicability getApplicability() { return applicability; }
+    public void setApplicability(VoucherApplicability applicability) { this.applicability = applicability; }
+    public Set<Long> getStoreIds() { return storeIds; }
+    public void setStoreIds(Set<Long> storeIds) {
+        Set<Long> selected = storeIds == null ? Set.of() : new LinkedHashSet<>(storeIds);
+        this.storeIds.clear();
+        this.storeIds.addAll(selected);
     }
 
     public void setCode(String code) {
