@@ -3,7 +3,9 @@ import { Alert, Button, Card, Descriptions, Dropdown, Empty, Form, Input, Select
 import { AuditOutlined, KeyOutlined, LockOutlined, MailOutlined, MoreOutlined, ReloadOutlined, RightOutlined, SearchOutlined, SafetyCertificateOutlined, ShopOutlined, TeamOutlined, UnlockOutlined } from '@ant-design/icons';
 import { useTranslation } from "react-i18next";
 import { isAxiosError } from "axios";
+import { Link } from "react-router-dom";
 import { api, storesApi, getErrorMessage, type Store } from "../../lib/api";
+import { adminNotificationsApi, type EmailLog } from "../../lib/admin-notifications";
 import { useAuth } from "../../context/AuthContext";
 import { usePageLoading } from "../../components/ui-loader/page-loading";
 import { AdminModal } from '../../components/ui/AdminModal';
@@ -99,6 +101,10 @@ function BranchDetails({ storeId, storeName, onBusyChange }: { storeId: number; 
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState("");
+  const [activationEmails, setActivationEmails] = useState<EmailLog[]>([]);
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailError, setEmailError] = useState("");
+  const [emailReload, setEmailReload] = useState(0);
   const [management] = Form.useForm();
   const [verification] = Form.useForm();
   const accountRequest = useRef<AbortController | null>(null);
@@ -133,6 +139,32 @@ function BranchDetails({ storeId, storeName, onBusyChange }: { storeId: number; 
     window.addEventListener("focus", refresh);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
   }, [isAdmin, busy, managementOpen, accountToLock, load]);
+  useEffect(() => {
+    if (!isAdmin || !pair?.recoveryEmail) {
+      setActivationEmails([]); setEmailError(""); setEmailLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    let inFlight = false;
+    const refresh = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      setEmailLoading(true);
+      try {
+        const result = await adminNotificationsApi.emailLogs(0, 10,
+          { recipient: pair.recoveryEmail!, template: 'BRANCH_ACTIVATE' }, controller.signal);
+        if (!controller.signal.aborted) { setActivationEmails(result.content); setEmailError(""); }
+      } catch (failure) {
+        if (!controller.signal.aborted) { setActivationEmails([]); setEmailError(getErrorMessage(failure)); }
+      } finally {
+        inFlight = false;
+        if (!controller.signal.aborted) setEmailLoading(false);
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void refresh(); }, 30000);
+    return () => { window.clearInterval(timer); controller.abort(); };
+  }, [isAdmin, pair?.recoveryEmail, emailReload]);
   async function run(action: () => Promise<void>, inDialog = false) {
     if (operationLock.current) return false;
     operationLock.current = true;
@@ -242,7 +274,22 @@ function BranchDetails({ storeId, storeName, onBusyChange }: { storeId: number; 
             {isAdmin && !pair.recoveryEmail && pair.accounts[0] && <Button disabled={busy} onClick={() => beginManagement(pair.accounts[0], 'RECOVERY')}>{t("admin:ui.setUpRecoveryEmail")}</Button>}</div>
           {!pair.recoveryEmail && <Alert type="warning" showIcon message={t("admin:ui.noEmailIsConfiguredForAccountSelfRecovery")}
             description={t("admin:ui.existingLoginsAndPasswordsAreUnchangedAdminMust")} />}
-          {pair.accounts.some(account => !account.activated) && <Alert type="info" showIcon message={t("admin:ui.unactivatedAccountsMustUseTheCodeSentTo")} description={t("admin:ui.passwordResetIsOnlyAvailableForActivatedAccounts")} />}
+          {pair.accounts.some(account => !account.activated) && <Alert type="info" showIcon message={t("admin:ui.unactivatedAccountsMustUseTheCodeSentTo")} description={t("branchActivationGuide")} />}
+          {pair.accounts.some(account => !account.activated) && <Typography.Paragraph type="secondary">{t("branchResendGuide")}</Typography.Paragraph>}
+          {isAdmin && pair.recoveryEmail && <>
+            <div className="branch-panel-heading"><div><h3>{t("branchDeliveryTitle")}</h3><p>{t("branchDeliveryScope")}</p></div>
+              <Button disabled={emailLoading} onClick={() => setEmailReload(count => count + 1)} icon={<ReloadOutlined />}>{t('reload')}</Button></div>
+            {emailError && <Alert type="error" showIcon message={emailError} />}
+            <Table<EmailLog> size="small" rowKey="id" loading={emailLoading} dataSource={activationEmails} pagination={false} scroll={{ x: 600 }}
+              locale={{ emptyText: t("branchDeliveryEmpty") }} columns={[
+                { title: t('challenge'), render: (_, entry) => entry.messageId.split('.')[0] },
+                { title: t('status'), render: (_, entry) => <Tag color={entry.status === 'SENT' ? 'success' : ['FAILED', 'EXPIRED'].includes(entry.status) ? 'error' : 'default'}>{entry.status}</Tag> },
+                { title: t('time'), render: (_, entry) => orderDate(entry.createdAt, locale) },
+                { title: t('admin:ui.sentAt'), render: (_, entry) => entry.sentAt ? orderDate(entry.sentAt, locale) : '—' },
+              ]} />
+            <Typography.Paragraph type="secondary">{t("branchDeliveryGuide")}</Typography.Paragraph>
+            <Link to="/admin/email-logs?template=BRANCH_ACTIVATE">{t("branchDeliveryLink")}</Link>
+          </>}
         </section> : <section className="branch-panel"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t("admin:ui.thisBranchHasNoCurrentAccountPair")}>
           <p className="branch-hint">{readiness === 'UNPROVISIONED' ? t("admin:ui.noManagerOrStaffAccountProvisionedForThis") : t("admin:ui.provisioningStatusUpdatesAutomaticallyWhenSynchronizationFinishes")}</p>
         </Empty></section> },

@@ -181,6 +181,7 @@ export function mapBackendOrderToOrder(
     shippingFee: Number(be.shippingFee),
     totalAmount: Number(be.totalAmount),
     paymentMethod: (be.paymentMethod as Order["paymentMethod"]) || (be.status === "PENDING_PAYMENT" ? "BANK_TRANSFER" : "COD"),
+    collectionMethod: be.collectionMethod,
     paymentStatus: be.paymentStatus ?? "UNKNOWN",
     refundStatus: (be as any).refundStatus,
     refundData: (be as any).refundData,
@@ -213,7 +214,7 @@ interface OrderContextValue {
   updateNote: (id: string, note: string) => void;
   removeItem: (id: string) => void;
   clearCart: () => void;
-  createOrder: (payload: CreateOrderPayload) => Promise<BackendOrder>;
+  createOrder: (payload: CreateOrderPayload, idempotencyKey: string) => Promise<BackendOrder>;
   placeDemoOrder: (order: Order) => void;
   cancelOrder: (id: string, reason: string) => Promise<void>;
   reorder: (order: Order) => Promise<void>;
@@ -463,10 +464,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   );
 
   const createOrder = useCallback(
-    async (payload: CreateOrderPayload): Promise<BackendOrder> => {
+    async (payload: CreateOrderPayload, idempotencyKey: string): Promise<BackendOrder> => {
       if (cartBusy.current) throw { code: "RESOURCE_CONFLICT" };
       const revision = getSessionState().revision;
-      const backendOrder = await orderApi.create(payload);
+      const backendOrder = await orderApi.create(payload, idempotencyKey);
       if (revision !== getSessionState().revision) throw { code: "UNAUTHENTICATED", status: 401 };
       const mappedOrder = mapBackendOrderToOrder(backendOrder, storesListRef.current);
       setWorkspace((prev) => ({

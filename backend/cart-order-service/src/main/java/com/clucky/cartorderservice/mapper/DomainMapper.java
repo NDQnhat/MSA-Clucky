@@ -49,7 +49,8 @@ public final class DomainMapper {
                 entity.getOrderSource(),
                 entity.getDiningOption(),
                 entity.getQueueNumber(),
-                entity.getVersion()
+                entity.getVersion(),
+                entity.getCollectionMethod()
         );
     }
 

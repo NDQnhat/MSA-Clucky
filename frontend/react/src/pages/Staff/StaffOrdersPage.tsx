@@ -1,5 +1,6 @@
 import i18n from "../../i18n/index.ts";
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { getBrowserLocale } from "../../i18n/locale";
 import { getTranslator } from "../../i18n/translator";
@@ -140,6 +141,7 @@ export function fromBackendOrderToStaffOrder(
     deliveryAddress: bo.deliveryAddress,
     status: (bo.status as AdminOrderStatus) || "CONFIRMED",
     paymentMethod: (bo.paymentMethod || "CASH") as PaymentMethod,
+    collectionMethod: bo.collectionMethod,
     paymentStatus: (bo.paymentStatus || "PENDING") as PaymentStatus,
     items: staffItems,
     subtotal: bo.subtotal || bo.totalAmount || 0,
@@ -175,6 +177,8 @@ function mapDailyStaffOrders(
 export function StaffOrdersPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedOrderId = searchParams.get("orderId");
   const { stores, currentStore, storeOpenState, refreshStores } = useOrders();
   const storesRef = useRef<StoreModel[]>(stores);
   storesRef.current = stores;
@@ -292,6 +296,49 @@ export function StaffOrdersPage() {
 
   // 5. Drawer chi tiết đơn
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [linkedOrder, setLinkedOrder] = useState<StaffOrder | null>(null);
+
+  useEffect(() => {
+    if (linkedOrderId === null) return;
+    const controller = new AbortController();
+    setSelectedOrderId(null);
+    setLinkedOrder(null);
+
+    // Staff must use the store bound to their authenticated account. The
+    // backend also checks this scope in GET /api/orders/{id}.
+    const storeId = Number(user?.storeId);
+    const numericId = Number(linkedOrderId);
+    if (!/^[1-9]\d*$/.test(linkedOrderId) || !Number.isSafeInteger(numericId)
+        || !Number.isSafeInteger(storeId) || storeId <= 0) {
+      message.warning("Liên kết đơn hàng không hợp lệ.");
+      return () => controller.abort();
+    }
+
+    void ordersApi.getById(numericId, controller.signal).then((backendOrder) => {
+      if (controller.signal.aborted) return;
+      if (Number(backendOrder.id) !== numericId || Number(backendOrder.storeId) !== storeId) {
+        message.error("Bạn không có quyền xem đơn hàng này.");
+        return;
+      }
+      setLinkedOrder(fromBackendOrderToStaffOrder(
+        backendOrder, imageMapRef.current ?? new Map(), storesRef.current,
+      ));
+      setSelectedOrderId(String(backendOrder.id));
+    }).catch((error) => {
+      if (!controller.signal.aborted) message.error(getErrorMessage(error));
+    });
+    return () => controller.abort();
+  }, [linkedOrderId, user?.storeId, user?.id]);
+
+  const closeOrderDetails = () => {
+    setSelectedOrderId(null);
+    setLinkedOrder(null);
+    if (linkedOrderId !== null) {
+      const updatedParams = new URLSearchParams(searchParams);
+      updatedParams.delete("orderId");
+      setSearchParams(updatedParams, { replace: true });
+    }
+  };
 
   // Phase 2: POS Order Modal, Payment Modal, Receipt Bill Modal
   const [isPosModalOpen, setIsPosModalOpen] = useState(false);
@@ -428,7 +475,8 @@ export function StaffOrdersPage() {
     reason?: string,
   ) => {
     const numericId = Number(orderId);
-    const targetOrder = orders.find((o) => o.id === orderId);
+    const targetOrder = (linkedOrder?.id === orderId ? linkedOrder : undefined)
+      ?? orders.find((o) => o.id === orderId);
 
     if (nextStatus === 'COMPLETED' && targetOrder?.orderType === 'DELIVERY') {
       message.warning(i18n.t("shipping:ui.aDeliveryOrderCompletesAutomaticallyOnlyAfterShippingServiceConfirmsDelivery"));
@@ -493,9 +541,10 @@ export function StaffOrdersPage() {
             };
           }),
         );
+        if (linkedOrder?.id === orderId) setLinkedOrder(mappedFromBackend);
 
         if (nextStatus === "PREPARING") {
-          setSelectedOrderId(null);
+          closeOrderDetails();
           setReceiptInitialMode("KOT");
           setReceiptModalOrder(updatedOrder);
           const qFormatted = `#${String(updatedOrder.queueNumber || 1).padStart(3, "0")}`;
@@ -775,7 +824,8 @@ export function StaffOrdersPage() {
   // Map order for detail drawer
   const selectedOrderForDrawer: AdminOrder | null = useMemo(() => {
     if (!selectedOrderId) return null;
-    const found = orders.find((o) => o.id === selectedOrderId);
+    const found = (linkedOrder?.id === selectedOrderId ? linkedOrder : undefined)
+      ?? orders.find((o) => o.id === selectedOrderId);
     if (!found) return null;
 
     return {
@@ -815,7 +865,7 @@ export function StaffOrdersPage() {
       createdAt: found.createdAt,
       updatedAt: found.updatedAt,
     };
-  }, [selectedOrderId, orders, stores]);
+  }, [selectedOrderId, orders, linkedOrder, stores]);
 
   return (
     <div className={styles.staffContainer}>
@@ -1166,7 +1216,10 @@ export function StaffOrdersPage() {
               tracking={trackingById[order.id]}
               onStatusChange={handleStatusChange}
               onPaymentCollect={handlePaymentCollect}
-              onViewDetails={(id) => setSelectedOrderId(id)}
+              onViewDetails={(id) => {
+                closeOrderDetails();
+                setSelectedOrderId(id);
+              }}
               onReprint={handleReprintOrder}
               onPrintKot={(ord) => {
                 setReceiptInitialMode("KOT");
@@ -1181,13 +1234,26 @@ export function StaffOrdersPage() {
       <OrderDetailDrawer
         order={selectedOrderForDrawer}
         open={Boolean(selectedOrderId)}
-        onClose={() => setSelectedOrderId(null)}
+        onClose={closeOrderDetails}
         onStatusChange={handleStatusChange}
-        onChanged={() => { void fetchOrders(true); }}
+        onChanged={() => {
+          void fetchOrders(true);
+          if (linkedOrder?.id === selectedOrderId) {
+            const storeId = Number(user?.storeId);
+            void ordersApi.getById(linkedOrder.id).then(order => {
+              if (Number(order.storeId) === storeId) {
+                setLinkedOrder(fromBackendOrderToStaffOrder(
+                  order, imageMapRef.current ?? new Map(), storesRef.current,
+                ));
+              }
+            }).catch(() => {});
+          }
+        }}
         onCollectCounter={(ord) => {
-          const found = orders.find((o) => o.id === ord.id);
+          const found = (linkedOrder?.id === ord.id ? linkedOrder : undefined)
+            ?? orders.find((o) => o.id === ord.id);
           if (found) {
-            setSelectedOrderId(null);
+            closeOrderDetails();
             setPaymentModalOrder(found);
           }
         }}

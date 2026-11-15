@@ -258,7 +258,9 @@ export function ShipmentSimulationPanel({ orderId, onChanged }: { orderId: strin
       <div className={styles.details}>
         <p><strong>{i18n.t("shipping:ui.recipient")}</strong> {tracking.customerName || i18n.t("shipping:ui.nameUnavailable")} {tracking.phone && <a href={`tel:${tracking.phone}`}>{tracking.phone}</a>}</p>
         <p><strong>{i18n.t("shipping:ui.address")}</strong> {tracking.address || i18n.t("shipping:ui.deliveryAddressMissing")}</p>
-        <p><strong>{i18n.t("shipping:ui.payment")}</strong> {cod
+        <p><strong>{i18n.t("shipping:ui.payment")}</strong> {tracking.merchantPaymentStatus === 'NO_PAYMENT'
+          ? 'Miễn thanh toán — 0đ; shipper không thu hộ hoặc ứng tiền.'
+          : cod
           ? tracking.merchantPaymentStatus === 'PAID_SIMULATED'
             ? i18n.t("shipping:ui.theRiderHasPaidTheStoreSimulationTheCustomerPaysCodToTheRiderUponDelivery")
             : i18n.t("shipping:ui.codCustomerPaysTheRiderUponDeliveryOutsideThePlatform")

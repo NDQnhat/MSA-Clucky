@@ -302,8 +302,26 @@ public class ReportProjectionService {
     }
 
     private String resolvePaymentMethod(JsonNode payload) {
+        if ("NO_PAYMENT".equals(payload.path("collectionMethod").asText())
+                || "NO_PAYMENT".equals(payload.path("paymentMethod").asText())) {
+            if (!payload.path("totalAmount").isNumber()
+                    || payload.path("totalAmount").decimalValue().signum() != 0
+                    || !"COLLECTED".equals(payload.path("paymentStatus").asText())) {
+                throw new IllegalArgumentException("Invalid no-payment order snapshot");
+            }
+            return "NO_PAYMENT";
+        }
         String field = "order.completed".equals(revenueEvent) ? "paymentMethod" : "method";
         String method = payload.path(field).asText(payload.path("paymentMethod").asText());
+        // The order retains the customer's original choice (including SPLIT),
+        // while collectionMethod records how staff actually settled it.
+        String collected = payload.path("collectionMethod").asText();
+        if ("order.completed".equals(revenueEvent)
+                && Set.of("CASH", "BANK_TRANSFER", "MIXED", "UNVERIFIED").contains(collected)) {
+            method = collected;
+        }
+        if ("SPLIT".equals(method)) method = "MIXED";
+        if ("TRANSFER".equals(method)) method = "BANK_TRANSFER";
         if (!Set.of("COD", "BANK_TRANSFER", "CASH", "MIXED", "UNVERIFIED").contains(method)) {
             throw new IllegalArgumentException("Supported payment method required");
         }
@@ -313,6 +331,12 @@ public class ReportProjectionService {
     private String resolveOptionalReconciliationStatus(DomainEvent event, JsonNode payload, boolean isExpiredOrder) {
         if (isExpiredOrder) {
             return EXPIRED_RECEIPT_STATUS;
+        }
+        if (("NO_PAYMENT".equals(payload.path("collectionMethod").asText())
+                || "NO_PAYMENT".equals(payload.path("paymentMethod").asText()))
+                && payload.path("totalAmount").isNumber()
+                && payload.path("totalAmount").decimalValue().signum() == 0) {
+            return "NOT_REQUIRED";
         }
         if (payload.hasNonNull("reconciliationStatus")) {
             return payload.get("reconciliationStatus").asText().trim().toUpperCase(Locale.ROOT);

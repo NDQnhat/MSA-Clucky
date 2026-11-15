@@ -158,7 +158,7 @@ export function evaluateStoreOpenState(store: Store | null | undefined): StoreOp
 
 const storageKey = "clucky-admin-orders-demo-v2";
 
-function mapBackendOrderToAdminOrder(be: BackendOrder, images: OrderItemImages = new Map()): AdminOrder {
+export function mapBackendOrderToAdminOrder(be: BackendOrder, images: OrderItemImages = new Map()): AdminOrder {
   const statusMap: Record<string, AdminOrderStatus> = {
     PENDING_PAYMENT: "PENDING_PAYMENT",
     CONFIRMED: "CONFIRMED",

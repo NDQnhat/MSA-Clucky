@@ -113,11 +113,15 @@ public class MockDeliveryEngine {
         long storeId = requiredId(payload, "storeId");
         String method = payload.path("paymentMethod").asText();
         String paymentStatus = payload.path("paymentStatus").asText();
+        BigDecimal total = requiredMoney(payload, "totalAmount");
+        boolean freeOrder = "COLLECTED".equals(paymentStatus) && total.signum() == 0
+                && ("NO_PAYMENT".equals(method)
+                    || "COD".equals(method) && "NO_PAYMENT".equals(payload.path("collectionMethod").asText()));
         if (!("COD".equals(method) && "PENDING".equals(paymentStatus))
-                && !("BANK_TRANSFER".equals(method) && "PAID".equals(paymentStatus))) {
+                && !("BANK_TRANSFER".equals(method) && "PAID".equals(paymentStatus)) && !freeOrder) {
             throw new IllegalArgumentException("READY delivery has invalid payment snapshot");
         }
-        BigDecimal total = requiredMoney(payload, "totalAmount");
+        if (freeOrder) method = "COD";
         BigDecimal shippingFee = requiredMoney(payload, "shippingFee");
         jdbc.update("INSERT INTO " + READY + " (order_id,store_id,payment_method,payment_status,"
                 + "event_id,merchant_goods_amount,total_amount) "
@@ -163,7 +167,8 @@ public class MockDeliveryEngine {
         boolean advanceConfirmed = number > 0 && "COD".equals(str(ready, "payment_method"))
                 && "PENDING".equals(paymentStatus) && hasLedger(orderId, number, "DEBIT_ADVANCE");
         boolean advanceReturned = number > 0 && hasLedger(orderId, number, "CREDIT_RETURN");
-        String merchantPaymentStatus = settlementStatus(paymentStatus, advanceConfirmed, advanceReturned);
+        boolean freeOrder = noPaymentReady(ready);
+        String merchantPaymentStatus = freeOrder ? "NO_PAYMENT" : settlementStatus(paymentStatus, advanceConfirmed, advanceReturned);
         BigDecimal customerDue = isRealPrepaid(paymentStatus) ? BigDecimal.ZERO
                 : ready != null && ready.get("total_amount") instanceof BigDecimal total ? total
                 : ready != null && "COD".equals(str(ready, "payment_method"))
@@ -185,7 +190,7 @@ public class MockDeliveryEngine {
                 ready == null ? null : str(ready, "payment_method"),
                 false, safeTrackingError(ready == null ? null : str(ready, "last_error_code")),
                 paymentStatus, merchantPaymentStatus,
-                isRealPrepaid(paymentStatus) ? "NOT_APPLICABLE_PREPAID" : "OUT_OF_BAND_UNVERIFIED",
+                freeOrder ? "NOT_REQUIRED" : isRealPrepaid(paymentStatus) ? "NOT_APPLICABLE_PREPAID" : "OUT_OF_BAND_UNVERIFIED",
                 customerDue);
     }
 
@@ -338,7 +343,8 @@ public class MockDeliveryEngine {
                 + " r JOIN " + SHIPMENT + " s ON s.order_id=r.order_id "
                 + "WHERE s.simulation_mode='NONE' AND s.status='CREATED' AND "
                 + "((r.payment_method='COD' AND r.payment_status='PENDING') OR "
-                + "(r.payment_method='BANK_TRANSFER' AND r.payment_status='PAID')) AND "
+                + "(r.payment_method='BANK_TRANSFER' AND r.payment_status='PAID') OR "
+                + "(r.payment_method='COD' AND r.payment_status='COLLECTED' AND r.total_amount=0)) AND "
                 + "(r.last_attempt_at IS NULL OR r.last_attempt_at < clock_timestamp() - interval '15 seconds') "
                 + "AND NOT EXISTS (SELECT 1 FROM " + ATTEMPTS + " a WHERE a.order_id=r.order_id) "
                 + "ORDER BY r.created_at LIMIT 12");
@@ -391,14 +397,15 @@ public class MockDeliveryEngine {
         if (Set.of("WAITING_RIDER", "WALLET_BLOCKED").contains(str(attempt, "phase"))
                 && !now.isBefore(time(attempt, "assigned_at").plusSeconds(5))) {
             Map<String,Object> ready = nullableRow("SELECT payment_method,payment_status,"
-                    + "merchant_goods_amount FROM " + READY
+                    + "merchant_goods_amount,total_amount FROM " + READY
                     + " WHERE order_id=?", orderId);
             if (ready == null) return;
             String method = str(ready, "payment_method");
             String paymentStatus = str(ready, "payment_status");
             boolean codPending = "COD".equals(method) && "PENDING".equals(paymentStatus);
             boolean prepaidQr = "BANK_TRANSFER".equals(method) && "PAID".equals(paymentStatus);
-            if (!codPending && !prepaidQr) {
+            boolean freeOrder = noPaymentReady(ready);
+            if (!codPending && !prepaidQr && !freeOrder) {
                 jdbc.update("UPDATE " + ATTEMPTS + " SET phase='PAYMENT_BLOCKED' "
                         + "WHERE order_id=? AND attempt_number=?", orderId, number);
                 jdbc.update("UPDATE " + READY + " SET last_error_code='PAYMENT_STATUS_INVALID' "
@@ -454,14 +461,15 @@ public class MockDeliveryEngine {
             emit("shipping.started", shipment, attempt, "SHIPPING", false, null);
         } else if ("SHIPPING".equals(str(attempt, "phase"))
                 && !now.isBefore(time(attempt, "due_at"))) {
-            Map<String,Object> ready = nullableRow("SELECT payment_method,payment_status FROM " + READY
+            Map<String,Object> ready = nullableRow("SELECT payment_method,payment_status,total_amount FROM " + READY
                     + " WHERE order_id=?", orderId);
             if (ready == null) return;
             String method = str(ready, "payment_method");
             String paymentStatus = str(ready, "payment_status");
             boolean codPending = "COD".equals(method) && "PENDING".equals(paymentStatus);
             boolean prepaidQr = "BANK_TRANSFER".equals(method) && "PAID".equals(paymentStatus);
-            if (!codPending && !prepaidQr) {
+            boolean freeOrder = noPaymentReady(ready);
+            if (!codPending && !prepaidQr && !freeOrder) {
                 jdbc.update("UPDATE " + ATTEMPTS + " SET phase='PAYMENT_BLOCKED' "
                         + "WHERE order_id=? AND attempt_number=?", orderId, number);
                 jdbc.update("UPDATE " + READY + " SET last_error_code='PAYMENT_STATUS_INVALID' "
@@ -598,6 +606,7 @@ public class MockDeliveryEngine {
                 + " WHERE order_id=?", orderId);
         payload.put("paymentMethod", ready == null ? "UNKNOWN" : str(ready, "payment_method"));
         String originalPaymentStatus = str(ready, "payment_status");
+        boolean freeOrder = noPaymentReady(ready);
         int attemptNumber = ((Number) attempt.get("attempt_number")).intValue();
         boolean codPending = "COD".equals(str(ready, "payment_method"))
                 && "PENDING".equals(originalPaymentStatus);
@@ -605,7 +614,7 @@ public class MockDeliveryEngine {
         boolean returned = hasLedger(orderId, attemptNumber, "CREDIT_RETURN");
         boolean merchantPaidByRider = advanced && !returned;
         payload.put("originalPaymentStatus", originalPaymentStatus);
-        payload.put("merchantPaymentStatus", settlementStatus(originalPaymentStatus, advanced, returned));
+        payload.put("merchantPaymentStatus", freeOrder ? "NO_PAYMENT" : settlementStatus(originalPaymentStatus, advanced, returned));
         payload.put("merchantPaidByRider", merchantPaidByRider);
         payload.put("simulatedAdvanceConfirmed", merchantPaidByRider);
         if (codPending) {
@@ -615,6 +624,7 @@ public class MockDeliveryEngine {
                 && "PAID".equals(originalPaymentStatus)) {
             payload.put("customerCollectionStatus", "NOT_APPLICABLE_PREPAID");
         }
+        if (freeOrder) payload.put("customerCollectionStatus", "NOT_REQUIRED");
         BigDecimal customerDue = isRealPrepaid(originalPaymentStatus) ? BigDecimal.ZERO
                 : ready != null && ready.get("total_amount") instanceof BigDecimal total ? total
                 : "COD".equals(str(ready, "payment_method"))
@@ -706,6 +716,12 @@ public class MockDeliveryEngine {
 
     private static boolean isRealPrepaid(String paymentStatus) {
         return "PAID".equals(paymentStatus) || "COLLECTED".equals(paymentStatus);
+    }
+
+    private static boolean noPaymentReady(Map<String, Object> ready) {
+        return ready != null && "COD".equals(str(ready, "payment_method"))
+                && "COLLECTED".equals(str(ready, "payment_status"))
+                && ready.get("total_amount") instanceof BigDecimal amount && amount.signum() == 0;
     }
 
     private static String settlementStatus(String originalPaymentStatus,

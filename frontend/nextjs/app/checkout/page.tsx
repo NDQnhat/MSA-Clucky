@@ -45,6 +45,8 @@ import {
   X,
 } from "lucide-react";
 
+const checkoutAttemptStorage = "clucky:checkout-idempotency:v1";
+
 export default function CheckoutPage() {
   const t = useTranslations();
   const locale = useLocale();
@@ -186,6 +188,7 @@ export default function CheckoutPage() {
   }, [items]);
   useNavigationTask(!ready);
   const submitLock = useRef(false);
+  const checkoutAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   useFeedback(submitError);
@@ -302,6 +305,7 @@ export default function CheckoutPage() {
   const pointsDiscount = previewData?.pointsAmount ?? (usePoints ? 5000 : 0);
   const calculatedTotal = Math.max(0, subtotal + shippingFee - voucherDiscount - pointsDiscount);
   const totalAmount = previewData?.totalAmount ?? (orderType === "PICKUP" ? calculatedTotal : null);
+  const noPayment = previewData?.totalAmount === 0;
   const needsDeliveryAddress = orderType === "DELIVERY" && deliveryAddress.trim().length < 8;
   const needsDeliveryPoint = orderType === "DELIVERY" && !effectiveDeliveryPoint;
   const orderBlockReason = !ready || !session.ready ? loyaltyText("cartLoading")
@@ -374,7 +378,27 @@ export default function CheckoutPage() {
     };
 
     try {
-      const backendOrder = await createOrder(payload);
+      // Persist only a SHA-256 draft fingerprint and its random attempt key.
+      // Retain both across timeout and reload; a changed draft gets a new key.
+      const bytes = new TextEncoder().encode(JSON.stringify([userId, payload]));
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const fingerprint = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+      let attempt = checkoutAttempt.current;
+      if (!attempt) {
+        try {
+          const stored = JSON.parse(window.sessionStorage.getItem(checkoutAttemptStorage) || "null");
+          if (typeof stored?.fingerprint === "string" && /^[a-f0-9]{64}$/.test(stored.fingerprint)
+              && typeof stored.key === "string" && /^[0-9a-f-]{36}$/i.test(stored.key)) attempt = stored;
+        } catch { /* Storage may be disabled. This tab still retains its key in memory. */ }
+      }
+      if (!attempt || attempt.fingerprint !== fingerprint) {
+        attempt = { fingerprint, key: crypto.randomUUID() };
+      }
+      checkoutAttempt.current = attempt;
+      try { window.sessionStorage.setItem(checkoutAttemptStorage, JSON.stringify(attempt)); } catch {}
+      const backendOrder = await createOrder(payload, attempt.key);
+      checkoutAttempt.current = null;
+      try { window.sessionStorage.removeItem(checkoutAttemptStorage); } catch {}
       const targetId = String(backendOrder.id);
       notify.success(t("common.feedback.orderCreated"));
       router.push(`/orders/${targetId}`);
@@ -831,7 +855,11 @@ export default function CheckoutPage() {
                   </h2>
                 </div>
 
-                <div className={styles.paymentOptions}>
+                {noPayment ? (
+                  <p role="status" style={{ padding: "16px", borderRadius: "12px", background: "#f3f8f0", color: "#245533", fontWeight: 700 }}>
+                    {locale === "vi" ? "Miễn thanh toán — 0đ. Ưu đãi đã thanh toán toàn bộ đơn hàng; không cần quét mã QR hoặc trả tiền khi nhận." : "No payment required — 0 VND. Your offers cover the entire order."}
+                  </p>
+                ) : <div className={styles.paymentOptions}>
                   <label
                     className={`${styles.paymentCard} ${
                       paymentMethod === "BANK_TRANSFER"
@@ -892,7 +920,7 @@ export default function CheckoutPage() {
                       </div>
                     </div>
                   </label>
-                </div>
+                </div>}
               </section>
             </div>
 
@@ -959,6 +987,9 @@ export default function CheckoutPage() {
                   {totalAmount !== null ? formatPrice(totalAmount) : <span className={styles.quotePending}>{loyaltyText("quotePending")}</span>}
                 </strong>
               </div>
+              {noPayment && <p role="status" style={{ color: "#245533", fontWeight: 700, margin: "10px 0" }}>
+                {locale === "vi" ? "Miễn thanh toán — 0đ" : "No payment required — 0 VND"}
+              </p>}
 
               <Link href="/cart" className={styles.editCart}>
                 {t("business.checkout.editCart")}
@@ -996,7 +1027,7 @@ export default function CheckoutPage() {
               >
                 {submitting
                   ? t("business.checkout.processingYourOrder")
-                  : t("business.checkout.placeOrderNow")}
+                  : noPayment ? (locale === "vi" ? "Đặt đơn miễn thanh toán" : "Place free order") : t("business.checkout.placeOrderNow")}
               </button>
             </aside>
           </form>

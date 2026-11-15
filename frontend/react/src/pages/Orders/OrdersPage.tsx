@@ -2,11 +2,12 @@ import { message } from "../../components/feedback";
 import { useLocaleTools } from "../../i18n/hooks";
 import { useTranslation } from "react-i18next";
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Table, Tabs, Input, Select, Button, Tag, Space, Typography, Badge, Alert, Radio } from "antd";
 import { TableColumnsType } from "antd";
 
 import { AdminOrder, AdminOrderStatus } from "../../types/order";
-import { useOrders } from "../../context/OrderContext";
+import { useOrders, mapBackendOrderToAdminOrder } from "../../context/OrderContext";
 import { OrderStatusBadge } from "../../components/ui/OrderStatusBadge";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -49,9 +50,12 @@ import { usePageLoading } from "../../components/ui-loader/page-loading";
 import { useOrderAlerts } from "../../hooks/useOrderAlerts";
 import { OrderSoundButton } from "../../components/ui/OrderSoundButton";
 import { fulfillmentLabel } from "../../lib/order-fulfillment";
+import { ordersApi } from "../../lib/api";
 
 export const OrdersPage: React.FC = () => {
   const { t } = useTranslation();
+  const [routeParams, setRouteParams] = useSearchParams();
+  const linkedOrderId = routeParams.get('orderId');
   const { locale, money } = useLocaleTools();
   const todayVn = getTodayVn();
 
@@ -93,15 +97,45 @@ export const OrdersPage: React.FC = () => {
 
   // Drawer & Modal states
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [linkedOrder, setLinkedOrder] = useState<AdminOrder | null>(null);
+  const [linkedOrderError, setLinkedOrderError] = useState('');
   const selectedOrder =
-    orders.find((order) => order.id === selectedOrderId) ?? null;
+    orders.find((order) => order.id === selectedOrderId)
+      ?? (linkedOrder?.id === selectedOrderId ? linkedOrder : null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
   const [orderForRefund, setOrderForRefund] = useState<AdminOrder | null>(null);
   const [financeOrderId, setFinanceOrderId] = useState<number | null>(null);
   const [kotModalOrder, setKotModalOrder] = useState<StaffOrder | null>(null);
 
+  useEffect(() => {
+    if (linkedOrderId === null) { setLinkedOrderError(''); setLinkedOrder(null); return; }
+    const id = Number(linkedOrderId);
+    if (!/^[1-9]\d*$/.test(linkedOrderId) || !Number.isSafeInteger(id)) {
+      setLinkedOrderError(t('errors:VALIDATION_ERROR'));
+      return;
+    }
+    let current = true;
+    setLinkedOrderError('');
+    void ordersApi.getById(id).then(order => {
+      if (!current) return;
+      // The Order API authorizes the JWT; check the returned store again before
+      // presenting the branch's drawer, even if the URL was manually edited.
+      if (user.role === 'STORE_MANAGER' && Number(order.storeId) !== Number(user.storeId)) {
+        setLinkedOrderError(t('errors:FORBIDDEN'));
+        return;
+      }
+      setLinkedOrder(mapBackendOrderToAdminOrder(order));
+      setSelectedOrderId(String(order.id));
+      setActiveTab('ALL');
+      setSearchQuery(order.orderCode);
+      setDrawerOpen(true);
+    }).catch(() => { if (current) setLinkedOrderError(t('errors:RESOURCE_NOT_FOUND')); });
+    return () => { current = false; };
+  }, [linkedOrderId, t, user.role, user.storeId]);
+
   const handleOpenDetail = (order: AdminOrder) => {
+    setLinkedOrder(null);
     setSelectedOrderId(order.id);
     setDrawerOpen(true);
   };
@@ -429,6 +463,7 @@ export const OrdersPage: React.FC = () => {
   if (storageError) return <div role="alert"><p>{storageError}</p><Button onClick={refreshOrders}>{t('common:retry')}</Button></div>;
   return (
     <div className={`${styles.ordersContainer} m3-admin-page`}>
+      {linkedOrderError && <Alert type="error" showIcon message={linkedOrderError} style={{ marginBottom: 16 }} />}
       {(storageError || actionError) && (
         <p role="alert" className={styles.drawerError}>
           <CircleAlert size={16} />
@@ -740,7 +775,14 @@ export const OrdersPage: React.FC = () => {
       <OrderDetailDrawer
         order={selectedOrder}
         open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+        onClose={() => {
+          setDrawerOpen(false);
+          if (linkedOrderId !== null) {
+            const params = new URLSearchParams(routeParams);
+            params.delete('orderId');
+            setRouteParams(params, { replace: true });
+          }
+        }}
         onStatusChange={handleStatusChange}
         onChanged={() => void refreshOrders()}
         onOpenRefundModal={(ord) => {

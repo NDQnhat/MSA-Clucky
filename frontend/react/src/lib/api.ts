@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { signIn, endSession, loadSession, refreshSession, expireSession, getSessionState, type SessionUser } from './session';
+import { signIn, endSession, loadSession, refreshSession, expireSession, isSessionExpired, getSessionState, type SessionUser } from './session';
 import { getBrowserLocale, getErrorMessage as resolveError, getTranslator } from '../i18n/core';
 import type { StoreStatus } from '../types/store';
 import type { AdminVoucher, BannerPayload, PromoBanner, VoucherPayload } from '../types/promotion';
@@ -128,10 +128,13 @@ api.interceptors.response.use(response => {
   return response;
 }, async (error: AxiosError) => {
   const config = error.config as (NonNullable<AxiosError['config']> & { retried?: boolean; sessionRevision?: number }) | undefined;
-  if (![401, 403].includes(error.response?.status ?? 0) || !config || config.url?.startsWith('/api/auth/')) throw error;
+  const authFailure = { status: error.response?.status, code: (error.response?.data as { code?: string } | undefined)?.code };
+  // Store/role authorization failures (403) cannot be repaired by refreshing
+  // a session and must not log a legitimate user out.
+  if (!isSessionExpired(authFailure) || !config || config.url?.startsWith('/api/auth/')) throw error;
   if (config.sessionRevision !== getSessionState().revision) throw new axios.CanceledError('Session changed');
   if (config.retried) {
-    if (error.response?.status === 401) expireSession();
+    expireSession();
     throw error;
   }
   config.retried = true;
@@ -217,6 +220,7 @@ export interface BackendOrder {
   type: 'DELIVERY' | 'PICKUP';
   status: string;
   paymentMethod?: string;
+  collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus?: 'PENDING' | 'PAID' | 'COLLECTED' | 'REFUNDED';
   subtotal: number;
   discountAmount: number;

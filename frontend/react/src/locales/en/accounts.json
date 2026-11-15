@@ -18,9 +18,17 @@
     "refresh": "Refresh branches"
   },
   "title": "Branch accounts", "login": "Internal login or Admin email", "access": "Activate / recover account",
-  "activation": "Activate", "reset": "Reset password", "request": "Send code", "challenge": "Challenge ID (from email)", "otp": "8-digit OTP",
+  "accessSubtitle": "Use the code for the correct Manager or Staff account to set your own password. Accounts have separate codes and passwords even if they share one recovery email.",
+  "fromEmail": "Already have a verification email?",
+  "fromEmailHelp": "Open the Clucky email for the correct username (manager.<branch ID> or staff.<branch ID>). Enter the challenge ID and 8-digit OTP from that email below, then choose your password. You do not need to request another code while the existing one is valid.",
+  "requestAgain": "Didn't get the code, or has it expired?",
+  "requestAgainHelp": "Enter the correct username. Choose Activate if you have never set a password or Reset password if the account has already been activated. A new request invalidates the old code for this account and purpose. Check the branch's recovery mailbox or your saved Admin email.",
+  "finishActivation": "Verify and set password",
+  "confirmPassword": "Confirm new password",
+  "passwordMismatch": "Passwords do not match.",
+  "activation": "Activate", "reset": "Reset password", "request": "Request new code", "challenge": "Challenge ID (from email)", "otp": "8-digit OTP",
   "newOtp": "OTP at the new email", "password": "New password (8–72 characters, uppercase, lowercase and number)", "confirm": "Confirm",
-  "sent": "If eligible, a code will be sent to the stored email. Earlier codes for this purpose are invalidated.",
+  "sent": "Request recorded. If the account is eligible, a code will be sent to its stored email; check spam too. An earlier code for this purpose is invalidated. A successful request does not prove inbox delivery.",
   "done": "Completed. Previous sessions of affected accounts have been revoked.", "back": "Back to login", "store": "Select branch",
   "reload": "Reload", "retry": "Retry provisioning", "pending": "Store saved, not ready to open. Track the account pair under Accounts.",
   "recovery": "Shared recovery email", "changeRecovery": "Change recovery email", "currentPassword": "Your current password", "newEmail": "New recovery email",
@@ -29,5 +37,12 @@
   "report": "Before / after report", "audit": "Account / session audit", "auditNotice": "A shared account and session do not identify an employee. Managers only see Staff actions at their own branch.",
   "action": "Action", "session": "Session", "time": "Time", "result": "Result", "unprovisioned": "This branch has no Manager or Staff accounts yet.", "recoveryMissing": "Not configured; contact an Admin to set up the recovery email.",
   "adminHelp": "Admin assistance: primary OTP goes to the stored Admin email. Recovery changes also require the new email OTP.", "managerHelp": "Recovery changes require your current password and OTPs at both old and new emails.",
-  "manageSent": "Challenge created. Check the correct recipient inbox; this challenge is bound to the current session.", "readiness": "Account readiness", "next": "Next page"
+  "manageSent": "Challenge created. Check the correct recipient inbox; this challenge is bound to the current session.", "readiness": "Account readiness", "next": "Next page",
+  "branchActivationGuide": "The shared recovery mailbox receives two separate activation emails: one for Manager and one for Staff. Each contains its own username, challenge ID and OTP for setting that account's password. Both accounts must be activated before the branch can become ready to open.",
+  "branchDeliveryGuide": "Check actual delivery state in Email logs, filtered by recovery mailbox and BRANCH_ACTIVATE/BRANCH_RESET template. QUEUED: pending; SENDING: in progress; SENT: accepted by SMTP (inbox delivery unconfirmed); FAILED/EXPIRED: failed or code expired. No log entry may mean the event has not reached the email queue yet.",
+  "branchDeliveryTitle": "Activation email delivery log",
+  "branchDeliveryScope": "Recent activation emails to the shared recovery mailbox. If this address is used by multiple branches, compare the challenge ID in each email to identify the right account.",
+  "branchDeliveryEmpty": "No activation email has been recorded for this mailbox yet.",
+  "branchDeliveryLink": "View activation email logs (Admin)",
+  "branchResendGuide": "If a code expires or email does not arrive, go to Sign in → Activate / recover account and request a new code for the correct login. Retry provisioning only synchronizes the existing account pair; it does not resend the OTP."
 }

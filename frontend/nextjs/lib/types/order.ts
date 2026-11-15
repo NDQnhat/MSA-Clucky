@@ -89,6 +89,7 @@ export interface Order {
   shipmentStatus?: ShipmentStatus;
   totalAmount: number;
   paymentMethod: PaymentMethod;
+  collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus: PaymentStatus;
   receiverName: string;
   receiverPhone: string;

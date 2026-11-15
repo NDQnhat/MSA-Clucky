@@ -14,6 +14,7 @@ const client = "admin";
 const changeKey = `clucky-${client}-session-change`;
 let refreshFlight: Promise<SessionUser> | null = null;
 let loadFlight: Promise<SessionUser | null> | null = null;
+let cookieCleanupFlight: Promise<void> | null = null;
 
 export const getSessionState = () => state;
 export const getServerSessionState = () => initialState;
@@ -36,6 +37,12 @@ function publish(user: SessionUser | null, broadcast = false) {
 
 export function expireSession() {
   publish(null, Boolean(state.user));
+  // HttpOnly cookies must be invalidated by Identity, not localStorage.
+  if (typeof window !== "undefined" && !cookieCleanupFlight) {
+    cookieCleanupFlight = send("/api/auth/logout", { method: "POST" })
+      .then(() => {}, () => {})
+      .finally(() => { cookieCleanupFlight = null; });
+  }
 }
 
 export async function sessionLock<T>(action: () => Promise<T>): Promise<T> {
@@ -74,6 +81,7 @@ export function isSessionExpired(error: unknown, sessionEndpoint = false): boole
 
 export function refreshSession(): Promise<SessionUser> {
   if (!refreshFlight) {
+    const revision = state.revision;
     refreshFlight = sessionLock(async () => {
       try {
         let user: SessionUser;
@@ -83,10 +91,11 @@ export function refreshSession(): Promise<SessionUser> {
           if (!isSessionExpired(error, true)) throw error;
           user = await send<SessionUser>("/api/auth/refresh", { method: "POST" });
         }
+        if (revision !== state.revision && state.ready) throw new DOMException("Session changed", "AbortError");
         publish(user);
         return user;
       } catch (error) {
-        if (isSessionExpired(error, true)) expireSession();
+        if (revision === state.revision && isSessionExpired(error, true)) expireSession();
         throw error;
       }
     }).finally(() => { refreshFlight = null; });
@@ -101,7 +110,7 @@ export async function sessionRequest<T>(path: string, options: RequestInit = {})
     if (revision !== state.revision && path !== "/api/auth/session") throw new DOMException("Session changed", "AbortError");
     return result;
   } catch (error) {
-    if (![401, 403].includes((error as { status?: number }).status ?? 0)
+    if (!isSessionExpired(error, path === "/api/auth/session")
         || (path.startsWith("/api/auth/") && path !== "/api/auth/session")) throw error;
     await refreshSession();
     if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -141,6 +150,7 @@ export async function signIn<T extends SessionUser | { status: string; pendingTo
   path: string, body: unknown,
 ): Promise<T> {
   return sessionLock(async () => {
+    if (cookieCleanupFlight) await cookieCleanupFlight;
     const result = await send<T>(path, { method: "POST", body: JSON.stringify(body) });
     if ("userId" in result) publish(result, true);
     return result;
@@ -149,9 +159,16 @@ export async function signIn<T extends SessionUser | { status: string; pendingTo
 
 export async function endSession(path = "/api/auth/logout", body?: unknown) {
   return sessionLock(async () => {
-    const result = await send<{ message?: string }>(path, { method: "POST", body: JSON.stringify(body) });
-    publish(null, true);
-    return result;
+    if (path !== "/api/auth/logout") {
+      const result = await send<{ message?: string }>(path, { method: "POST", body: JSON.stringify(body) });
+      publish(null, true);
+      return result;
+    }
+    try {
+      return await send<{ message?: string }>(path, { method: "POST", body: JSON.stringify(body) });
+    } finally {
+      publish(null, true);
+    }
   });
 }
 
@@ -167,5 +184,8 @@ if (typeof window !== "undefined") {
       void loadSession(true).catch(() => {});
     }
   });
-  window.addEventListener("focus", () => { void loadSession(true).catch(() => {}); });
+  window.addEventListener("focus", () => { if (state.user) void loadSession(true).catch(() => {}); });
+  window.setInterval(() => {
+    if (!document.hidden && state.user) void loadSession(true).catch(() => {});
+  }, 15000);
 }

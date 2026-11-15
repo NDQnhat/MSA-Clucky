@@ -142,10 +142,12 @@ public class NotificationConsumer {
             recordAdminAlert(event, "INVENTORY", positiveId(payload, "productId"), "Tồn kho thấp",
                     "Chi nhánh có món sắp hết. Kiểm tra tồn kho để điều chỉnh khả năng bán.");
         }
-        Long customerId = refundEvent ? refundCustomerId(payload)
-                : "inventory.low-stock".equals(event.eventType()) ? extractCustomerId(payload) : positiveId(payload, "customerId");
+        // Inventory recipient IDs must be resolved from current Identity data.
+        // A managerUserId embedded in an event is not a verified recipient.
+        Long customerId = refundEvent ? refundCustomerId(payload) : positiveId(payload, "customerId");
         Long orderId = extractOrderId(payload);
-        if (event.eventType().startsWith("order.") && (customerId == null || positiveId(payload, "orderId") == null)) {
+        if (event.eventType().startsWith("order.") && (positiveId(payload, "orderId") == null
+                || (customerId == null && !"COUNTER".equals(payload.path("orderSource").asText())))) {
             throw new IllegalArgumentException("Invalid order notification identity");
         }
         if ("refund.processed".equals(event.eventType())
@@ -183,6 +185,30 @@ public class NotificationConsumer {
         if (spec == null) {
             LOG.info("event=notification_no_action_needed eventId={} eventType={}", event.eventId(), event.eventType());
             return;
+        }
+
+        // These intents are written with the source event in the same transaction.
+        // A separate worker resolves current active branch accounts via Identity,
+        // so outages cannot silently lose staff/manager notifications.
+        if ("order.created".equals(event.eventType())) {
+            Long storeId = positiveId(payload, "storeId");
+            if (storeId == null || orderId == null) throw new IllegalArgumentException("Invalid branch order notification");
+            for (String role : java.util.List.of("STORE_MANAGER", "STAFF")) {
+                recordBranchIntent(event, "order:" + orderId + ":" + role, storeId, role,
+                        "ORDER", orderId, "Đơn hàng mới",
+                        "Đơn hàng #" + orderCode + " vừa được tạo tại chi nhánh của bạn.");
+            }
+        } else if ("inventory.low-stock".equals(event.eventType())) {
+            Long storeId = positiveId(payload, "storeId");
+            Long productId = positiveId(payload, "productId");
+            String episodeId = payload.path("episodeId").asText("");
+            if (storeId == null || productId == null) throw new IllegalArgumentException("Invalid inventory notification scope");
+            // Legacy events may predate episode IDs. Keep their event identity
+            // stable across replay without dropping the entire Kafka record.
+            if (!episodeId.matches("[0-9a-fA-F-]{36}")) episodeId = event.eventId();
+            recordBranchIntent(event, "low-stock:" + storeId + ":" + productId + ":" + episodeId,
+                    storeId, "STORE_MANAGER", "INVENTORY", productId,
+                    spec.inAppTitle(), spec.inAppContent());
         }
 
         // 1. In-App Notification (Idempotent by event + channel + recipient)
@@ -341,17 +367,13 @@ public class NotificationConsumer {
         };
     }
 
-    private Long extractCustomerId(JsonNode payload) {
-        if (payload.hasNonNull("managerUserId")) {
-            return payload.get("managerUserId").asLong();
-        }
-        if (payload.hasNonNull("customerId")) {
-            return payload.get("customerId").asLong();
-        }
-        if (payload.hasNonNull("userId")) {
-            return payload.get("userId").asLong();
-        }
-        return null;
+    private void recordBranchIntent(DomainEvent event, String operationKey, Long storeId, String role,
+                                    String type, Long reference, String title, String content) {
+        jdbc.update("""
+                INSERT INTO notification_service.branch_notification_intents
+                    (operation_key,event_id,store_id,role,title,content,type,ref_id)
+                VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(operation_key) DO NOTHING
+                """, "branch:" + operationKey, event.eventId(), storeId, role, title, content, type, reference);
     }
 
     private void recordAdminOrder(DomainEvent event) {

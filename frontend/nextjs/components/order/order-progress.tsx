@@ -28,6 +28,7 @@ export function OrderProgress({
   type = "DELIVERY",
   paymentStatus,
   paymentMethod,
+  collectionMethod,
   compact = false,
   orderCode,
   updatedAt,
@@ -39,6 +40,7 @@ export function OrderProgress({
   type?: OrderType;
   paymentStatus?: PaymentStatus;
   paymentMethod?: PaymentMethod;
+  collectionMethod?: Order["collectionMethod"];
   compact?: boolean;
   orderCode?: string;
   updatedAt?: string;
@@ -48,6 +50,7 @@ export function OrderProgress({
   const t = useTranslations();
   const isPaid = paymentStatus === "PAID" || paymentStatus === "COLLECTED";
   const isCodOrder = paymentMethod === "COD";
+  const noPayment = collectionMethod === "NO_PAYMENT";
 
   const steps = isCodOrder
     ? [
@@ -58,7 +61,7 @@ export function OrderProgress({
         ...(type === "DELIVERY"
           ? [{ status: "SHIPPING", label: t(orderStatusKey("SHIPPING", type)), icon: Truck }]
           : []),
-        ...(type === "PICKUP"
+        ...(type === "PICKUP" && !noPayment
           ? [{ status: "PENDING_PAYMENT", label: t("business.cart.checkout"), icon: CreditCard }]
           : []),
         { status: "COMPLETED", label: t(orderStatusKey("COMPLETED", type)), icon: Flag },
@@ -110,7 +113,7 @@ export function OrderProgress({
         if (status === "COMPLETED") return steps.length - 1;
         // Delivery COD is collected outside Clucky; never mark a payment step as confirmed.
         // Pickup COD retains its original payment-before-handover progress.
-        if (type === "PICKUP" && isPaid) {
+        if (type === "PICKUP" && isPaid && !noPayment) {
           return steps.findIndex(step => step.status === "PENDING_PAYMENT");
         }
         const statusIdx = steps.findIndex(step => step.status === status);
