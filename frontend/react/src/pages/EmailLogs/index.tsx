@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import i18n from "../../i18n/index.ts";
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Alert, Button, Card, Form, Input, Select, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
@@ -22,6 +23,10 @@ export function EmailLogsPage() {
   const canRead = isAdmin || user.role === 'STORE_MANAGER';
   const { date } = useLocaleTools();
   const [form] = Form.useForm<SearchValues>();
+  const [searchParams] = useSearchParams();
+  const requestedTemplate = searchParams.get('template');
+  const linkedTemplate = requestedTemplate && ['BRANCH_ACTIVATE', 'BRANCH_RESET', 'BRANCH_RECOVERY', 'BRANCH_ADMIN_RESET', 'BRANCH_ADMIN_RECOVERY'].includes(requestedTemplate)
+    ? requestedTemplate : null;
   const [filters, setFilters] = useState<EmailLogFilters>({});
   const [page, setPage] = useState(0);
   const [size, setSize] = useState(20);
@@ -29,6 +34,13 @@ export function EmailLogsPage() {
   const [result, setResult] = useState<NotificationPage<EmailLog> | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!linkedTemplate) return;
+    form.setFieldValue('template', linkedTemplate);
+    setPage(0);
+    setFilters(current => current.template === linkedTemplate ? current : { template: linkedTemplate });
+  }, [linkedTemplate, form]);
 
   useEffect(() => {
     if (!canRead) return;

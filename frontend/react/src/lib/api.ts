@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import { signIn, endSession, loadSession, refreshSession, expireSession, getSessionState, type SessionUser } from './session';
+import { signIn, endSession, loadSession, refreshSession, expireSession, isSessionExpired, getSessionState, type SessionUser } from './session';
 import { getBrowserLocale, getErrorMessage as resolveError, getTranslator } from '../i18n/core';
 import type { StoreStatus } from '../types/store';
 import type { AdminVoucher, BannerPayload, PromoBanner, VoucherPayload } from '../types/promotion';
@@ -128,10 +128,26 @@ api.interceptors.response.use(response => {
   return response;
 }, async (error: AxiosError) => {
   const config = error.config as (NonNullable<AxiosError['config']> & { retried?: boolean; sessionRevision?: number }) | undefined;
-  if (![401, 403].includes(error.response?.status ?? 0) || !config || config.url?.startsWith('/api/auth/')) throw error;
+  const authFailure = { status: error.response?.status, code: (error.response?.data as { code?: string } | undefined)?.code };
+  // A 403 may mean a real store/role denial OR a session cookie rejected by
+  // the gateway. Probe the identity session once instead of guessing or
+  // immediately signing out a legitimate branch user.
+  const forbidden = authFailure.status === 403 && !isSessionExpired(authFailure);
+  if ((!isSessionExpired(authFailure) && !forbidden) || !config || config.url?.startsWith('/api/auth/')) throw error;
   if (config.sessionRevision !== getSessionState().revision) throw new axios.CanceledError('Session changed');
+  if (forbidden) {
+    if (config.retried) throw error;
+    config.retried = true;
+    const userId = getSessionState().user?.userId;
+    const currentUser = await loadSession(true);
+    if (!currentUser || (userId && userId !== currentUser.userId)) throw error;
+    config.sessionRevision = getSessionState().revision;
+    // Exactly one retry. Persistent business 403 remains a denial, never a
+    // reason to clear an otherwise valid authenticated session.
+    return api.request(config);
+  }
   if (config.retried) {
-    if (error.response?.status === 401) expireSession();
+    expireSession();
     throw error;
   }
   config.retried = true;
@@ -217,6 +233,7 @@ export interface BackendOrder {
   type: 'DELIVERY' | 'PICKUP';
   status: string;
   paymentMethod?: string;
+  collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus?: 'PENDING' | 'PAID' | 'COLLECTED' | 'REFUNDED';
   subtotal: number;
   discountAmount: number;
@@ -792,6 +809,26 @@ export interface CounterCollectionPayload {
   staffNotes?: string;
 }
 
+/** Payment Service owns the SePay reference and bank account. Only the
+ * authenticated SePay webhook may mark this session PAID. */
+export interface CounterSepaySession {
+  id: string;
+  orderId: number;
+  orderCode: string;
+  status: 'PENDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'PARTIAL' | 'CLOSED' | string;
+  expiresAt: string | null;
+  reference: string | null;
+  bankInfo: { bankName: string; bankCode: string; accountNo: string; accountName: string } | null;
+  amount: string;
+  receivedAmount: string;
+  missingAmount: string;
+  excessAmount: string;
+  confirmationPending: boolean;
+  canTransfer: boolean;
+  closedReason: string | null;
+  cashAmount?: string | number;
+}
+
 export interface ShiftSummaryData {
   storeId: number;
   date: string;
@@ -805,6 +842,13 @@ export interface ShiftSummaryData {
 }
 
 export const paymentsApi = {
+  // Authoritative server-created SePay sessions. These routes MUST reject
+  // invalid store scope, zero amount, and conflicting split cash values.
+  initializeCounterSepay: (orderId: number, cashAmount: number, idempotencyKey: string, signal?: AbortSignal) =>
+    api.post<CounterSepaySession>(`/api/payments/${orderId}/counter-bank-transfer`,
+      { cashAmount }, { headers: { 'Idempotency-Key': idempotencyKey }, signal }).then(r => r.data),
+  readSepay: (orderId: number, signal?: AbortSignal) =>
+    api.get<CounterSepaySession>(`/api/payments/${orderId}`, { signal }).then(r => r.data),
   getCodEvidence: (orderId: string | number, signal?: AbortSignal) => api.get<{
     status: 'MISSING' | 'PENDING' | 'APPROVED' | 'REJECTED';
     uploaded_by?: number; reviewed_by?: number; review_reason?: string;

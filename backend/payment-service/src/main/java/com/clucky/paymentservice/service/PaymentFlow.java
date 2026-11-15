@@ -52,23 +52,30 @@ public class PaymentFlow {
             this(orderId, orderCode, customerId, storeId, amount, status, paymentMethod, paymentStatus, expiresAt, version, null, null);
         }
     }
-    private record Payment(long id, long orderId, String orderCode, long customerId, long storeId, BigDecimal amount,
-            BigDecimal received, String status, Instant expiresAt, String reference, Bank bank, boolean proposed, String closedReason) {}
+    private record Payment(long id, long orderId, String orderCode, Long customerId, long storeId, BigDecimal amount,
+            BigDecimal received, String status, Instant expiresAt, String reference, Bank bank, boolean proposed,
+            String closedReason, boolean posOrder, BigDecimal counterCashAmount) {}
     private static final RowMapper<Payment> PAYMENT = (row, index) -> new Payment(row.getLong("id"), row.getLong("order_id"),
-            row.getString("order_code"), row.getLong("customer_id"), row.getLong("store_id"), row.getBigDecimal("amount"),
+            row.getString("order_code"), row.getObject("customer_id", Long.class), row.getLong("store_id"), row.getBigDecimal("amount"),
             row.getBigDecimal("received_amount"), row.getString("status"), row.getTimestamp("expires_at").toInstant(),
             row.getString("transfer_content"), new Bank(row.getString("bank_name"), row.getString("bank_code"),
-            row.getString("account_no"), row.getString("account_name")), row.getBoolean("receipt_proposed"), row.getString("closed_reason"));
+            row.getString("account_no"), row.getString("account_name")), row.getBoolean("receipt_proposed"),
+            row.getString("closed_reason"), row.getBoolean("pos_order"), row.getBigDecimal("counter_cash_amount"));
     private final JdbcTemplate jdbc;
     private final DiscoveryClient discovery;
     private final RestClient client;
     private final ObjectMapper mapper;
     private final EventMapper events;
     private final boolean configured;
+    @Value("${payment.sepay.counter-enabled:false}")
+    private boolean counterEnabled;
 
     public PaymentFlow(JdbcTemplate jdbc, DiscoveryClient discovery, RestClient.Builder builder, ObjectMapper mapper,
             EventMapper events, @Value("${payment.sepay.api-key:}") String key) {
-        this.jdbc = jdbc; this.discovery = discovery; this.mapper = mapper; this.events = events; this.configured = !key.isBlank();
+        this.jdbc = jdbc; this.discovery = discovery; this.mapper = mapper; this.events = events;
+        String normalizedKey = key.toLowerCase(java.util.Locale.ROOT);
+        this.configured = !key.isBlank() && !normalizedKey.contains("replace-")
+                && !normalizedKey.contains("placeholder") && !normalizedKey.contains("change-me");
         var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build());
         factory.setReadTimeout(Duration.ofSeconds(5));
         this.client = builder.requestFactory(factory).build();
@@ -122,6 +129,137 @@ public class PaymentFlow {
         throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
     }
 
+    /**
+     * Create an immutable, uniquely referenced SePay payment for a COUNTER order.
+     * cashAmount is the staff-attested cash leg; only a matched SePay receipt
+     * for the remaining amount may trigger payment.received.
+     */
+    @Transactional
+    public Summary initializeCounter(long orderId, BigDecimal cashAmount, UUID requestKey) {
+        CurrentActor actor = CurrentActor.require();
+        if (!Set.of(Role.STAFF, Role.STORE_MANAGER, Role.ADMIN).contains(actor.role())) {
+            throw new AccessDeniedException("Branch staff required");
+        }
+        if (requestKey == null || cashAmount == null || cashAmount.signum() < 0 || cashAmount.stripTrailingZeros().scale() > 0
+                || cashAmount.compareTo(new BigDecimal("999999999999")) > 0) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
+        // Context is fetched through the protected Order API with this actor's
+        // bearer token; the Order service enforces the authoritative store scope.
+        Context order = context(orderId);
+        if (!"COUNTER".equals(order.orderSource()) || order.customerId() != null
+                || order.storeId() == null || order.storeId() <= 0 || order.amount() == null
+                || order.amount().signum() <= 0 || order.amount().stripTrailingZeros().scale() > 0
+                || order.amount().compareTo(new BigDecimal("999999999999")) > 0
+                || order.orderCode() == null || order.orderCode().isBlank() || order.orderCode().length() > 40
+                || !(cashAmount.signum() == 0 && "BANK_TRANSFER".equals(order.paymentMethod())
+                    || cashAmount.signum() > 0 && "SPLIT".equals(order.paymentMethod()))
+                || cashAmount.compareTo(order.amount()) >= 0) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn hàng POS không đủ điều kiện chuyển khoản SePay");
+        }
+        if (actor.role() != Role.ADMIN && !order.storeId().equals(actor.storeId())) {
+            throw new AccessDeniedException("Store required");
+        }
+        BigDecimal bankAmount = order.amount().subtract(cashAmount);
+        lockOrder(orderId);
+        // Serialize the same key even when misused for two different orders.
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtextextended(?,0))",
+                Object.class, "payment-pos-request:" + requestKey);
+        var reusedKeys = jdbc.queryForList(
+                "SELECT order_id FROM payment_service.payments WHERE pos_request_key=?", Long.class, requestKey);
+        if (!reusedKeys.isEmpty() && reusedKeys.getFirst() != orderId) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Idempotency-Key đã được dùng cho đơn POS khác");
+        }
+        List<Payment> existing = jdbc.query(
+                "SELECT * FROM payment_service.payments WHERE order_id=? AND live_payment", PAYMENT, orderId);
+        if (!existing.isEmpty()) {
+            Payment previous = existing.getFirst();
+            authorize(previous);
+            if (!previous.posOrder() || !previous.orderCode().equals(order.orderCode())
+                    || previous.storeId() != order.storeId() || previous.customerId() != null
+                    || previous.amount().compareTo(bankAmount) != 0
+                    || previous.counterCashAmount().compareTo(cashAmount) != 0) {
+                throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Yêu cầu chuyển khoản khác với phiên đã tạo");
+            }
+            return summarize(previous);
+        }
+        if (!configured || !counterEnabled) {
+            throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, "SePay POS chưa được bật hoặc cấu hình");
+        }
+        if (!"PENDING".equals(order.paymentStatus())
+                || !Set.of("CONFIRMED", "PREPARING", "READY", "SHIPPING").contains(order.status())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn POS không còn chờ thanh toán");
+        }
+        if (order.expiresAt() != null && !order.expiresAt().isAfter(Instant.now())
+                || !jdbc.queryForList("SELECT order_id FROM payment_service.order_snapshots "
+                    + "WHERE order_id=? AND status='CANCELLED'", Long.class, orderId).isEmpty()
+                || !jdbc.queryForList("SELECT id FROM payment_service.payments WHERE order_id=?", Long.class, orderId).isEmpty()
+                || !jdbc.queryForList("SELECT id FROM payment_service.collections WHERE order_id=? "
+                    + "AND status IN ('PENDING','ACCEPTED')", java.util.UUID.class, orderId).isEmpty()
+                || !jdbc.queryForList("SELECT id FROM payment_service.counter_payment_receipts WHERE order_id=? "
+                    + "AND status<>'VOIDED'", Long.class, orderId).isEmpty()) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã có thao tác thu tiền hoặc phiên chuyển khoản");
+        }
+        jdbc.execute("SELECT pg_advisory_xact_lock(192616)");
+        var banks = jdbc.query("SELECT account.* FROM payment_service.store_bank_accounts assignment "
+                + "JOIN payment_service.bank_accounts_config account ON account.id=assignment.bank_account_id "
+                + "WHERE assignment.store_id=? AND account.is_active AND account.bank_code IS NOT NULL "
+                + "AND account.account_no IS NOT NULL AND account.account_name IS NOT NULL",
+                (row, index) -> new Bank(row.getString("bank_name"), row.getString("bank_code"),
+                    row.getString("account_no"), row.getString("account_name")), order.storeId());
+        if (banks.size() != 1 || banks.getFirst().bankCode().isBlank()
+                || banks.getFirst().accountNo().isBlank() || banks.getFirst().accountName().isBlank()) {
+            throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Chi nhánh chưa có một tài khoản nhận SePay hợp lệ");
+        }
+        Session opened = counterOrderSession(orderId);
+        if (opened == null || opened.orderId() == null || opened.orderId() != orderId
+                || opened.customerId() != null || !order.storeId().equals(opened.storeId())
+                || !order.orderCode().equals(opened.orderCode())
+                || order.amount().compareTo(opened.amount()) != 0
+                || !order.status().equals(opened.status()) || !order.paymentMethod().equals(opened.paymentMethod())
+                || opened.expiresAt() == null || !opened.expiresAt().isAfter(Instant.now())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Thông tin phiên POS đã thay đổi");
+        }
+        Context latest = context(orderId);
+        if (!"PENDING".equals(latest.paymentStatus()) || !order.status().equals(latest.status())
+                || !order.paymentMethod().equals(latest.paymentMethod())
+                || order.amount().compareTo(latest.amount()) != 0
+                || !order.orderCode().equals(latest.orderCode())
+                || !opened.expiresAt().equals(latest.expiresAt())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn POS đã thay đổi trong khi tạo QR");
+        }
+        Bank bank = banks.getFirst();
+        for (int attempt = 0; attempt < 5; attempt++) {
+            List<Payment> inserted = jdbc.query("INSERT INTO payment_service.payments("
+                    + "order_id,order_code,method,amount,status,expires_at,customer_id,store_id,transfer_content,"
+                    + "bank_name,bank_code,account_no,account_name,live_payment,pos_order,counter_cash_amount,pos_actor_id,pos_request_key) "
+                    + "VALUES (?,?,'BANK_TRANSFER',?,'PENDING',?,NULL,?,?,?,?,?,?,true,true,?,?,?) "
+                    + "ON CONFLICT (transfer_content) WHERE transfer_content IS NOT NULL DO NOTHING RETURNING *", PAYMENT,
+                    orderId, order.orderCode(), bankAmount, Timestamp.from(opened.expiresAt()), order.storeId(),
+                    TransferReference.create(order.storeId()), bank.bankName(), bank.bankCode(),
+                    bank.accountNo(), bank.accountName(), cashAmount, actor.userId(), requestKey);
+            if (!inserted.isEmpty()) return summarize(inserted.getFirst());
+        }
+        throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Không tạo được mã chuyển khoản duy nhất");
+    }
+
+    private Session counterOrderSession(long orderId) {
+        var instances = discovery.getInstances("cart-order-service");
+        if (instances.isEmpty()) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        var token = (JwtAuthenticationToken) SecurityContextHolder.getContext().getAuthentication();
+        try {
+            return client.post().uri(instances.getFirst().getUri().resolve(
+                            "/api/orders/" + orderId + "/counter-payment-session"))
+                    .headers(headers -> headers.setBearerAuth(token.getToken().getTokenValue()))
+                    .retrieve().body(Session.class);
+        } catch (RestClientResponseException failure) {
+            throw new ApiException(failure.getStatusCode().is4xxClientError()
+                ? ErrorCode.fromStatus(failure.getStatusCode().value()) : ErrorCode.DEPENDENCY_UNAVAILABLE);
+        } catch (RestClientException failure) {
+            throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        }
+    }
+
     @Transactional(readOnly = true)
     public Summary get(long orderId) {
         var live = jdbc.query("SELECT * FROM payment_service.payments WHERE order_id=? AND live_payment", PAYMENT, orderId);
@@ -146,7 +284,7 @@ public class PaymentFlow {
 
     private void authorize(Payment payment) {
         CurrentActor actor = CurrentActor.require();
-        if (actor.role() == Role.ADMIN || actor.role() == Role.CUSTOMER && actor.userId() == payment.customerId()
+        if (actor.role() == Role.ADMIN || actor.role() == Role.CUSTOMER && actor.userId().equals(payment.customerId())
                 || (actor.role() == Role.STAFF || actor.role() == Role.STORE_MANAGER) && actor.storeId() != null && actor.storeId() == payment.storeId()) return;
         throw new AccessDeniedException("Access denied");
     }
@@ -202,8 +340,14 @@ public class PaymentFlow {
         if (!closed && !collectionPending && !payment.proposed() && received.compareTo(payment.amount()) >= 0 && "PENDING".equals(payment.status())) {
             jdbc.update("UPDATE payment_service.payments SET receipt_proposed=true WHERE id=?", paymentId);
             var payload = mapper.createObjectNode().put("paymentId", paymentId).put("orderId", payment.orderId())
-                    .put("orderCode", payment.orderCode()).put("customerId", payment.customerId()).put("storeId", payment.storeId())
+                    .put("orderCode", payment.orderCode()).put("storeId", payment.storeId())
                     .put("amount", payment.amount()).put("receivedAmount", received).put("expiresAt", payment.expiresAt().toString());
+            if (payment.posOrder()) {
+                payload.put("orderSource", "COUNTER").put("cashAmount", payment.counterCashAmount())
+                        .put("totalAmount", payment.amount().add(payment.counterCashAmount()));
+            } else {
+                payload.put("customerId", payment.customerId());
+            }
             enqueue("payment.received", payment.orderId(), payload);
         }
     }
@@ -224,29 +368,48 @@ public class PaymentFlow {
                 String reason = payload.path("paymentExpired").asBoolean(false) ? "EXPIRED" : "CANCELLED";
                 jdbc.update("UPDATE payment_service.payments SET closed_reason=?,status=CASE WHEN status IN ('PAID','COLLECTED','REFUNDED') THEN status ELSE ? END WHERE id=?",
                         reason, reason, matches.getFirst().id());
-                if ("PENDING".equals(matches.getFirst().status()) && !Set.of("PAID","COLLECTED","REFUNDED").contains(payload.path("paymentStatus").asText())) failed(matches.getFirst(), reason);
+                if (!matches.getFirst().posOrder() && "PENDING".equals(matches.getFirst().status())
+                        && !Set.of("PAID","COLLECTED","REFUNDED").contains(payload.path("paymentStatus").asText())) {
+                    failed(matches.getFirst(), reason);
+                }
             }
             return;
         }
         if (!"order.payment-resolved".equals(event.eventType()) || matches.size() != 1) throw new IllegalArgumentException("Payment decision target missing");
         Payment payment = matches.getFirst();
         String decision = payload.path("decision").asText();
+        boolean matchingRecipient = payment.posOrder()
+                ? "COUNTER".equals(payload.path("orderSource").asText())
+                    && (payload.path("customerId").isMissingNode() || payload.path("customerId").isNull())
+                : payload.path("customerId").isIntegralNumber()
+                    && payment.customerId() != null && payment.customerId().equals(payload.path("customerId").asLong());
         if (!Set.of("ACCEPTED", "EXPIRED", "CANCELLED", "SUPERSEDED").contains(decision) || payload.path("paymentId").asLong() != payment.id()
-                || payload.path("customerId").asLong() != payment.customerId() || payload.path("storeId").asLong() != payment.storeId()
+                || !matchingRecipient || payload.path("storeId").asLong() != payment.storeId()
                 || !payment.orderCode().equals(payload.path("orderCode").asText()) || !payment.proposed()) {
             throw new IllegalArgumentException("Payment decision mismatch");
         }
         if ("ACCEPTED".equals(decision)) {
-            if (jdbc.update("UPDATE payment_service.payments SET status='PAID',paid_at=now() WHERE id=? AND paid_at IS NULL AND status<>'REFUNDED'", payment.id()) > 0) {
+            // A delayed ACCEPTED event must never reopen a payment already closed by cancellation or expiry.
+            if (jdbc.update("UPDATE payment_service.payments SET status='PAID',paid_at=now() WHERE id=? AND paid_at IS NULL AND status='PENDING' AND closed_reason IS NULL", payment.id()) > 0) {
                 var notification = mapper.createObjectNode().put("paymentId", payment.id()).put("orderId", orderId)
-                        .put("orderCode", payment.orderCode()).put("customerId", payment.customerId()).put("storeId", payment.storeId())
-                        .put("amount", payment.amount()).put("totalAmount", payment.amount()).put("status", "PAID");
-                notification.put("paymentMethod", "BANK_TRANSFER").put("outcome", "CONFIRMED");
+                        .put("orderCode", payment.orderCode()).put("storeId", payment.storeId())
+                        .put("amount", payment.amount().add(payment.counterCashAmount()))
+                        .put("totalAmount", payment.amount().add(payment.counterCashAmount()))
+                        .put("status", payment.counterCashAmount().signum() > 0 ? "COLLECTED" : "PAID");
+                if (payment.posOrder()) {
+                    notification.put("orderSource", "COUNTER").put("bankAmount", payment.amount())
+                            .put("cashAmount", payment.counterCashAmount());
+                } else {
+                    notification.put("customerId", payment.customerId());
+                }
+                notification.put("paymentMethod", payment.counterCashAmount().signum() > 0 ? "MIXED" : "BANK_TRANSFER")
+                        .put("outcome", "CONFIRMED");
                 enqueue("payment.confirmed", orderId, notification);
             }
         } else {
             if ("SUPERSEDED".equals(decision)) jdbc.update("UPDATE payment_service.payments SET status='COLLECTED' WHERE id=? AND paid_at IS NULL AND status<>'REFUNDED'",payment.id());
-            else if (!"COLLECTED".equals(payment.status()) && jdbc.update("UPDATE payment_service.payments SET status=?,closed_reason=? WHERE id=? AND paid_at IS NULL AND status<>'REFUNDED'",decision,decision,payment.id())>0) failed(payment,decision);
+            else if (!"COLLECTED".equals(payment.status()) && jdbc.update("UPDATE payment_service.payments SET status=?,closed_reason=? WHERE id=? AND paid_at IS NULL AND status<>'REFUNDED'",decision,decision,payment.id())>0
+                    && !payment.posOrder()) failed(payment,decision);
         }
     }
 
@@ -297,6 +460,7 @@ public class PaymentFlow {
         return new Summary(Long.toString(payment.id()), payment.orderId(), payment.orderCode(), status, payment.expiresAt(), payment.reference(),
                 payment.bank(), payment.amount().toPlainString(), payment.received().toPlainString(), missing.toPlainString(), excess.toPlainString(),
                 payment.proposed() && "PENDING".equals(status) && payment.closedReason() == null,
-                configured && !collection && "PENDING".equals(status) && payment.closedReason() == null && missing.signum() > 0, payment.closedReason());
+                configured && (!payment.posOrder() || counterEnabled) && !collection && "PENDING".equals(status)
+                    && payment.closedReason() == null && missing.signum() > 0, payment.closedReason());
     }
 }

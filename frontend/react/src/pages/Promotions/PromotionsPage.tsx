@@ -101,7 +101,7 @@ export const PromotionsPage: React.FC = () => {
     } finally {
       if (request === voucherRequest.current) setLoading(false);
     }
-  }, [user.id, isAdmin, user.storeId]);
+  }, []);
 
   useEffect(() => {
     fetchStores();

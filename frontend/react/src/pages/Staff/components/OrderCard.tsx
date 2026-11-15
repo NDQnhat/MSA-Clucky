@@ -120,6 +120,13 @@ export const OrderCard: React.FC<OrderCardProps> = ({
 
   // Nhãn trạng thái tiền
   const renderPaymentStatus = () => {
+    if (order.collectionMethod === 'NO_PAYMENT' && order.total === 0) {
+      return (
+        <span className={`${styles.badgePayment} ${styles.badgePaymentPaid}`}>
+          <CheckCircle2 size={13} /> {t('business:counterPayment.noPaymentCard')}
+        </span>
+      );
+    }
     if (fulfillment === 'DELIVERY' && order.paymentMethod === 'COD'
         && tracking?.merchantPaymentStatus === 'PAID_SIMULATED') {
       return (
@@ -202,7 +209,8 @@ export const OrderCard: React.FC<OrderCardProps> = ({
           )}
           {order.status === 'READY' && <span>{tracking?.status === 'ASSIGNED' ? i18n.t("shipping:ui.waitingForTheSimulatedRiderToCollect") : i18n.t("shipping:ui.foodIsReadyAwaitingTheDeliverySystem")}</span>}
           {order.status === 'SHIPPING' && tracking?.status !== 'FAILED' && <span>{i18n.t("shipping:ui.simulatingDeliveryOpenDetailsToTrackTheRoute")}</span>}
-          {order.paymentMethod === 'COD' && <span>{tracking?.merchantPaymentStatus === 'PAID_SIMULATED' ? i18n.t("shipping:ui.riderPaidOnCollectionSimulationCustomerPaysCodOnDelivery") : i18n.t("shipping:ui.codCustomerPaysTheRiderOnDelivery")}</span>}
+          {order.collectionMethod === 'NO_PAYMENT' && order.total === 0 ? <span>{t('business:counterPayment.noPaymentDelivery')}</span>
+            : order.paymentMethod === 'COD' && <span>{tracking?.merchantPaymentStatus === 'PAID_SIMULATED' ? i18n.t("shipping:ui.riderPaidOnCollectionSimulationCustomerPaysCodOnDelivery") : i18n.t("shipping:ui.codCustomerPaysTheRiderOnDelivery")}</span>}
           {order.paymentMethod === 'BANK_TRANSFER' && <span>{i18n.t("shipping:ui.qrPrepayment")} {['PAID', 'COLLECTED'].includes(order.paymentStatus) ? i18n.t("shipping:ui.confirmed") : i18n.t("shipping:ui.awaitingConfirmation")} {i18n.t("shipping:ui.riderOnlyDeliversTheFood")}</span>}
           {!['COD', 'BANK_TRANSFER'].includes(order.paymentMethod) && <span>{i18n.t("shipping:ui.paymentMethodRequiresVerification")} {order.paymentMethod}</span>}
         </div>

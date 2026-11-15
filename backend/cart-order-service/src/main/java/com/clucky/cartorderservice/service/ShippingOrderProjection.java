@@ -109,6 +109,8 @@ public class ShippingOrderProjection {
             }
             boolean cod = "COD".equals(order.getPaymentMethod());
             boolean paid = List.of("PAID", "COLLECTED").contains(order.getPaymentStatus());
+            boolean noPayment = "NO_PAYMENT".equals(order.getCollectionMethod())
+                    && order.getTotalAmount().signum() == 0;
             if (cod && !paid && !payload.path("simulatedAdvanceConfirmed").asBoolean(false)) {
                 throw new IllegalArgumentException("COD rider mock merchant settlement is missing");
             }
@@ -116,7 +118,7 @@ public class ShippingOrderProjection {
                 throw new IllegalStateException("QR customer has not completed real prepayment");
             }
             change(order, "COMPLETED", "Giao hàng thành công (mô phỏng)", false);
-            publisher.publishSimulatedDeliveryCompleted(order, items.findByOrderIdOrderByIdAsc(orderId), paid);
+            publisher.publishSimulatedDeliveryCompleted(order, items.findByOrderIdOrderByIdAsc(orderId), paid || noPayment);
         } else if ("shipping.resolved".equals(event.eventType())) {
             if (!"CLOSED_UNDELIVERABLE".equals(payload.path("resolution").asText())) {
                 return; // Return and retry never finish the order.

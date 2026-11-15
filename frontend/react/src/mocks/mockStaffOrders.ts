@@ -30,6 +30,7 @@ export interface StaffOrder {
   deliveryAddress?: string;
   status: AdminOrderStatus;
   paymentMethod: PaymentMethod;
+  collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus: PaymentStatus;
   items: StaffOrderItem[];
   subtotal: number;

@@ -21,7 +21,7 @@ export interface Collection {
   bankEvidence: number; pendingTransfer: number; operationalReceived: number; discrepancy: number; bankExcess: number;
 }
 export interface PaymentSnapshot {
-  order: { orderId: number; orderCode: string; storeId: number; amount: number; status: string; paymentStatus: string; paymentMethod: string; expiresAt: string | null; version: string };
+  order: { orderId: number; orderCode: string; storeId: number; amount: number; status: string; paymentStatus: string; paymentMethod: string; orderSource?: string; orderType?: string; expiresAt: string | null; version: string };
   payments: Payment[]; collection?: Collection; bankInfo?: BankInfo; reference?: string;
 }
 export interface CollectionInput { cashAmount: number; transferAmount: number; cashTendered: number; cashChange: number; reason: string }
@@ -42,16 +42,20 @@ export function validCollection(values: CollectionInput) {
 
 export function canCollect(snapshot: PaymentSnapshot) {
   const { order, collection } = snapshot;
-  return order.paymentStatus === "PENDING" && order.amount > 0
+  const cashCollectionAllowed = order.orderSource === 'COUNTER' && order.paymentMethod === 'CASH'
+    || order.orderSource === 'WEB' && order.paymentMethod === 'COD' && order.orderType === 'PICKUP';
+  return cashCollectionAllowed && order.paymentStatus === "PENDING" && order.amount > 0
     && ["PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY"].includes(order.status)
     && !(order.status === "PENDING_PAYMENT" && order.expiresAt && Date.parse(order.expiresAt) <= Date.now())
     && !["PENDING", "ACCEPTED"].includes(collection?.status ?? "")
+    && !snapshot.payments.some(payment => payment.live_payment)
     && !snapshot.payments.some(payment => ["PENDING", "EXPIRED", "CANCELLED"].includes(payment.status)
       && payment.expires_at && Date.parse(payment.expires_at) <= Date.now());
 }
 
 export function collectionBody(snapshot: PaymentSnapshot, values: CollectionInput) {
-  if (!validCollection(values) || !canCollect(snapshot)) throw { code: "VALIDATION_ERROR" };
+  if (!validCollection(values) || !canCollect(snapshot) || values.transferAmount !== 0
+      || values.cashAmount !== snapshot.order.amount) throw { code: "VALIDATION_ERROR" };
   return { orderVersion: snapshot.order.version, cashAmount: values.cashAmount, transferAmount: values.transferAmount,
     cashTendered: values.cashTendered, cashChange: values.cashChange, reason: values.reason.trim() };
 }

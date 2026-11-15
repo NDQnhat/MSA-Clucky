@@ -41,7 +41,13 @@ function load(client, handler, sharedLocks = locks()) {
   const events = new Map();
   const context = {
     Headers, DOMException, URLSearchParams, AbortController,
-    window: { addEventListener: (name, listener) => events.set(name, listener) },
+    window: {
+      addEventListener: (name, listener) => events.set(name, listener),
+      // Session's periodic focus check is browser-owned; do not create
+      // real timers in isolated VM unit cases or leave them running.
+      setInterval: () => 1,
+    },
+    document: { hidden: false },
     navigator: { locks: sharedLocks },
     crypto: { randomUUID: () => 'guest-session-id' },
     localStorage: {
@@ -127,13 +133,20 @@ for (const client of ['customer', 'admin']) {
   });
 
   test(`${client}: failed credentials and forbidden requests with a valid session never refresh`, async () => {
-    const app = load(client, path => path === '/api/auth/session' ? result(200, user)
-      : result(path === '/api/auth/login' ? 401 : 403));
+    let signedIn = false;
+    const app = load(client, path => {
+      if (path === '/api/auth/login' && !signedIn) {
+        signedIn = true;
+        return result(200, user);
+      }
+      return result(path === '/api/auth/login' ? 401 : 403);
+    });
+    await app.session.signIn('/api/auth/login', {});
     await assert.rejects(app.session.signIn('/api/auth/login', {}), error => error.status === 401);
     await assert.rejects(app.session.sessionRequest('/api/orders/my'), error => error.status === 403);
     assert.equal(app.requests.some(request => request.path === '/api/auth/refresh'), false);
     assert.equal(app.session.getSessionState().user.userId, user.userId);
-    assert.equal(app.requests.filter(request => request.path === '/api/orders/my').length, 2);
+    assert.equal(app.requests.filter(request => request.path === '/api/orders/my').length, 1);
   });
 
   test(`${client}: 403 session bootstrap signs out instead of displaying a permanent error`, async () => {
@@ -144,39 +157,41 @@ for (const client of ['customer', 'admin']) {
     assert.equal(app.requests.filter(request => request.path === '/api/auth/refresh').length, 1);
   });
 
-  test(`${client}: concurrent expired 403s share one refresh and clear the current session`, async () => {
+  test(`${client}: concurrent business 403s do not refresh or sign out an authorized session`, async () => {
     const app = load(client, path => path === '/api/auth/login' ? result(200, user) : result(403));
     await app.session.signIn('/api/auth/login', {});
     const results = await Promise.allSettled([
       app.session.sessionRequest('/api/orders/my'), app.session.sessionRequest('/api/users/me'),
     ]);
     assert.ok(results.every(result => result.status === 'rejected'));
-    assert.equal(app.session.getSessionState().user, null);
+    assert.equal(app.session.getSessionState().user.userId, user.userId);
     assert.equal(app.session.getSessionState().error, null);
-    assert.equal(app.requests.filter(request => request.path === '/api/auth/refresh').length, 1);
+    assert.equal(app.requests.filter(request => request.path === '/api/auth/refresh').length, 0);
+    assert.equal(app.requests.filter(request => request.path === '/api/orders/my').length, 1);
+    assert.equal(app.requests.filter(request => request.path === '/api/users/me').length, 1);
   });
 
-  test(`${client}: a 403 request recovers when refresh succeeds`, async () => {
+  test(`${client}: a business 403 cannot force refresh even when the refresh endpoint would succeed`, async () => {
     let valid = false;
     const app = load(client, path => {
       if (path === '/api/auth/refresh') valid = true;
       return valid || path === '/api/auth/login' ? result(200, user) : result(403);
     });
     await app.session.signIn('/api/auth/login', {});
-    await app.session.sessionRequest('/api/orders/my');
+    await assert.rejects(app.session.sessionRequest('/api/orders/my'), error => error.status === 403);
     assert.equal(app.session.getSessionState().user.userId, user.userId);
-    assert.equal(app.requests.filter(request => request.path === '/api/auth/refresh').length, 1);
-    assert.equal(app.requests.filter(request => request.path === '/api/orders/my').length, 2);
+    assert.equal(app.requests.filter(request => request.path === '/api/auth/refresh').length, 0);
+    assert.equal(app.requests.filter(request => request.path === '/api/orders/my').length, 1);
   });
 
-  test(`${client}: network failures during a 403 session check do not sign out`, async () => {
+  test(`${client}: network failures on explicit session checks do not sign out`, async () => {
     const app = load(client, path => {
       if (path === '/api/auth/login') return result(200, user);
       if (path === '/api/auth/session') throw new TypeError('Network unavailable');
       return result(403);
     });
     await app.session.signIn('/api/auth/login', {});
-    await assert.rejects(app.session.sessionRequest('/api/orders/my'), error => error.code === 'NETWORK_ERROR');
+    await assert.rejects(app.session.loadSession(true), error => error.code === 'NETWORK_ERROR');
     assert.equal(app.session.getSessionState().user.userId, user.userId);
   });
 

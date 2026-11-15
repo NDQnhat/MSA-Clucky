@@ -14,6 +14,9 @@ public class Notification {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
+    @Column(name = "store_id")
+    private Long storeId;
+
     @Column(name = "title", nullable = false, length = 180)
     private String title;
 
@@ -40,6 +43,8 @@ public class Notification {
 
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
+    public Long getStoreId() { return storeId; }
+    public void setStoreId(Long storeId) { this.storeId = storeId; }
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }

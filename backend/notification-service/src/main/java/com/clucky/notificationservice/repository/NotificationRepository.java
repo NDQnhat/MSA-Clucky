@@ -11,19 +11,24 @@ import org.springframework.data.repository.query.Param;
 import java.util.Optional;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
-    Optional<Notification> findByIdAndUserId(Long id, Long userId);
+    @Query("SELECT n FROM Notification n WHERE n.id = :id AND n.userId = :userId AND (:storeId IS NULL OR n.storeId = :storeId)")
+    Optional<Notification> findOwned(@Param("id") Long id, @Param("userId") Long userId, @Param("storeId") Long storeId);
 
     Optional<Notification> findByOperationKey(String operationKey);
 
     Page<Notification> findByUserId(Long userId, Pageable pageable);
 
-    @Query("SELECT n FROM Notification n WHERE n.userId = :userId AND (:unread = false OR n.isRead = false) AND (:type IS NULL OR n.type = :type)")
-    Page<Notification> findInbox(@Param("userId") Long userId, @Param("unread") boolean unread,
-            @Param("type") String type, Pageable pageable);
+    @Query("SELECT n FROM Notification n WHERE n.userId = :userId AND (:storeId IS NULL OR n.storeId = :storeId) "
+            + "AND (:unread = false OR n.isRead = false) AND (:type IS NULL OR n.type = :type)")
+    Page<Notification> findInbox(@Param("userId") Long userId, @Param("storeId") Long storeId,
+            @Param("unread") boolean unread, @Param("type") String type, Pageable pageable);
 
     @Modifying
-    @Query("UPDATE Notification n SET n.isRead = true WHERE n.userId = :userId AND n.isRead = false")
-    int markAllAsReadByUserId(@Param("userId") Long userId);
+    @Query("UPDATE Notification n SET n.isRead = true WHERE n.userId = :userId "
+            + "AND (:storeId IS NULL OR n.storeId = :storeId) AND n.isRead = false")
+    int markAllAsReadByUserId(@Param("userId") Long userId, @Param("storeId") Long storeId);
 
-    long countByUserIdAndIsReadFalse(Long userId);
+    @Query("SELECT count(n) FROM Notification n WHERE n.userId = :userId AND n.isRead = false "
+            + "AND (:storeId IS NULL OR n.storeId = :storeId)")
+    long countUnread(@Param("userId") Long userId, @Param("storeId") Long storeId);
 }

@@ -166,10 +166,18 @@ public class AuthController {
 
     @GetMapping("/session")
     public AuthResponse session(@AuthenticationPrincipal Jwt jwt,
-            @RequestHeader(value = "X-Clucky-Client", defaultValue = "customer") String client) {
-        AuthResponse session = authService.session(Long.valueOf(jwt.getSubject()));
-        validateRole(client, session.role());
-        return session;
+            @RequestHeader(value = "X-Clucky-Client", defaultValue = "customer") String client,
+            HttpServletResponse response) {
+        try {
+            AuthResponse session = authService.session(Long.valueOf(jwt.getSubject()));
+            validateRole(client, session.role());
+            return session;
+        } catch (ApiException failure) {
+            if (failure.getCode().httpStatus() == 401 || failure.getCode() == ErrorCode.ACCOUNT_LOCKED) {
+                clearSessionCookies(response, client);
+            }
+            throw failure;
+        }
     }
 
     private String prefix(String client) {

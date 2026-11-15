@@ -65,7 +65,9 @@ public class ReportProjectionService {
         BigDecimal explicitReconciledTransfer = resolveOptionalAmount(payload, "reconciledTransferAmount");
         BigDecimal explicitPendingReconciliation = resolveOptionalAmount(payload, "pendingReconciliationAmount");
         BigDecimal explicitCash = resolveOptionalAmount(payload, "cashAmount");
-        BigDecimal explicitTransfer = resolveOptionalAmount(payload, "declaredTransfer");
+        // SePay-confirmed POS receipts report the verified bank portion under
+        // bankAmount; Order snapshots continue to use declaredTransfer.
+        BigDecimal explicitTransfer = resolveOptionalAmount(payload, "declaredTransfer", "bankAmount");
         boolean isExpiredOrder = payload.path("expired").asBoolean(false)
                 || "EXPIRED".equalsIgnoreCase(payload.path("orderStatus").asText(""));
         String eventReconciliationStatus = resolveOptionalReconciliationStatus(event, payload, isExpiredOrder);
@@ -302,8 +304,26 @@ public class ReportProjectionService {
     }
 
     private String resolvePaymentMethod(JsonNode payload) {
+        if ("NO_PAYMENT".equals(payload.path("collectionMethod").asText())
+                || "NO_PAYMENT".equals(payload.path("paymentMethod").asText())) {
+            if (!payload.path("totalAmount").isNumber()
+                    || payload.path("totalAmount").decimalValue().signum() != 0
+                    || !"COLLECTED".equals(payload.path("paymentStatus").asText())) {
+                throw new IllegalArgumentException("Invalid no-payment order snapshot");
+            }
+            return "NO_PAYMENT";
+        }
         String field = "order.completed".equals(revenueEvent) ? "paymentMethod" : "method";
         String method = payload.path(field).asText(payload.path("paymentMethod").asText());
+        // The order retains the customer's original choice (including SPLIT),
+        // while collectionMethod records how staff actually settled it.
+        String collected = payload.path("collectionMethod").asText();
+        if ("order.completed".equals(revenueEvent)
+                && Set.of("CASH", "BANK_TRANSFER", "MIXED", "UNVERIFIED").contains(collected)) {
+            method = collected;
+        }
+        if ("SPLIT".equals(method)) method = "MIXED";
+        if ("TRANSFER".equals(method)) method = "BANK_TRANSFER";
         if (!Set.of("COD", "BANK_TRANSFER", "CASH", "MIXED", "UNVERIFIED").contains(method)) {
             throw new IllegalArgumentException("Supported payment method required");
         }
@@ -314,10 +334,25 @@ public class ReportProjectionService {
         if (isExpiredOrder) {
             return EXPIRED_RECEIPT_STATUS;
         }
+        if (("NO_PAYMENT".equals(payload.path("collectionMethod").asText())
+                || "NO_PAYMENT".equals(payload.path("paymentMethod").asText()))
+                && payload.path("totalAmount").isNumber()
+                && payload.path("totalAmount").decimalValue().signum() == 0) {
+            return "NOT_REQUIRED";
+        }
         if (payload.hasNonNull("reconciliationStatus")) {
             return payload.get("reconciliationStatus").asText().trim().toUpperCase(Locale.ROOT);
         }
         if (payload.path("reconciled").asBoolean(false) || payload.path("bankConfirmed").asBoolean(false)) {
+            return "RECONCILED";
+        }
+        // POS SPLIT is COLLECTED because staff attests the cash leg. Unlike
+        // legacy manual collections, a SePay payment.confirmed with a verified
+        // bank portion is fully reconciled, not merely staff-declared.
+        if ("payment.confirmed".equals(event.eventType())
+                && "COUNTER".equals(payload.path("orderSource").asText())
+                && payload.path("bankAmount").isNumber()
+                && payload.path("bankAmount").decimalValue().signum() > 0) {
             return "RECONCILED";
         }
         if (payload.path("manualAccepted").asBoolean(false) || payload.path("counterDeclared").asBoolean(false)

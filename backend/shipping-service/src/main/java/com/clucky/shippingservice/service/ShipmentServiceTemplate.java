@@ -115,8 +115,19 @@ public class ShipmentServiceTemplate {
             return new OrderSnapshot(orderId, customerId, storeId, type, null, null, null, BigDecimal.ZERO, null, BigDecimal.ZERO, null, null);
         }
         if (!"DELIVERY".equals(type)) throw new IllegalArgumentException("Invalid order type");
-        String method = text(payload, "paymentMethod", 30);
+        String originalMethod = text(payload, "paymentMethod", 30);
+        // Older zero-value events used NO_PAYMENT in paymentMethod. Accept
+        // their replay as COD with collection waived, matching persisted Order.
+        boolean waived = money(payload, "totalAmount").signum() == 0
+                && "COLLECTED".equals(payload.path("paymentStatus").asText())
+                && ("NO_PAYMENT".equals(payload.path("collectionMethod").asText())
+                    || "NO_PAYMENT".equals(originalMethod));
+        String method = waived && "NO_PAYMENT".equals(originalMethod) ? "COD" : originalMethod;
         if (!Set.of("COD", "BANK_TRANSFER").contains(method)) throw new IllegalArgumentException("Invalid shipment payment method");
+        if (("NO_PAYMENT".equals(payload.path("collectionMethod").asText())
+                || "NO_PAYMENT".equals(originalMethod)) && (!waived || !"COD".equals(method))) {
+            throw new IllegalArgumentException("Invalid no-payment shipment snapshot");
+        }
         Double latitude = coordinate(payload, "latitude", 90);
         Double longitude = coordinate(payload, "longitude", 180);
         if ((latitude == null) != (longitude == null)) throw new IllegalArgumentException("Incomplete shipment location");

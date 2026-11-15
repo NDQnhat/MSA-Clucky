@@ -1,7 +1,9 @@
 package com.clucky.notificationservice;
 
 import com.clucky.notificationservice.consumer.NotificationConsumer;
+import com.clucky.notificationservice.config.CurrentActor;
 import com.clucky.notificationservice.dto.DomainEvent;
+import com.clucky.notificationservice.dto.Role;
 import com.clucky.notificationservice.entity.Notification;
 import com.clucky.notificationservice.mapper.EventMapper;
 import com.clucky.notificationservice.repository.NotificationRepository;
@@ -27,14 +29,29 @@ class NotificationSafetyTest {
     void inboxUsesTheOwnerForFilteringAndTheGlobalUnreadCount() {
         var repository = mock(NotificationRepository.class);
         var pageable = org.springframework.data.domain.PageRequest.of(1, 20);
-        when(repository.findInbox(7L, true, "ORDER", pageable))
+        var actor = new CurrentActor(7L, Role.CUSTOMER, null);
+        when(repository.findInbox(7L, null, true, "ORDER", pageable))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(), pageable, 20));
-        when(repository.countByUserIdAndIsReadFalse(7L)).thenReturn(25L);
-        var inbox = new NotificationService(repository).inbox(7L, pageable, true, "ORDER");
+        when(repository.countUnread(7L, null)).thenReturn(25L);
+        var inbox = new NotificationService(repository).inbox(actor, pageable, true, "ORDER");
         assertEquals(25, inbox.unreadCount());
         assertEquals(1, inbox.page());
-        verify(repository).findInbox(7L, true, "ORDER", pageable);
-        assertThrows(ApiException.class, () -> new NotificationService(repository).inbox(7L, pageable, false, "PRIVATE"));
+        verify(repository).findInbox(7L, null, true, "ORDER", pageable);
+        assertThrows(ApiException.class, () -> new NotificationService(repository).inbox(actor, pageable, false, "PRIVATE"));
+    }
+
+    @Test
+    void staffInboxIsScopedToTheAssignedBranch() {
+        var repository = mock(NotificationRepository.class);
+        var pageable = org.springframework.data.domain.PageRequest.of(0, 10);
+        var staff = new CurrentActor(7L, Role.STAFF, 3L);
+        when(repository.findInbox(7L, 3L, true, "ORDER", pageable))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(java.util.List.of(), pageable, 0));
+        new NotificationService(repository).inbox(staff, pageable, true, "ORDER");
+        verify(repository).findInbox(7L, 3L, true, "ORDER", pageable);
+        verify(repository).countUnread(7L, 3L);
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> new NotificationService(repository).inbox(new CurrentActor(7L, Role.STAFF, null), pageable, true, "ORDER"));
     }
 
     @Test
@@ -92,8 +109,8 @@ class NotificationSafetyTest {
     @Test
     void markingAnotherUsersNotificationIsRejected() {
         var repository = mock(NotificationRepository.class);
-        assertThrows(ApiException.class, () -> new NotificationService(repository).markRead(1L, 7L));
-        verify(repository).findByIdAndUserId(1L, 7L);
+        assertThrows(ApiException.class, () -> new NotificationService(repository).markRead(1L, new CurrentActor(7L, Role.STAFF, 3L)));
+        verify(repository).findOwned(1L, 7L, 3L);
         verify(repository, never()).save(any());
     }
 

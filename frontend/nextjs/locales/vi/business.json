@@ -165,7 +165,10 @@
     "totalDue": "Tổng thanh toán",
     "editCart": "Chỉnh sửa giỏ hàng",
     "processingYourOrder": "Đang xử lý đơn hàng…",
-    "placeOrderNow": "Đặt hàng ngay →"
+    "placeOrderNow": "Đặt hàng ngay →",
+    "noPaymentDescription": "Miễn thanh toán — 0đ. Ưu đãi đã thanh toán toàn bộ đơn hàng; không cần quét mã QR hoặc trả tiền khi nhận.",
+    "noPaymentLabel": "Miễn thanh toán — 0đ",
+    "placeFreeOrder": "Đặt đơn miễn thanh toán"
   },
   "layout": {
     "cluckyPremiumFriedChickenAndFastFoodOrderingPlatformCrispyOutsideHappy": "Nền tảng website bán hàng thức ăn nhanh chuỗi gà rán cao cấp Clucky. Giòn tan bên ngoài, vui vẻ bên trong."
@@ -205,6 +208,10 @@
     "showingFilteredOrders": "Đang hiển thị {matched} / {total} đơn hàng"
   },
   "id": {
+    "noPaymentLabel": "Miễn thanh toán — 0đ",
+    "noPaymentDescription": "Ưu đãi đã giảm toàn bộ tiền đơn hàng. Bạn không cần chuyển khoản hoặc trả tiền khi nhận.",
+    "freeOrderConfirmed": "Đơn hàng 0đ đã được xác nhận, không cần thanh toán.",
+    "noPaymentShort": "Miễn thanh toán",
     "orderNotFound": "Không tìm thấy đơn hàng",
     "checkTheOrderCodeOrReturnToYourPurchaseHistory": "Kiểm tra mã đơn hoặc quay lại lịch sử mua hàng.",
     "viewMyOrders": "Xem đơn hàng của tôi",

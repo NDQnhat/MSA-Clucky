@@ -1,6 +1,7 @@
 package com.clucky.paymentservice;
 
 import com.clucky.paymentservice.mapper.EventMapper;
+import com.clucky.paymentservice.dto.DomainEvent;
 import com.clucky.paymentservice.service.PaymentFlow;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
@@ -8,6 +9,7 @@ import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.cloud.client.discovery.DiscoveryClient;
@@ -15,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.web.client.RestClient;
 import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 class PaymentFlowTest {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
@@ -72,6 +75,30 @@ class PaymentFlowTest {
         service.reconcile(7L);
         when(row.getString("status")).thenReturn("PAID");
         service.reconcile(7L);
+        verify(events, never()).toJson(any());
+    }
+
+    @Test
+    void delayedAcceptedDecisionCannotReopenCancelledCounterPayment() throws Exception {
+        when(row.getString("order_code")).thenReturn("ORDER-10");
+        when(row.getLong("store_id")).thenReturn(2L);
+        when(row.getBoolean("pos_order")).thenReturn(true);
+        when(row.getBoolean("receipt_proposed")).thenReturn(true);
+        when(row.getBigDecimal("counter_cash_amount")).thenReturn(BigDecimal.ZERO);
+        when(row.getString("status")).thenReturn("CANCELLED");
+        when(row.getString("closed_reason")).thenReturn("CANCELLED");
+        when(jdbc.query(anyString(), any(RowMapper.class), eq(10L))).thenAnswer(invocation ->
+                List.of(((RowMapper<?>) invocation.getArgument(1)).mapRow(row, 0)));
+        when(jdbc.update(startsWith("UPDATE payment_service.payments SET status='PAID'"), eq(7L))).thenReturn(0);
+
+        var payload = new ObjectMapper().createObjectNode()
+                .put("orderId", 10L).put("paymentId", 7L).put("orderSource", "COUNTER")
+                .put("storeId", 2L).put("orderCode", "ORDER-10").put("decision", "ACCEPTED");
+        var decision = new DomainEvent(UUID.randomUUID().toString(), "counter-late-accept",
+                "order.payment-resolved", "cart-order-service", Instant.now(), payload);
+
+        service.orderEvent(decision);
+        verify(jdbc).update(contains("status='PENDING' AND closed_reason IS NULL"), eq(7L));
         verify(events, never()).toJson(any());
     }
 }

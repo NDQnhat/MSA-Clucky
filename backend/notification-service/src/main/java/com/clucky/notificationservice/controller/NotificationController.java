@@ -42,7 +42,7 @@ public class NotificationController {
                 size,
                 Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"))
         );
-        NotificationInboxResponse response = notificationService.inbox(actor.userId(), pageRequest, unread, type);
+        NotificationInboxResponse response = notificationService.inbox(actor, pageRequest, unread, type);
         return ResponseEntity.ok(response);
     }
 
@@ -55,7 +55,7 @@ public class NotificationController {
             @PathVariable("id") @Positive Long id
     ) {
         CurrentActor actor = CurrentActor.require();
-        NotificationReadResponse response = notificationService.markRead(id, actor.userId());
+        NotificationReadResponse response = notificationService.markRead(id, actor);
         return ResponseEntity.ok(response);
     }
 
@@ -66,7 +66,7 @@ public class NotificationController {
     @PutMapping("/read-all")
     public ResponseEntity<NotificationReadAllResponse> markAllRead() {
         CurrentActor actor = CurrentActor.require();
-        NotificationReadAllResponse response = notificationService.markAllRead(actor.userId());
+        NotificationReadAllResponse response = notificationService.markAllRead(actor);
         return ResponseEntity.ok(response);
     }
 }

@@ -568,6 +568,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   const quoteKey = JSON.stringify(pricedPayload);
   const activeQuote = retryableAttempt?.quote ?? (quote?.key === quoteKey ? quote.value : null);
   const totalAmount = activeQuote ? Number(activeQuote.totalAmount) : subtotal;
+  const noPayment = activeQuote?.totalAmount === 0;
   const voucherDiscount = Math.max(0, Number(activeQuote?.voucherDiscount ?? 0));
   const tierDiscount = Math.max(0, Number(activeQuote?.tierDiscount ?? 0));
   const pointsDiscount = Math.max(0, Number(activeQuote?.pointsAmount ?? 0));
@@ -783,7 +784,8 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
       setHydratedDraftKey('');
 
       let latestCreated: any = created;
-      if (paymentMethod === "CASH" && isCashCollected && created.id && created.orderCode) {
+      if (paymentMethod === "CASH" && isCashCollected && Number(created.totalAmount) > 0
+          && created.paymentStatus === "PENDING" && created.id && created.orderCode) {
         try {
           await paymentsApi.collectCounter({
             orderId: Number(created.id),
@@ -1111,7 +1113,9 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             {/* Footer giỏ hàng: Ghi chú, Phương thức, Tổng kết & Nút tạo đơn */}
             <div className={styles.cartFooter}>
               {/* Chọn nhanh hình thức thanh toán dự kiến */}
-              <div className={styles.paymentMethodRow}>
+              {noPayment ? <p role="status" className={styles.paymentHint}>
+                {t('business:counterPayment.noPaymentExplanation')}
+              </p> : <div className={styles.paymentMethodRow}>
                 <button
                   type="button"
                   className={`${styles.pmBtn} ${
@@ -1128,7 +1132,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   }`}
                   onClick={() => setPaymentMethod("BANK_TRANSFER")}
                 >
-                  VIETQR
+                  SEPAY / VIETQR
                 </button>
                 <button
                   type="button"
@@ -1139,10 +1143,10 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 >
                   KẾT HỢP
                 </button>
-              </div>
+              </div>}
 
               {/* Thu tiền trực tiếp: chỉ hiển thị nhập tiền khi đã chọn thu tại quầy. */}
-              {paymentMethod === "CASH" && (
+              {!noPayment && paymentMethod === "CASH" && (
                 <div className={styles.cashPanel}>
                   <label className={styles.cashCheckboxRow}>
                     <input
@@ -1182,7 +1186,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 </div>
               )}
 
-              {(paymentMethod === "BANK_TRANSFER" || paymentMethod === "SPLIT") && (
+              {!noPayment && (paymentMethod === "BANK_TRANSFER" || paymentMethod === "SPLIT") && (
                 <p role="note" className={styles.paymentHint}>
                   {t("business:counterPos.qrAfterCreation")}
                 </p>
@@ -1327,6 +1331,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                     {activeQuote ? formatVnd(totalAmount) : t('business:counterLoyalty.awaitingQuote')}
                   </span>
                 </div>
+                {noPayment && <p role="status" className={styles.paymentHint}>{t('business:counterPayment.noPaymentCard')}</p>}
               </div>
 
               {/* Nút Tạo đơn quầy */}

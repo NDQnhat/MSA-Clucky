@@ -314,12 +314,58 @@ public class OrderService {
 
     @Transactional(timeout = 60)
     public OrderResponse createOrder(CreateOrderRequest request) {
+        return createOrder(request, null);
+    }
+
+    @Transactional(timeout = 60)
+    public OrderResponse createOrder(CreateOrderRequest request, String idempotencyKey) {
         accessGuard.requireCustomer();
         if (request.voucherCode() != null && !request.voucherCode().isBlank()) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR,
                     "Checkout Web chỉ áp dụng voucher cá nhân đã nhận trong tài khoản");
         }
         Long customerId = CurrentActor.require().userId();
+
+        // Claim the client attempt before any pricing or cross-service reservations.
+        // PostgreSQL's unique key serializes overlapping retries until the first
+        // transaction commits; replay returns the original order snapshot.
+        if (idempotencyKey != null) {
+            if (idempotencyKey.isBlank() || idempotencyKey.indexOf('\0') >= 0
+                    || idempotencyKey.trim().length() > 128 || jdbc == null) {
+                throw new ApiException(ErrorCode.VALIDATION_ERROR, "Idempotency-Key không hợp lệ");
+            }
+            String fingerprint;
+            try {
+                fingerprint = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(objectMapper.writeValueAsBytes(request)));
+            } catch (java.security.NoSuchAlgorithmException | com.fasterxml.jackson.core.JsonProcessingException failure) {
+                throw new IllegalStateException("Cannot hash checkout draft", failure);
+            }
+            String key = idempotencyKey.trim();
+            int inserted = jdbc.update("""
+                    INSERT INTO order_service.web_order_operations (customer_id,idempotency_key,payload_hash)
+                    VALUES (?,?,?) ON CONFLICT DO NOTHING
+                    """, customerId, key, fingerprint);
+            if (inserted == 0) {
+                var previous = jdbc.queryForList("""
+                        SELECT payload_hash,order_id FROM order_service.web_order_operations
+                        WHERE customer_id=? AND idempotency_key=?
+                        """, customerId, key);
+                if (previous.isEmpty() || !fingerprint.equals(previous.getFirst().get("payload_hash"))) {
+                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Khóa gửi đơn đã dùng cho nội dung khác");
+                }
+                Object existingId = previous.getFirst().get("order_id");
+                if (existingId == null) {
+                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
+                }
+                Order existing = orderRepository.findById(((Number) existingId).longValue())
+                        .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+                if (!customerId.equals(existing.getCustomerId())) throw new ApiException(ErrorCode.FORBIDDEN);
+                return DomainMapper.toResponse(existing,
+                        orderItemRepository.findByOrderIdOrderByIdAsc(existing.getId()),
+                        orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(existing.getId()));
+            }
+        }
 
         String userCartKey = RedisConfig.key("cart", customerId.toString());
         List<CartItemDto> items = (request.items() != null && !request.items().isEmpty())
@@ -416,10 +462,7 @@ public class OrderService {
         if (!Set.of("COD", "BANK_TRANSFER").contains(paymentMethod)) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Phương thức thanh toán không được hỗ trợ.");
         }
-        if ("BANK_TRANSFER".equals(paymentMethod) && totalAmount.signum() == 0) {
-            throw new ApiException(ErrorCode.VALIDATION_ERROR,
-                    "Đơn hàng 0đ không thể tạo mã QR thanh toán. Vui lòng chọn COD hoặc điều chỉnh ưu đãi.");
-        }
+        if (totalAmount.signum() == 0) paymentMethod = "COD";
         // QR is prepaid by the customer before preparation, including DELIVERY.
         // COD delivery is instead funded by a simulated rider advance at pickup.
         String initialStatus = "COD".equalsIgnoreCase(paymentMethod)
@@ -544,6 +587,11 @@ public class OrderService {
         // Transactional Outbox: Saves outbox event in the same DB transaction
         orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
 
+        if (idempotencyKey != null) {
+            jdbc.update("UPDATE order_service.web_order_operations SET order_id=? WHERE customer_id=? AND idempotency_key=?",
+                    order.getId(), customerId, idempotencyKey.trim());
+        }
+
         return DomainMapper.toResponse(order, savedItems, List.of(history));
     }
 
@@ -656,12 +704,7 @@ public class OrderService {
         String diningOption = "DINE_IN".equalsIgnoreCase(request.diningOption()) ? "DINE_IN" : "TAKE_AWAY";
         String paymentMethod = (request.paymentMethod() != null && !request.paymentMethod().isBlank())
                 ? request.paymentMethod().trim().toUpperCase() : "CASH";
-        if (amountToCollect.signum() == 0
-                && ("TRANSFER".equals(paymentMethod) || "BANK_TRANSFER".equals(paymentMethod)
-                    || "SPLIT".equals(paymentMethod))) {
-            throw new ApiException(ErrorCode.VALIDATION_ERROR,
-                    "Đơn hàng 0đ không cần chuyển khoản; vui lòng chọn hình thức tại quầy");
-        }
+        if (amountToCollect.signum() == 0) paymentMethod = "CASH";
 
         Order order = new Order();
         order.setOrderCode(generateOrderCode());

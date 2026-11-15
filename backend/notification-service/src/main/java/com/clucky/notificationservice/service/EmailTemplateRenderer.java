@@ -206,11 +206,24 @@ public class EmailTemplateRenderer {
             appendRow(text, html, total[1], (reduction ? "−" : "") + formatted, "totalAmount".equals(total[0]));
         }
         html.append("</table>");
+        // A fully discounted order never collects cash or a bank transfer.
+        // The mail event already carries the authoritative final order total.
+        String finalTotal = values.get("totalAmount");
+        boolean noPayment = finalTotal != null && new java.math.BigDecimal(finalTotal).signum() == 0
+                && "COLLECTED".equals(values.get("paymentStatus"));
+        if (noPayment) {
+            String payment = "Đơn hàng miễn thanh toán — ưu đãi đã giảm toàn bộ số tiền phải trả (0đ).";
+            text.append('\n').append(payment);
+            html.append("<p style=\"margin:8px 0 0;color:#827366;font-size:12px;line-height:20px;\">")
+                    .append(escape(payment)).append("</p>");
+            return;
+        }
         String method = switch (values.getOrDefault("paymentMethod", "")) {
             case "COD" -> "Thanh toán khi nhận";
             case "CASH" -> "Tiền mặt";
             case "BANK_TRANSFER" -> "Chuyển khoản ngân hàng";
-            case "MIXED" -> "Tiền mặt và chuyển khoản";
+            case "TRANSFER" -> "Chuyển khoản ngân hàng";
+            case "MIXED", "SPLIT" -> "Tiền mặt và chuyển khoản";
             default -> "";
         };
         String status = switch (values.getOrDefault("paymentStatus", "")) {

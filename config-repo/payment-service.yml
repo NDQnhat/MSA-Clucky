@@ -3,6 +3,7 @@ server:
 payment:
   sepay:
     api-key: ${SEPAY_API_KEY:}
+    counter-enabled: ${SEPAY_POS_ENABLED:false}
   local-simulation:
     enabled: ${PAYMENT_LOCAL_SIMULATION_ENABLED:false}
 spring:

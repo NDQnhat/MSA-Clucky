@@ -27,7 +27,7 @@ export interface TrackingResponse {
   resolution?: string | null;
   paymentMethod?: string;
   codAmount?: number | null;
-  merchantPaymentStatus?: "AWAITING_RIDER_ADVANCE" | "PAID_SIMULATED" | "ADVANCE_RETURNED" | "PAID_REAL_PROCESSOR" | null;
+  merchantPaymentStatus?: "AWAITING_RIDER_ADVANCE" | "PAID_SIMULATED" | "ADVANCE_RETURNED" | "PAID_REAL_PROCESSOR" | "NO_PAYMENT" | null;
 }
 
 export function MockDeliveryTracking({ orderId, active, onTrackingUpdate }: {

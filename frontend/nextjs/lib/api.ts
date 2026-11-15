@@ -327,6 +327,7 @@ export interface BackendOrder {
   type: "DELIVERY" | "PICKUP";
   status: string;
   paymentMethod?: string;
+  collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus?: 'PENDING' | 'PAID' | 'COLLECTED' | 'REFUNDED';
   subtotal: number;
   discountAmount: number;
@@ -364,9 +365,10 @@ export const orderApi = {
       valid: res.valid ?? res.voucherValid ?? false,
       message: res.message ?? res.voucherMessage,
     })),
-  create: (payload: CreateOrderPayload) =>
+  create: (payload: CreateOrderPayload, idempotencyKey: string) =>
     request<BackendOrder>("/api/orders", {
       method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify(payload),
     }),
   getMyOrders: (page = 0, size = 20) =>

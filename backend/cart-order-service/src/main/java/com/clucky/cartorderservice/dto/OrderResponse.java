@@ -32,8 +32,26 @@ public record OrderResponse(
         String orderSource,
         String diningOption,
         Integer queueNumber,
-        Long version
+        Long version,
+        String collectionMethod
 ) {
+    public OrderResponse(
+            Long id, String orderCode, Long customerId, Long storeId, String type,
+            String status, BigDecimal subtotal, BigDecimal discountAmount,
+            Integer pointsUsed, BigDecimal pointsAmount, BigDecimal shippingFee,
+            BigDecimal totalAmount, String voucherCode, String receiverName,
+            String receiverPhone, String deliveryAddress, String note, Instant scheduledAt,
+            Instant createdAt, Instant updatedAt, String paymentMethod,
+            List<OrderItemResponse> items, List<OrderStatusHistoryResponse> timeline,
+            String paymentStatus, String orderSource, String diningOption,
+            Integer queueNumber, Long version
+    ) {
+        this(id, orderCode, customerId, storeId, type, status, subtotal, discountAmount,
+                pointsUsed, pointsAmount, shippingFee, totalAmount, voucherCode, receiverName,
+                receiverPhone, deliveryAddress, note, scheduledAt, createdAt, updatedAt,
+                paymentMethod, items, timeline, paymentStatus, orderSource, diningOption,
+                queueNumber, version, null);
+    }
     public OrderResponse(
             Long id,
             String orderCode,

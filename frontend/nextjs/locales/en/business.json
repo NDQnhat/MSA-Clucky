@@ -165,7 +165,10 @@
     "totalDue": "Total due",
     "editCart": "Edit cart",
     "processingYourOrder": "Processing your order…",
-    "placeOrderNow": "Place order now →"
+    "placeOrderNow": "Place order now →",
+    "noPaymentDescription": "No payment required — 0 VND. Your offers cover the entire order.",
+    "noPaymentLabel": "No payment required — 0 VND",
+    "placeFreeOrder": "Place free order"
   },
   "layout": {
     "cluckyPremiumFriedChickenAndFastFoodOrderingPlatformCrispyOutsideHappy": "Clucky premium fried chicken and fast-food ordering platform. Crispy outside, happy inside."
@@ -205,6 +208,10 @@
     "showingFilteredOrders": "Showing {matched} of {total} orders"
   },
   "id": {
+    "noPaymentLabel": "No payment required — 0 VND",
+    "noPaymentDescription": "Your offers cover the entire order. No transfer or cash is required.",
+    "freeOrderConfirmed": "Your free order is confirmed; no payment is needed.",
+    "noPaymentShort": "No payment required",
     "orderNotFound": "Order not found",
     "checkTheOrderCodeOrReturnToYourPurchaseHistory": "Check the order code or return to your purchase history.",
     "viewMyOrders": "View my orders",

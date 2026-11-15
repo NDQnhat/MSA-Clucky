@@ -15,6 +15,9 @@ public class OrderPaymentController {
     @GetMapping("/api/orders/{id}/payment-session")
     public OrderPaymentService.Session preview(@PathVariable @Positive long id) { return service.preview(id); }
 
+    @PostMapping("/api/orders/{id}/counter-payment-session")
+    public OrderPaymentService.Session openCounter(@PathVariable @Positive long id) { return service.openCounter(id); }
+
     @GetMapping("/api/orders/{id}/payment-context")
     public OrderPaymentService.Context context(@PathVariable @Positive long id) { return service.context(id); }
 

@@ -18,9 +18,17 @@
     "refresh": "Làm mới chi nhánh"
   },
   "title": "Tài khoản chi nhánh", "login": "Định danh nội bộ hoặc email Admin", "access": "Kích hoạt / khôi phục tài khoản",
-  "activation": "Kích hoạt", "reset": "Đặt lại mật khẩu", "request": "Gửi mã", "challenge": "Mã challenge (từ email)", "otp": "OTP 8 chữ số",
+  "accessSubtitle": "Dùng đúng mã của tài khoản quản lý hoặc tác nghiệp để tự đặt mật khẩu. Hai tài khoản có mã và mật khẩu riêng, kể cả khi dùng cùng một email khôi phục.",
+  "fromEmail": "Đã có email chứa mã xác minh?",
+  "fromEmailHelp": "Mở email Clucky dành cho đúng tên đăng nhập (manager.<mã chi nhánh> hoặc staff.<mã chi nhánh>). Nhập Mã challenge và OTP 8 chữ số từ email ở đây, rồi tự đặt mật khẩu. Không cần yêu cầu gửi mã mới nếu mã trong email còn hiệu lực.",
+  "requestAgain": "Chưa nhận được mã hoặc mã đã hết hạn?",
+  "requestAgainHelp": "Nhập đúng tên đăng nhập, chọn Kích hoạt nếu chưa từng đặt mật khẩu hoặc Đặt lại mật khẩu nếu tài khoản đã kích hoạt. Mã mới sẽ vô hiệu mã cũ của cùng tài khoản và mục đích. Hãy kiểm tra email khôi phục của chi nhánh hoặc email Admin đã lưu.",
+  "finishActivation": "Xác minh và đặt mật khẩu",
+  "confirmPassword": "Nhập lại mật khẩu mới",
+  "passwordMismatch": "Mật khẩu nhập lại không khớp.",
+  "activation": "Kích hoạt", "reset": "Đặt lại mật khẩu", "request": "Yêu cầu mã mới", "challenge": "Mã challenge (từ email)", "otp": "OTP 8 chữ số",
   "newOtp": "OTP tại email mới", "password": "Mật khẩu mới (8–72 ký tự, có chữ hoa, chữ thường và số)", "confirm": "Xác nhận",
-  "sent": "Nếu tài khoản đủ điều kiện, mã sẽ được gửi đến email đã lưu. Mã cũ cùng mục đích không còn hiệu lực.",
+  "sent": "Đã ghi nhận yêu cầu. Nếu tài khoản đủ điều kiện, mã sẽ được gửi đến email đã lưu; kiểm tra cả thư rác. Mã cũ cùng mục đích không còn hiệu lực. Yêu cầu thành công chưa xác nhận email đã đến hộp thư.",
   "done": "Đã hoàn tất. Các phiên cũ của tài khoản bị ảnh hưởng đã bị thu hồi.", "back": "Về đăng nhập", "store": "Chọn chi nhánh",
   "reload": "Tải lại", "retry": "Thử lại provisioning", "pending": "Đã lưu quán; chưa sẵn sàng mở bán. Theo dõi cặp tài khoản trong mục Tài khoản.",
   "recovery": "Email khôi phục chung", "changeRecovery": "Đổi email khôi phục", "currentPassword": "Mật khẩu hiện tại của bạn", "newEmail": "Email khôi phục mới",
@@ -29,5 +37,12 @@
   "report": "Báo cáo trước / sau", "audit": "Audit tài khoản / phiên", "auditNotice": "Tài khoản dùng chung và session không xác định danh tính nhân viên. Manager chỉ xem hành động Staff tại quán mình.",
   "action": "Thao tác", "session": "Phiên", "time": "Thời gian", "result": "Kết quả", "unprovisioned": "Chi nhánh chưa có tài khoản quản lý và tác nghiệp.", "recoveryMissing": "Chưa thiết lập; liên hệ Admin để bổ sung email khôi phục.",
   "adminHelp": "Hỗ trợ Admin: OTP chính gửi tới email Admin đã lưu. Đổi recovery cần cả OTP email mới.", "managerHelp": "Đổi recovery cần mật khẩu hiện tại và OTP tại cả email cũ lẫn email mới.",
-  "manageSent": "Đã tạo challenge. Kiểm tra email đúng người nhận; challenge gắn với phiên hiện tại.", "readiness": "Sẵn sàng tài khoản", "next": "Trang tiếp"
+  "manageSent": "Đã tạo challenge. Kiểm tra email đúng người nhận; challenge gắn với phiên hiện tại.", "readiness": "Sẵn sàng tài khoản", "next": "Trang tiếp",
+  "branchActivationGuide": "Email khôi phục nhận hai thư kích hoạt riêng: một cho Manager và một cho Staff. Mỗi thư có tên đăng nhập, Mã challenge và OTP riêng để đặt mật khẩu. Chỉ khi cả hai đã kích hoạt, chi nhánh mới có thể sẵn sàng mở bán.",
+  "branchDeliveryGuide": "Theo dõi trạng thái gửi trong Nhật ký email bằng địa chỉ khôi phục và mẫu BRANCH_ACTIVATE/BRANCH_RESET. QUEUED: đang chờ gửi; SENDING: đang gửi; SENT: máy chủ SMTP đã nhận (chưa chứng minh email vào hộp thư); FAILED/EXPIRED: gửi lỗi hoặc mã hết hạn. Chưa có dòng log có thể do sự kiện chưa được xử lý.",
+  "branchDeliveryTitle": "Nhật ký gửi mã kích hoạt",
+  "branchDeliveryScope": "Các email kích hoạt gần đây gửi đến hộp thư khôi phục chung. Nếu địa chỉ này dùng cho nhiều chi nhánh, đối chiếu Mã challenge trên thư để xác định đúng tài khoản.",
+  "branchDeliveryEmpty": "Chưa thấy email kích hoạt trong nhật ký gửi thư.",
+  "branchDeliveryLink": "Xem nhật ký gửi email kích hoạt (Admin)",
+  "branchResendGuide": "Nếu mã hết hạn hoặc email chưa tới, người dùng có thể vào Đăng nhập → Kích hoạt / khôi phục tài khoản để yêu cầu mã mới cho đúng tên đăng nhập. Thử lại cấp tài khoản chỉ đồng bộ cặp hiện có và không gửi lại OTP."
 }

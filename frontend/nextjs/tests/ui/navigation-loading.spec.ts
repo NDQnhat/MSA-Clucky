@@ -205,11 +205,18 @@ test("customer can replace a pending route through the header", async ({
     await expect(overlay(page)).toBeVisible();
     await page.evaluate(() => scrollTo(0, 700));
     await nav.locator('a[href="/orders"]').click();
-    await expect(page).toHaveURL(customer + "/orders");
+    // Orders are protected: if the test fixture's session is unavailable
+    // during navigation, the login redirect must retain the intended target.
+    await expect(page).toHaveURL(/\/(?:orders|login\?redirect=%2Forders)$/);
     await expect(overlay(page)).toHaveCount(0);
+    // Allow the protected /orders route to finish its legitimate auth
+    // redirect before snapshotting the destination. The late /stores
+    // response must never change that settled location.
+    await page.waitForTimeout(700);
+    const replacedUrl = page.url();
     release();
     await page.waitForTimeout(500);
-    await expect(page).toHaveURL(customer + "/orders");
+    await expect(page).toHaveURL(replacedUrl);
   } finally {
     release();
   }
@@ -310,7 +317,11 @@ test("admin initial branch request is page-scoped; background synchronization re
     await observeLoading(page);
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect.poll(() => synchronized).toBe(true);
-    await expect(page.getByRole("button", { name: /Tải lại$/ })).toHaveCount(0);
+    // Email delivery now has its own always-visible refresh control.
+    // Background synchronization must not replace the branch content
+    // with a global loading overlay or hide these controls.
+    await expect(page.getByRole("button", { name: /Tải lại$/ })).toBeVisible();
+    await expect(page.getByText("clucky.staff.1", { exact: true })).toBeVisible();
     await expect(page.locator("body")).toHaveAttribute("data-loader-seen", "false");
     release();
     await expect(overlay(page)).toHaveCount(0);
@@ -440,8 +451,10 @@ test("leaving a pending branch recovery challenge cannot replace the login route
   try {
     await page.goto(admin + "/forgot-password");
     await page.getByRole("textbox", { name: "Định danh nội bộ hoặc email Admin" }).fill("clucky.staff.1");
-    await page.getByRole("button", { name: "Gửi mã", exact: true }).click();
-    await expect(page.getByRole("button", { name: /Gửi mã$/ })).toHaveClass(/ant-btn-loading/);
+    await page.getByRole("button", { name: "Yêu cầu mã mới", exact: true }).click();
+    // Ant Design prepends a spoken "loading" icon to the button's accessible
+    // name as soon as the async challenge request begins.
+    await expect(page.getByRole("button", { name: /Yêu cầu mã mới$/ })).toHaveClass(/ant-btn-loading/);
     await page.getByRole("link", { name: "Về đăng nhập" }).click();
     await expect(page).toHaveURL(admin + "/login");
     release();

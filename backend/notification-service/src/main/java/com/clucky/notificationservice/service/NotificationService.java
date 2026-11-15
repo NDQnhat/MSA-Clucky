@@ -1,5 +1,6 @@
 package com.clucky.notificationservice.service;
 
+import com.clucky.notificationservice.config.CurrentActor;
 import com.clucky.notificationservice.dto.NotificationReadAllResponse;
 import com.clucky.notificationservice.dto.NotificationReadResponse;
 import com.clucky.notificationservice.dto.NotificationResponse;
@@ -40,14 +41,16 @@ public class NotificationService {
     }
 
     @Transactional(readOnly = true)
-    public NotificationInboxResponse inbox(Long userId, Pageable pageable, boolean unread, String type) {
+    public NotificationInboxResponse inbox(CurrentActor actor, Pageable pageable, boolean unread, String type) {
+        Long userId = actor.userId();
+        Long storeId = scopedStore(actor);
         Objects.requireNonNull(userId, "userId is required");
-        if (type != null && !java.util.Set.of("ORDER", "PAYMENT", "PROMOTION", "SYSTEM").contains(type)) {
+        if (type != null && !java.util.Set.of("ORDER", "PAYMENT", "PROMOTION", "SYSTEM", "INVENTORY", "REFUND").contains(type)) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
-        var page = notificationRepository.findInbox(userId, unread, type, pageable);
+        var page = notificationRepository.findInbox(userId, storeId, unread, type, pageable);
         return new NotificationInboxResponse(page.map(DomainMapper::toResponse).getContent(), page.getNumber(),
-                page.getSize(), page.getTotalElements(), page.getTotalPages(), notificationRepository.countByUserIdAndIsReadFalse(userId));
+                page.getSize(), page.getTotalElements(), page.getTotalPages(), notificationRepository.countUnread(userId, storeId));
     }
 
     /**
@@ -56,11 +59,13 @@ public class NotificationService {
      * If not found or belongs to another user, throws RESOURCE_NOT_FOUND (404) to avoid leaking data.
      */
     @Transactional
-    public NotificationReadResponse markRead(Long id, Long userId) {
+    public NotificationReadResponse markRead(Long id, CurrentActor actor) {
+        Long userId = actor.userId();
+        Long storeId = scopedStore(actor);
         Objects.requireNonNull(id, "id is required");
         Objects.requireNonNull(userId, "userId is required");
 
-        Notification notification = notificationRepository.findByIdAndUserId(id, userId)
+        Notification notification = notificationRepository.findOwned(id, userId, storeId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
 
         if (!Boolean.TRUE.equals(notification.getIsRead())) {
@@ -77,13 +82,26 @@ public class NotificationService {
      * Returns updatedCount: number of records actually changed from unread to read.
      */
     @Transactional
-    public NotificationReadAllResponse markAllRead(Long userId) {
+    public NotificationReadAllResponse markAllRead(CurrentActor actor) {
+        Long userId = actor.userId();
+        Long storeId = scopedStore(actor);
         Objects.requireNonNull(userId, "userId is required");
 
-        int updatedCount = notificationRepository.markAllAsReadByUserId(userId);
+        int updatedCount = notificationRepository.markAllAsReadByUserId(userId, storeId);
         LOG.info("event=notifications_marked_all_read userId={} updatedCount={}", userId, updatedCount);
 
         return new NotificationReadAllResponse(updatedCount);
+    }
+
+    private Long scopedStore(CurrentActor actor) {
+        if (actor.role() == com.clucky.notificationservice.dto.Role.STORE_MANAGER
+                || actor.role() == com.clucky.notificationservice.dto.Role.STAFF) {
+            if (actor.storeId() == null || actor.storeId() <= 0) {
+                throw new org.springframework.security.access.AccessDeniedException("Missing branch assignment");
+            }
+            return actor.storeId();
+        }
+        return null;
     }
 }
 

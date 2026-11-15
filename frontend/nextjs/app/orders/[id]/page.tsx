@@ -197,7 +197,9 @@ export default function OrderTrackingPage({
     );
 
   const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+  const noPayment = order.collectionMethod === "NO_PAYMENT" && order.totalAmount === 0;
   const awaitingPayment =
+    !noPayment &&
     order.paymentMethod === "BANK_TRANSFER" &&
     order.paymentStatus === "PENDING" &&
     order.status === "PENDING_PAYMENT";
@@ -249,7 +251,11 @@ export default function OrderTrackingPage({
     message: t("business.id.payInCashWhenYouReceiveYourMeal"),
     icon: Wallet,
   };
-  const displayPaymentCopy = codMockPaid ? {
+  const displayPaymentCopy = noPayment ? {
+    label: t("business.id.noPaymentLabel"),
+    message: t("business.id.noPaymentDescription"),
+    icon: CheckCircle2,
+  } : codMockPaid ? {
     label: t("business.id.orderValue"),
     message: t("business.id.codSimulatedPaidMessage"),
     icon: ShieldCheck,
@@ -350,7 +356,9 @@ export default function OrderTrackingPage({
               : order.status === "COMPLETED"
                 ? t("business.demoordercontrols.yourOrderIsCompleteThankYouForChoosingClucky")
                 : order.status === "CONFIRMED"
-                  ? (order.paymentMethod === "COD"
+                  ? (noPayment
+                      ? t("business.id.freeOrderConfirmed")
+                      : order.paymentMethod === "COD"
                       ? t("business.checkout.yourCashOnDeliveryOrderHasBeenConfirmed")
                       : t("business.checkout.orderConfirmed"))
                   : order.status === "PENDING_PAYMENT"
@@ -392,6 +400,7 @@ export default function OrderTrackingPage({
           type={order.type}
           paymentStatus={order.paymentStatus}
           paymentMethod={order.paymentMethod}
+          collectionMethod={order.collectionMethod}
           updatedAt={order.updatedAt ?? order.createdAt}
           history={order.timeline}
           deliveryTracking={order.type === "DELIVERY" && order.status !== "CANCELLED" && /^\d+$/.test(order.id)
@@ -518,7 +527,9 @@ export default function OrderTrackingPage({
                 <h2>
                   <Wallet size={19} /> {t("business.cart.checkout")}
                 </h2>
-                {order.paymentMethod === "BANK_TRANSFER" ? (
+                {noPayment ? (
+                  <span className={styles.paymentNetwork}>{t("business.id.noPaymentShort")}</span>
+                ) : order.paymentMethod === "BANK_TRANSFER" ? (
                   <span className={styles.paymentStatusCluster}>
                     <span className={styles.paymentNetwork}>VietQR</span>
                     {["PAID", "COLLECTED"].includes(order.paymentStatus) && <PaymentStatusBadge status={order.paymentStatus} />}
@@ -541,7 +552,7 @@ export default function OrderTrackingPage({
                   <p className={styles.paymentMessage}>{displayPaymentCopy.message}</p>
                 </div>
               )}
-              {order.paymentMethod !== "BANK_TRANSFER" && <div className={styles.paymentMethod}>
+              {!noPayment && order.paymentMethod !== "BANK_TRANSFER" && <div className={styles.paymentMethod}>
                 <span className={styles.paymentMethodIcon} aria-hidden="true">
                   {order.paymentMethod === "COD" ? (
                     <Wallet size={23} />
@@ -567,7 +578,7 @@ export default function OrderTrackingPage({
                 && !codMockPaid && !["PAID", "COLLECTED"].includes(order.paymentStatus) && (
                 <p className={styles.codCollectionNote}>{t("business.id.codCollectionOutside")}</p>
               )}
-              {order.paymentMethod === "BANK_TRANSFER" && (
+              {!noPayment && order.paymentMethod === "BANK_TRANSFER" && (
                 <LiveOrderPayment
                   key={order.id}
                   orderId={order.id}

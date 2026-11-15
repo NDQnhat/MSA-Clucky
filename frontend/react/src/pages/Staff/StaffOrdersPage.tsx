@@ -1,5 +1,6 @@
 import i18n from "../../i18n/index.ts";
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { getBrowserLocale } from "../../i18n/locale";
 import { getTranslator } from "../../i18n/translator";
@@ -140,6 +141,7 @@ export function fromBackendOrderToStaffOrder(
     deliveryAddress: bo.deliveryAddress,
     status: (bo.status as AdminOrderStatus) || "CONFIRMED",
     paymentMethod: (bo.paymentMethod || "CASH") as PaymentMethod,
+    collectionMethod: bo.collectionMethod,
     paymentStatus: (bo.paymentStatus || "PENDING") as PaymentStatus,
     items: staffItems,
     subtotal: bo.subtotal || bo.totalAmount || 0,
@@ -175,6 +177,8 @@ function mapDailyStaffOrders(
 export function StaffOrdersPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const linkedOrderId = searchParams.get("orderId");
   const { stores, currentStore, storeOpenState, refreshStores } = useOrders();
   const storesRef = useRef<StoreModel[]>(stores);
   storesRef.current = stores;
@@ -292,6 +296,49 @@ export function StaffOrdersPage() {
 
   // 5. Drawer chi tiết đơn
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [linkedOrder, setLinkedOrder] = useState<StaffOrder | null>(null);
+
+  useEffect(() => {
+    if (linkedOrderId === null) return;
+    const controller = new AbortController();
+    setSelectedOrderId(null);
+    setLinkedOrder(null);
+
+    // Staff must use the store bound to their authenticated account. The
+    // backend also checks this scope in GET /api/orders/{id}.
+    const storeId = Number(user?.storeId);
+    const numericId = Number(linkedOrderId);
+    if (!/^[1-9]\d*$/.test(linkedOrderId) || !Number.isSafeInteger(numericId)
+        || !Number.isSafeInteger(storeId) || storeId <= 0) {
+      message.warning(t('business:counterPayment.sepayInvalidOrderLink'));
+      return () => controller.abort();
+    }
+
+    void ordersApi.getById(numericId, controller.signal).then((backendOrder) => {
+      if (controller.signal.aborted) return;
+      if (Number(backendOrder.id) !== numericId || Number(backendOrder.storeId) !== storeId) {
+        message.error(t('business:counterPayment.sepayNoOrderScope'));
+        return;
+      }
+      setLinkedOrder(fromBackendOrderToStaffOrder(
+        backendOrder, imageMapRef.current ?? new Map(), storesRef.current,
+      ));
+      setSelectedOrderId(String(backendOrder.id));
+    }).catch((error) => {
+      if (!controller.signal.aborted) message.error(getErrorMessage(error));
+    });
+    return () => controller.abort();
+  }, [linkedOrderId, user?.storeId, user?.id, t]);
+
+  const closeOrderDetails = () => {
+    setSelectedOrderId(null);
+    setLinkedOrder(null);
+    if (linkedOrderId !== null) {
+      const updatedParams = new URLSearchParams(searchParams);
+      updatedParams.delete("orderId");
+      setSearchParams(updatedParams, { replace: true });
+    }
+  };
 
   // Phase 2: POS Order Modal, Payment Modal, Receipt Bill Modal
   const [isPosModalOpen, setIsPosModalOpen] = useState(false);
@@ -428,7 +475,8 @@ export function StaffOrdersPage() {
     reason?: string,
   ) => {
     const numericId = Number(orderId);
-    const targetOrder = orders.find((o) => o.id === orderId);
+    const targetOrder = (linkedOrder?.id === orderId ? linkedOrder : undefined)
+      ?? orders.find((o) => o.id === orderId);
 
     if (nextStatus === 'COMPLETED' && targetOrder?.orderType === 'DELIVERY') {
       message.warning(i18n.t("shipping:ui.aDeliveryOrderCompletesAutomaticallyOnlyAfterShippingServiceConfirmsDelivery"));
@@ -493,9 +541,10 @@ export function StaffOrdersPage() {
             };
           }),
         );
+        if (linkedOrder?.id === orderId) setLinkedOrder(mappedFromBackend);
 
         if (nextStatus === "PREPARING") {
-          setSelectedOrderId(null);
+          closeOrderDetails();
           setReceiptInitialMode("KOT");
           setReceiptModalOrder(updatedOrder);
           const qFormatted = `#${String(updatedOrder.queueNumber || 1).padStart(3, "0")}`;
@@ -552,36 +601,21 @@ export function StaffOrdersPage() {
     manualReason?: string;
     refCode?: string;
   }) => {
+    // The counter-collection endpoint is reserved for REAL CASH only.
+    // BANK_TRANSFER/SPLIT must settle via the SePay webhook-backed session.
+    if (data.method !== 'CASH' || data.bankDeclaredAmount !== 0 || data.manualReason || data.refCode) {
+      message.error(t('business:counterPayment.sepayNoManual'));
+      return false;
+    }
     const order =
       paymentModalOrder?.id === data.orderId
         ? paymentModalOrder
         : orders.find((o) => o.id === data.orderId);
-    if (!order) return false;
+    if (!order || order.total <= 0 || order.paymentStatus !== 'PENDING') return false;
 
     const numericId = Number(order.id);
     const totalDue = order.total;
 
-
-    let cashAmount = 0;
-    let cashTendered = data.cashTendered;
-    let bankAmount = 0;
-    let manualAcceptance = false;
-    let exceptionReason = data.manualReason;
-
-    if (data.method === "CASH") {
-      cashAmount = totalDue;
-    } else if (data.method === "BANK_TRANSFER") {
-      bankAmount = totalDue;
-      if (data.manualReason) {
-        manualAcceptance = true;
-      }
-    } else if (data.method === "SPLIT") {
-      cashAmount = data.cashTendered;
-      bankAmount = data.bankDeclaredAmount;
-      if (data.manualReason) {
-        manualAcceptance = true;
-      }
-    }
 
     const collectionPayload: CounterCollectionPayload = {
       orderId: numericId,
@@ -589,14 +623,11 @@ export function StaffOrdersPage() {
       queueNumber: order.queueNumber,
       storeId: Number(order.storeId || user?.storeId || 1),
       totalDue,
-      method: data.method,
-      cashAmount,
-      cashTendered,
-      bankAmount,
-      bankRefCode: data.refCode,
-      manualAcceptance,
-      exceptionReason,
-      staffNotes: data.manualReason,
+      method: 'CASH',
+      cashAmount: totalDue,
+      cashTendered: data.cashTendered,
+      bankAmount: 0,
+      manualAcceptance: false,
     };
 
     // Pha 1: Ghi nhận thu tiền tại quầy qua payment-service
@@ -654,6 +685,14 @@ export function StaffOrdersPage() {
     await fetchOrders(true);
     return collectionAccepted;
   };
+
+  const handleSepayConfirmed = useCallback(async () => {
+    // Called ONLY after SePay reports PAID and Order Service confirms the
+    // corresponding order state. Never infer success from displaying a QR.
+    await fetchOrders(true);
+    setPaymentModalOrder(null);
+    message.success(t('business:counterPayment.sepayConfirmed'));
+  }, [fetchOrders, t]);
 
   // Mở in lại hóa đơn
   const handleReprintOrder = (order: StaffOrder) => {
@@ -775,7 +814,8 @@ export function StaffOrdersPage() {
   // Map order for detail drawer
   const selectedOrderForDrawer: AdminOrder | null = useMemo(() => {
     if (!selectedOrderId) return null;
-    const found = orders.find((o) => o.id === selectedOrderId);
+    const found = (linkedOrder?.id === selectedOrderId ? linkedOrder : undefined)
+      ?? orders.find((o) => o.id === selectedOrderId);
     if (!found) return null;
 
     return {
@@ -815,7 +855,7 @@ export function StaffOrdersPage() {
       createdAt: found.createdAt,
       updatedAt: found.updatedAt,
     };
-  }, [selectedOrderId, orders, stores]);
+  }, [selectedOrderId, orders, linkedOrder, stores]);
 
   return (
     <div className={styles.staffContainer}>
@@ -1166,7 +1206,10 @@ export function StaffOrdersPage() {
               tracking={trackingById[order.id]}
               onStatusChange={handleStatusChange}
               onPaymentCollect={handlePaymentCollect}
-              onViewDetails={(id) => setSelectedOrderId(id)}
+              onViewDetails={(id) => {
+                closeOrderDetails();
+                setSelectedOrderId(id);
+              }}
               onReprint={handleReprintOrder}
               onPrintKot={(ord) => {
                 setReceiptInitialMode("KOT");
@@ -1181,13 +1224,26 @@ export function StaffOrdersPage() {
       <OrderDetailDrawer
         order={selectedOrderForDrawer}
         open={Boolean(selectedOrderId)}
-        onClose={() => setSelectedOrderId(null)}
+        onClose={closeOrderDetails}
         onStatusChange={handleStatusChange}
-        onChanged={() => { void fetchOrders(true); }}
+        onChanged={() => {
+          void fetchOrders(true);
+          if (linkedOrder?.id === selectedOrderId) {
+            const storeId = Number(user?.storeId);
+            void ordersApi.getById(linkedOrder.id).then(order => {
+              if (Number(order.storeId) === storeId) {
+                setLinkedOrder(fromBackendOrderToStaffOrder(
+                  order, imageMapRef.current ?? new Map(), storesRef.current,
+                ));
+              }
+            }).catch(() => {});
+          }
+        }}
         onCollectCounter={(ord) => {
-          const found = orders.find((o) => o.id === ord.id);
+          const found = (linkedOrder?.id === ord.id ? linkedOrder : undefined)
+            ?? orders.find((o) => o.id === ord.id);
           if (found) {
-            setSelectedOrderId(null);
+            closeOrderDetails();
             setPaymentModalOrder(found);
           }
         }}
@@ -1207,6 +1263,7 @@ export function StaffOrdersPage() {
         order={paymentModalOrder}
         onClose={() => setPaymentModalOrder(null)}
         onConfirmPayment={handleConfirmPayment}
+        onTransferConfirmed={handleSepayConfirmed}
       />
 
       {/* Phase 2: Modal Xem & In Hóa Đơn K80 / Phiếu Bếp KOT */}

@@ -64,13 +64,14 @@ public class OrderEventPublisher {
     }
 
     /** Mock shipping may finish an order funded only by a virtual rider advance. */
-    public void publishSimulatedDeliveryCompleted(Order order, List<OrderItem> items, boolean settledWithRealPayment) {
+    public void publishSimulatedDeliveryCompleted(Order order, List<OrderItem> items, boolean settlementEligible) {
         ObjectNode payload = buildOrderPayload(order, items, "SHIPPING", null);
         payload.put("fulfillmentSource", "SIMULATOR");
         payload.put("mockDelivery", true);
-        payload.put("simulationOnly", !settledWithRealPayment);
-        // Reward/report consumers of order.completed must only see paid transactions.
-        publish(settledWithRealPayment ? TOPIC_ORDER_COMPLETED : TOPIC_ORDER_STATUS_CHANGED, order, payload);
+        payload.put("simulationOnly", !settlementEligible);
+        // Completed zero-value orders are also eligible to settle reserved
+        // vouchers/points even though no actual payment was collected.
+        publish(settlementEligible ? TOPIC_ORDER_COMPLETED : TOPIC_ORDER_STATUS_CHANGED, order, payload);
     }
 
     public void publishOrderCancelled(Order order, List<OrderItem> items, String reason) {
@@ -169,7 +170,9 @@ public class OrderEventPublisher {
             payload.put("paymentMethod", order.getPaymentMethod());
         }
         if (order.getCollectionMethod() != null) {
-            payload.put("paymentMethod", order.getCollectionMethod());
+            // Collection records how money was settled; never replace the
+            // order's contracted payment method in downstream events.
+            payload.put("collectionMethod", order.getCollectionMethod());
             payload.put("cashAmount", order.getCollectedCash());
             payload.put("declaredTransfer", order.getDeclaredTransfer());
         }

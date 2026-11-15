@@ -19,7 +19,14 @@ const snapshot = {
   order: { orderId: 17, orderCode: "CLU17", amount: 150, paymentStatus: "PENDING", status: "PENDING_PAYMENT", paymentMethod: "BANK_TRANSFER", version: "2026-11-11T01:02:03.123456Z", expiresAt: future },
   payments: [{ id: 42, method: "BANK_TRANSFER", amount: 150, status: "PENDING", version: 3, live_payment: true, expires_at: future }],
 };
+// A manual counter collection is strictly cash-only. The bank fixture above
+// remains for reconciliation/adoption tests and is intentionally ineligible.
+const cashSnapshot = {
+  order: { ...snapshot.order, orderSource: 'COUNTER', paymentMethod: 'CASH', status: 'CONFIRMED' },
+  payments: [],
+};
 const amounts = { cashAmount: 100, transferAmount: 50, cashTendered: 200, cashChange: 100, reason: "  Đã kiểm tiền  " };
+const cashAmounts = { cashAmount: 150, transferAmount: 0, cashTendered: 200, cashChange: 50, reason: '  Đã kiểm tiền  ' };
 const receipt = { id: "123", version: 5, amount: 50, direction: "in", conflictCount: 0 };
 const collection = { id: "40cce11b-24e1-4c08-bf5a-07c42bd0d4d2", status: "ACCEPTED", version: 2, transfer_amount: 50, pendingTransfer: 0, discrepancy: 0, bankExcess: 0 };
 
@@ -46,22 +53,26 @@ test("collection validates VND arithmetic, bounds, and reasons without masking d
   assert.equal(validCollection({ ...amounts, cashChange: 99 }), false);
   assert.equal(validCollection({ ...amounts, cashTendered: 99, cashChange: 0 }), false);
   for (const reason of ["", " ", "x\0y", "x".repeat(501)]) assert.equal(validCollection({ ...amounts, reason }), false);
-  const body = collectionBody(snapshot, { ...amounts, transferAmount: 40, paymentId: 999 });
-  assert.equal(body.orderVersion, snapshot.order.version);
-  assert.equal(body.transferAmount, 40);
+  const body = collectionBody(cashSnapshot, { ...cashAmounts, paymentId: 999 });
+  assert.equal(body.orderVersion, cashSnapshot.order.version);
+  assert.equal(body.transferAmount, 0);
   assert.equal(body.reason, "Đã kiểm tiền");
   assert.equal("paymentId" in body, false);
+  assert.throws(() => collectionBody(cashSnapshot, amounts), 'cannot mark a bank declaration as cash');
+  assert.throws(() => collectionBody(snapshot, cashAmounts), 'bank-transfer order cannot collect manually');
 });
 
 test("collection eligibility mirrors order state, active collection and expired payment guards", () => {
-  assert.ok(canCollect(snapshot));
-  for (const status of ["SHIPPING", "COMPLETED", "CANCELLED"]) assert.equal(canCollect({ ...snapshot, order: { ...snapshot.order, status } }), false);
-  for (const status of ["PENDING", "ACCEPTED"]) assert.equal(canCollect({ ...snapshot, collection: { status } }), false);
-  assert.equal(canCollect({ ...snapshot, order: { ...snapshot.order, paymentStatus: "PAID" } }), false);
-  assert.equal(canCollect({ ...snapshot, order: { ...snapshot.order, expiresAt: past } }), false);
-  assert.equal(canCollect({ ...snapshot, payments: [{ ...snapshot.payments[0], expires_at: past }] }), false);
-  assert.equal(canCollect({ ...snapshot, order: { ...snapshot.order, amount: 0 } }), false);
-  assert.throws(() => collectionBody({ ...snapshot, collection: { status: "PENDING" } }, amounts));
+  assert.ok(canCollect(cashSnapshot));
+  assert.equal(canCollect(snapshot), false);
+  assert.equal(canCollect({ ...cashSnapshot, order: { ...cashSnapshot.order, paymentMethod: 'SPLIT' } }), false);
+  for (const status of ["SHIPPING", "COMPLETED", "CANCELLED"]) assert.equal(canCollect({ ...cashSnapshot, order: { ...cashSnapshot.order, status } }), false);
+  for (const status of ["PENDING", "ACCEPTED"]) assert.equal(canCollect({ ...cashSnapshot, collection: { status } }), false);
+  assert.equal(canCollect({ ...cashSnapshot, order: { ...cashSnapshot.order, paymentStatus: "PAID" } }), false);
+  assert.equal(canCollect({ ...cashSnapshot, order: { ...cashSnapshot.order, status: 'PENDING_PAYMENT', expiresAt: past } }), false);
+  assert.equal(canCollect({ ...cashSnapshot, payments: [{ ...snapshot.payments[0], expires_at: past }] }), false);
+  assert.equal(canCollect({ ...cashSnapshot, order: { ...cashSnapshot.order, amount: 0 } }), false);
+  assert.throws(() => collectionBody({ ...cashSnapshot, collection: { status: "PENDING" } }, cashAmounts));
 });
 
 test("pending and accepted collection are not claimed as reconciled with missing evidence or excess", () => {
@@ -110,7 +121,7 @@ test("receipt conflicts require explicit original-payload consent and valid inco
 });
 
 test("an uncertain retry keeps the exact operation, body and UUID; changed intent gets a new key", () => {
-  const body = collectionBody(snapshot, amounts);
+  const body = collectionBody(cashSnapshot, cashAmounts);
   const first = financeOperation(17, "collection", body);
   assert.match(first.key, /^[a-f0-9-]{36}$/);
   assert.equal(first.path, "/api/payments/17/operations/collection");
