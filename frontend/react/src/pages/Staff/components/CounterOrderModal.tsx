@@ -1132,7 +1132,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   }`}
                   onClick={() => setPaymentMethod("BANK_TRANSFER")}
                 >
-                  VIETQR
+                  SEPAY / VIETQR
                 </button>
                 <button
                   type="button"

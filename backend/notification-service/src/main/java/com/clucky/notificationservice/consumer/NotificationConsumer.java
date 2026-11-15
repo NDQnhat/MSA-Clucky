@@ -160,7 +160,14 @@ public class NotificationConsumer {
             recordAdminAlert(event, "ORDER", orderId, "Đã ghi nhận hoàn tiền", "Đơn hàng #" + orderId + " đã được ghi nhận hoàn tiền.");
         }
         if (event.eventType().startsWith("payment.")) {
-            if (!"payment-service".equals(event.sourceService()) || orderId == null || orderId <= 0 || customerId == null || customerId <= 0) {
+            // A real SePay receipt may confirm a COUNTER order, which has no
+            // customer account. Keep its outcome idempotent without creating
+            // customer notifications/email for a fabricated recipient.
+            boolean branchCounterPayment = customerId == null
+                    && "COUNTER".equals(payload.path("orderSource").asText())
+                    && positiveId(payload, "storeId") != null;
+            if (!"payment-service".equals(event.sourceService()) || orderId == null || orderId <= 0
+                    || (customerId == null && !branchCounterPayment)) {
                 throw new IllegalArgumentException("Invalid payment notification identity");
             }
             jdbc.update("INSERT INTO notification_service.payment_outcomes(order_id,outcome) VALUES (?,'PENDING') ON CONFLICT DO NOTHING",orderId);

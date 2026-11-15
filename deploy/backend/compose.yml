@@ -175,6 +175,7 @@ services:
     environment:
       <<: *environment
       SEPAY_API_KEY: ${SEPAY_API_KEY:-}
+      SEPAY_POS_ENABLED: ${SEPAY_POS_ENABLED:-false}
 
   promotion-loyalty-service:
     <<: *java

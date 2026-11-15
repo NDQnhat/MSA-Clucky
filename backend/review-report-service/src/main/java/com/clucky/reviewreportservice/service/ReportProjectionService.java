@@ -65,7 +65,9 @@ public class ReportProjectionService {
         BigDecimal explicitReconciledTransfer = resolveOptionalAmount(payload, "reconciledTransferAmount");
         BigDecimal explicitPendingReconciliation = resolveOptionalAmount(payload, "pendingReconciliationAmount");
         BigDecimal explicitCash = resolveOptionalAmount(payload, "cashAmount");
-        BigDecimal explicitTransfer = resolveOptionalAmount(payload, "declaredTransfer");
+        // SePay-confirmed POS receipts report the verified bank portion under
+        // bankAmount; Order snapshots continue to use declaredTransfer.
+        BigDecimal explicitTransfer = resolveOptionalAmount(payload, "declaredTransfer", "bankAmount");
         boolean isExpiredOrder = payload.path("expired").asBoolean(false)
                 || "EXPIRED".equalsIgnoreCase(payload.path("orderStatus").asText(""));
         String eventReconciliationStatus = resolveOptionalReconciliationStatus(event, payload, isExpiredOrder);
@@ -342,6 +344,15 @@ public class ReportProjectionService {
             return payload.get("reconciliationStatus").asText().trim().toUpperCase(Locale.ROOT);
         }
         if (payload.path("reconciled").asBoolean(false) || payload.path("bankConfirmed").asBoolean(false)) {
+            return "RECONCILED";
+        }
+        // POS SPLIT is COLLECTED because staff attests the cash leg. Unlike
+        // legacy manual collections, a SePay payment.confirmed with a verified
+        // bank portion is fully reconciled, not merely staff-declared.
+        if ("payment.confirmed".equals(event.eventType())
+                && "COUNTER".equals(payload.path("orderSource").asText())
+                && payload.path("bankAmount").isNumber()
+                && payload.path("bankAmount").decimalValue().signum() > 0) {
             return "RECONCILED";
         }
         if (payload.path("manualAccepted").asBoolean(false) || payload.path("counterDeclared").asBoolean(false)

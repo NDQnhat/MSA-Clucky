@@ -31,6 +31,7 @@ public class SepayReceiptController {
     }
 
     @PostMapping(value = SepayWebhookSecurity.PATH, consumes = "application/json", produces = "application/json")
+    @org.springframework.web.bind.annotation.ResponseStatus(org.springframework.http.HttpStatus.CREATED)
     public Map<String, Boolean> receive(HttpServletRequest request) throws IOException {
         byte[] bytes = request.getInputStream().readNBytes(SepayWebhookSecurity.MAX_BODY_BYTES + 1);
         if (bytes.length > SepayWebhookSecurity.MAX_BODY_BYTES) throw new ApiException(ErrorCode.REQUEST_TOO_LARGE);

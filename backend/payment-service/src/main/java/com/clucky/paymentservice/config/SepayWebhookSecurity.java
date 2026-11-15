@@ -45,7 +45,9 @@ public class SepayWebhookSecurity {
         private final ObjectMapper mapper;
 
         ApiKeyFilter(String key, ObjectMapper mapper) {
-            this.expected = key.isBlank() ? null : ("Apikey " + key).getBytes(StandardCharsets.UTF_8);
+            String normalized = key.toLowerCase(java.util.Locale.ROOT);
+            this.expected = key.isBlank() || normalized.contains("replace-") || normalized.contains("placeholder")
+                    || normalized.contains("change-me") ? null : ("Apikey " + key).getBytes(StandardCharsets.UTF_8);
             this.mapper = mapper;
         }
 

@@ -75,6 +75,36 @@ public class OrderPaymentService {
         return session(order);
     }
 
+    /**
+     * Set the immutable deadline for a real SePay payment initiated by staff.
+     * Merely opening a transfer session never marks the order paid.
+     */
+    @Transactional
+    public Session openCounter(long id) {
+        Order order = orders.lockById(id).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        var actor = com.clucky.cartorderservice.config.CurrentActor.require();
+        if (actor.role() != com.clucky.cartorderservice.dto.Role.ADMIN
+                && actor.role() != com.clucky.cartorderservice.dto.Role.STAFF
+                && actor.role() != com.clucky.cartorderservice.dto.Role.STORE_MANAGER) {
+            throw new org.springframework.security.access.AccessDeniedException("Branch staff required");
+        }
+        access.requireStore(order.getStoreId());
+        if (!"COUNTER".equals(order.getOrderSource())
+                || !java.util.Set.of("BANK_TRANSFER", "SPLIT").contains(order.getPaymentMethod())
+                || !java.util.Set.of("CONFIRMED", "PREPARING", "READY", "SHIPPING").contains(order.getStatus())
+                || !"PENDING".equals(order.getPaymentStatus())
+                || order.getTotalAmount() == null || order.getTotalAmount().signum() <= 0) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn POS không còn chờ chuyển khoản");
+        }
+        if (order.getPaymentExpiresAt() == null) {
+            order.setPaymentExpiresAt(Instant.now().plus(ttl).truncatedTo(ChronoUnit.MILLIS));
+        }
+        if (!order.getPaymentExpiresAt().isAfter(Instant.now())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Mã thanh toán POS đã hết hạn");
+        }
+        return session(order);
+    }
+
     private void validate(Order order) {
         access.requireOwner(order.getCustomerId());
         if (!"BANK_TRANSFER".equals(order.getPaymentMethod()) || !"PENDING_PAYMENT".equals(order.getStatus())
@@ -95,6 +125,7 @@ public class OrderPaymentService {
         }
         var payload = event.payload();
         if ("COLLECTION".equals(payload.path("operationType").asText())) { decideCollection(event); return; }
+        if ("COUNTER".equals(payload.path("orderSource").asText())) { decideCounterTransfer(event); return; }
         long orderId = payload.path("orderId").asLong();
         long paymentId = payload.path("paymentId").asLong();
         if (!payload.path("orderId").isIntegralNumber() || !payload.path("orderId").canConvertToLong()
@@ -139,6 +170,73 @@ public class OrderPaymentService {
         events.publish("order.payment-resolved", order, result);
     }
 
+    /**
+     * SePay receipt for a staff POS order. Only the trusted payment-service's
+     * bank-verified payment.received event may settle a COUNTER transfer.
+     */
+    private void decideCounterTransfer(DomainEvent event) {
+        var payload = event.payload();
+        long orderId = payload.path("orderId").asLong();
+        long paymentId = payload.path("paymentId").asLong();
+        if (!payload.path("orderId").isIntegralNumber() || !payload.path("paymentId").isIntegralNumber()
+                || orderId <= 0 || paymentId <= 0 || !payload.path("amount").isNumber()
+                || !payload.path("cashAmount").isNumber() || !payload.path("totalAmount").isNumber()
+                || !payload.path("receivedAmount").isNumber() || !payload.path("storeId").isIntegralNumber()
+                || !payload.path("customerId").isMissingNode() && !payload.path("customerId").isNull()) {
+            throw new IllegalArgumentException("Invalid POS bank receipt event");
+        }
+        BigDecimal bank = payload.path("amount").decimalValue();
+        BigDecimal cash = payload.path("cashAmount").decimalValue();
+        BigDecimal total = payload.path("totalAmount").decimalValue();
+        BigDecimal received = payload.path("receivedAmount").decimalValue();
+        if (bank.signum() <= 0 || cash.signum() < 0 || total.signum() <= 0
+                || bank.stripTrailingZeros().scale() > 0 || cash.stripTrailingZeros().scale() > 0
+                || total.stripTrailingZeros().scale() > 0
+                || bank.add(cash).compareTo(total) != 0 || received.compareTo(bank) < 0) {
+            throw new IllegalArgumentException("POS payment totals do not match");
+        }
+        Order order = orders.lockById(orderId).orElseThrow(() -> new IllegalArgumentException("POS payment order missing"));
+        if (!jdbc.queryForList("SELECT payment_id FROM order_service.payment_decisions WHERE payment_id=?", Long.class, paymentId).isEmpty()) return;
+        if (!"COUNTER".equals(order.getOrderSource()) || order.getCustomerId() != null
+                || !Objects.equals(order.getStoreId(), payload.path("storeId").asLong())
+                || !Objects.equals(order.getOrderCode(), payload.path("orderCode").asText())
+                || order.getTotalAmount().compareTo(total) != 0
+                || !(cash.signum() == 0 && "BANK_TRANSFER".equals(order.getPaymentMethod())
+                    || cash.signum() > 0 && "SPLIT".equals(order.getPaymentMethod()))
+                || order.getPaymentExpiresAt() == null
+                || !order.getPaymentExpiresAt().toString().equals(payload.path("expiresAt").asText())) {
+            throw new IllegalArgumentException("POS payment receipt snapshot mismatch");
+        }
+        String decision;
+        if (!"PENDING".equals(order.getPaymentStatus())) {
+            decision = "SUPERSEDED";
+        } else if (java.util.Set.of("CONFIRMED", "PREPARING", "READY", "SHIPPING").contains(order.getStatus())
+                && order.getPaymentExpiresAt().isAfter(Instant.now())) {
+            order.setPaymentStatus(cash.signum() > 0 ? "COLLECTED" : "PAID");
+            order.setCollectionMethod(cash.signum() > 0 ? "MIXED" : "BANK_TRANSFER");
+            order.setCollectedCash(cash);
+            order.setDeclaredTransfer(bank);
+            OrderStatusHistory historyEntry = new OrderStatusHistory();
+            historyEntry.setOrderId(orderId);
+            historyEntry.setFromStatus(order.getStatus());
+            historyEntry.setToStatus(order.getStatus());
+            historyEntry.setChangedRole("SYSTEM_PAYMENT");
+            historyEntry.setCreatedAt(Instant.now());
+            historyEntry.setReason("SEPAY_COUNTER_BANK_RECEIVED");
+            history.save(historyEntry);
+            events.publishOrderStatusChanged(order, items.findByOrderIdOrderByIdAsc(orderId), order.getStatus());
+            decision = "ACCEPTED";
+        } else {
+            decision = order.getPaymentExpiresAt().isAfter(Instant.now()) ? "CANCELLED" : "EXPIRED";
+        }
+        jdbc.update("INSERT INTO order_service.payment_decisions(payment_id,order_id,event_id,decision) VALUES (?,?,?,?)",
+                paymentId, orderId, event.eventId(), decision);
+        var result = mapper.createObjectNode().put("paymentId", paymentId).put("orderId", orderId)
+                .put("storeId", order.getStoreId()).put("orderCode", order.getOrderCode())
+                .put("orderSource", "COUNTER").put("decision", decision);
+        events.publish("order.payment-resolved", order, result);
+    }
+
     private void decideCollection(DomainEvent event) {
         var payload = event.payload();
         java.util.UUID collectionId = java.util.UUID.fromString(payload.path("collectionId").asText());
@@ -146,6 +244,10 @@ public class OrderPaymentService {
                 || !payload.path("cashAmount").isNumber() || !payload.path("declaredTransfer").isNumber()) throw new IllegalArgumentException("Invalid collection event");
         long orderId = payload.path("orderId").asLong();
         Order order = orders.lockById(orderId).orElseThrow(() -> new IllegalArgumentException("Collection order missing"));
+        if ("COUNTER".equals(order.getOrderSource())
+                && java.util.Set.of("BANK_TRANSFER", "SPLIT").contains(order.getPaymentMethod())) {
+            throw new IllegalArgumentException("Counter bank transfer cannot be confirmed by manual collection");
+        }
         boolean customerMatches = order.getCustomerId() == null
                 ? "COUNTER".equals(order.getOrderSource()) && !payload.hasNonNull("customerId")
                 : payload.path("customerId").isIntegralNumber() && payload.path("customerId").canConvertToLong()
@@ -213,6 +315,10 @@ public class OrderPaymentService {
         if (!java.util.Set.of("COUNTER", "WEB").contains(order.getOrderSource())
                 || !java.util.Set.of("CONFIRMED", "PREPARING", "READY", "SHIPPING").contains(order.getStatus())) {
             throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn hàng không cho phép cập nhật thu tiền quầy");
+        }
+        if ("COUNTER".equals(order.getOrderSource())
+                && java.util.Set.of("BANK_TRANSFER", "SPLIT").contains(order.getPaymentMethod())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Trạng thái chuyển khoản POS do SePay xác nhận");
         }
         if ("COLLECTED".equalsIgnoreCase(paymentStatus)) {
             if ("WEB".equals(order.getOrderSource()) && "DELIVERY".equals(order.getType())

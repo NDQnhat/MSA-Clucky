@@ -50,6 +50,11 @@ public class PaymentOperations {
     public UUID createCounterCollection(long orderId, PaymentFlow.Context order, CurrentActor actor,
             BigDecimal cashAmount, BigDecimal transferAmount, BigDecimal cashTendered, BigDecimal cashChange,
             String reason, UUID key) {
+        if ("COUNTER".equals(order.orderSource())
+                && (transferAmount.signum() > 0 || !"CASH".equals(order.paymentMethod()))) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT,
+                    "Không được xác nhận chuyển khoản POS khi chưa có webhook SePay");
+        }
         if (!"COUNTER".equals(order.orderSource()) && !"WEB".equals(order.orderSource())) conflict();
         if ("WEB".equals(order.orderSource())) {
             return UUID.fromString(collect(orderId, new CollectionRequest(order.version(), cashAmount,
@@ -203,6 +208,11 @@ public class PaymentOperations {
         if (replay != null) return replay;
         var order = flow.context(orderId);
         scope(actor, order.storeId());
+        if ("COUNTER".equals(order.orderSource())
+                && (request.transferAmount().signum() > 0 || !"CASH".equals(order.paymentMethod()))) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT,
+                    "Chuyển khoản POS chỉ được đối soát qua SePay, không dùng thu tiền thủ công");
+        }
         // Online bank transfers are settled only through matched bank receipts.
         // The manual collection operation is reserved for online COD and counter orders.
         if ("WEB".equals(order.orderSource()) && !"COD".equals(order.paymentMethod())) conflict();

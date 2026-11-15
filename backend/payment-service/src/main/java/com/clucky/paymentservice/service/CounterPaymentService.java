@@ -99,6 +99,13 @@ public class CounterPaymentService {
         if (!List.of("CASH", "BANK_TRANSFER", "SPLIT").contains(method)) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Phương thức thanh toán không hợp lệ (CASH, BANK_TRANSFER, SPLIT)");
         }
+        // Staff POS bank collection must originate from a real SePay receipt.
+        // A screenshot, manualAcceptance or browser confirmation is not proof.
+        if ("COUNTER".equals(order.orderSource())
+                && (!"CASH".equals(method) || !"CASH".equals(order.paymentMethod()))) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT,
+                    "Chuyển khoản POS phải dùng phiên SePay và chờ ngân hàng xác nhận");
+        }
 
         BigDecimal cashAmount = BigDecimal.ZERO;
         BigDecimal cashTendered = BigDecimal.ZERO;
@@ -348,6 +355,23 @@ public class CounterPaymentService {
                         + "AND paid_at>=? AND paid_at<?",
                 BigDecimal.class, effectiveStoreId, java.sql.Timestamp.from(start), java.sql.Timestamp.from(end));
         totalBankReconciled = totalBankReconciled.add(onlineTransfers == null ? BigDecimal.ZERO : onlineTransfers);
+
+        // Live POS payments have a bank-confirmed payment row, not a manual
+        // counter receipt. Include their staff-attested cash leg once, only
+        // after the matching SePay bank transfer has been accepted by Order.
+        var counterSepay = jdbc.queryForMap(
+                "SELECT coalesce(sum(counter_cash_amount),0) AS cash, count(*) AS payment_count "
+                    + "FROM payment_service.payments WHERE store_id=? AND pos_order AND status='PAID' "
+                    + "AND paid_at>=? AND paid_at<?",
+                effectiveStoreId, java.sql.Timestamp.from(start), java.sql.Timestamp.from(end));
+        totalCashCollected = totalCashCollected.add((BigDecimal) counterSepay.get("cash"));
+        transactionCount += ((Number) counterSepay.get("payment_count")).longValue();
+        BigDecimal pendingPos = jdbc.queryForObject(
+                "SELECT coalesce(sum(greatest(amount-received_amount,0)),0) FROM payment_service.payments "
+                    + "WHERE store_id=? AND pos_order AND status='PENDING' AND expires_at>now() "
+                    + "AND created_at>=? AND created_at<?",
+                BigDecimal.class, effectiveStoreId, java.sql.Timestamp.from(start), java.sql.Timestamp.from(end));
+        totalBankPending = totalBankPending.add(pendingPos == null ? BigDecimal.ZERO : pendingPos);
 
         List<Map<String, Object>> collections = jdbc.queryForList(
                 "SELECT c.cash_amount,c.cash_change,c.transfer_amount,"

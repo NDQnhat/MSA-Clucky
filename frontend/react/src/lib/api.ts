@@ -796,6 +796,26 @@ export interface CounterCollectionPayload {
   staffNotes?: string;
 }
 
+/** Payment Service owns the SePay reference and bank account. Only the
+ * authenticated SePay webhook may mark this session PAID. */
+export interface CounterSepaySession {
+  id: string;
+  orderId: number;
+  orderCode: string;
+  status: 'PENDING' | 'PAID' | 'EXPIRED' | 'CANCELLED' | 'PARTIAL' | 'CLOSED' | string;
+  expiresAt: string | null;
+  reference: string | null;
+  bankInfo: { bankName: string; bankCode: string; accountNo: string; accountName: string } | null;
+  amount: string;
+  receivedAmount: string;
+  missingAmount: string;
+  excessAmount: string;
+  confirmationPending: boolean;
+  canTransfer: boolean;
+  closedReason: string | null;
+  cashAmount?: string | number;
+}
+
 export interface ShiftSummaryData {
   storeId: number;
   date: string;
@@ -809,6 +829,13 @@ export interface ShiftSummaryData {
 }
 
 export const paymentsApi = {
+  // Authoritative server-created SePay sessions. These routes MUST reject
+  // invalid store scope, zero amount, and conflicting split cash values.
+  initializeCounterSepay: (orderId: number, cashAmount: number, idempotencyKey: string, signal?: AbortSignal) =>
+    api.post<CounterSepaySession>(`/api/payments/${orderId}/counter-bank-transfer`,
+      { cashAmount }, { headers: { 'Idempotency-Key': idempotencyKey }, signal }).then(r => r.data),
+  readSepay: (orderId: number, signal?: AbortSignal) =>
+    api.get<CounterSepaySession>(`/api/payments/${orderId}`, { signal }).then(r => r.data),
   getCodEvidence: (orderId: string | number, signal?: AbortSignal) => api.get<{
     status: 'MISSING' | 'PENDING' | 'APPROVED' | 'REJECTED';
     uploaded_by?: number; reviewed_by?: number; review_reason?: string;

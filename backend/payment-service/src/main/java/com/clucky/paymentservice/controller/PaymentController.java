@@ -7,7 +7,12 @@ import com.clucky.paymentservice.dto.VoidReceiptRequest;
 import com.clucky.paymentservice.service.CounterPaymentService;
 import com.clucky.paymentservice.service.PaymentFlow;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
+import java.math.BigDecimal;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +30,18 @@ public class PaymentController {
 
     @PostMapping("/{orderId}/bank-transfer")
     public PaymentFlow.Summary initialize(@PathVariable @Positive long orderId) { return service.initialize(orderId); }
+
+    /** Actual SePay collection at staff POS. The cash leg is fixed at initiation. */
+    public record CounterBankTransferRequest(
+            @NotNull @DecimalMin("0") @Digits(integer = 12, fraction = 0) BigDecimal cashAmount) {}
+
+    @PostMapping("/{orderId}/counter-bank-transfer")
+    @PreAuthorize("hasAnyRole('STAFF','STORE_MANAGER','ADMIN')")
+    public PaymentFlow.Summary initializeCounter(@PathVariable @Positive long orderId,
+            @RequestHeader("Idempotency-Key") UUID requestKey,
+            @Valid @RequestBody CounterBankTransferRequest request) {
+        return service.initializeCounter(orderId, request.cashAmount(), requestKey);
+    }
 
     @GetMapping("/{orderId}")
     public PaymentFlow.Summary read(@PathVariable @Positive long orderId) { return service.get(orderId); }

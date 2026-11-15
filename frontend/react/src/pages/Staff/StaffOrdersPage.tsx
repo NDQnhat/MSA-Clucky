@@ -601,36 +601,21 @@ export function StaffOrdersPage() {
     manualReason?: string;
     refCode?: string;
   }) => {
+    // The counter-collection endpoint is reserved for REAL CASH only.
+    // BANK_TRANSFER/SPLIT must settle via the SePay webhook-backed session.
+    if (data.method !== 'CASH' || data.bankDeclaredAmount !== 0 || data.manualReason || data.refCode) {
+      message.error('Không thể xác nhận chuyển khoản thủ công. Vui lòng sử dụng SePay.');
+      return false;
+    }
     const order =
       paymentModalOrder?.id === data.orderId
         ? paymentModalOrder
         : orders.find((o) => o.id === data.orderId);
-    if (!order) return false;
+    if (!order || order.total <= 0 || order.paymentStatus !== 'PENDING') return false;
 
     const numericId = Number(order.id);
     const totalDue = order.total;
 
-
-    let cashAmount = 0;
-    let cashTendered = data.cashTendered;
-    let bankAmount = 0;
-    let manualAcceptance = false;
-    let exceptionReason = data.manualReason;
-
-    if (data.method === "CASH") {
-      cashAmount = totalDue;
-    } else if (data.method === "BANK_TRANSFER") {
-      bankAmount = totalDue;
-      if (data.manualReason) {
-        manualAcceptance = true;
-      }
-    } else if (data.method === "SPLIT") {
-      cashAmount = data.cashTendered;
-      bankAmount = data.bankDeclaredAmount;
-      if (data.manualReason) {
-        manualAcceptance = true;
-      }
-    }
 
     const collectionPayload: CounterCollectionPayload = {
       orderId: numericId,
@@ -638,14 +623,11 @@ export function StaffOrdersPage() {
       queueNumber: order.queueNumber,
       storeId: Number(order.storeId || user?.storeId || 1),
       totalDue,
-      method: data.method,
-      cashAmount,
-      cashTendered,
-      bankAmount,
-      bankRefCode: data.refCode,
-      manualAcceptance,
-      exceptionReason,
-      staffNotes: data.manualReason,
+      method: 'CASH',
+      cashAmount: totalDue,
+      cashTendered: data.cashTendered,
+      bankAmount: 0,
+      manualAcceptance: false,
     };
 
     // Pha 1: Ghi nhận thu tiền tại quầy qua payment-service
@@ -703,6 +685,14 @@ export function StaffOrdersPage() {
     await fetchOrders(true);
     return collectionAccepted;
   };
+
+  const handleSepayConfirmed = useCallback(async () => {
+    // Called ONLY after SePay reports PAID and Order Service confirms the
+    // corresponding order state. Never infer success from displaying a QR.
+    await fetchOrders(true);
+    setPaymentModalOrder(null);
+    message.success('SePay đã xác nhận chuyển khoản từ ngân hàng.');
+  }, [fetchOrders]);
 
   // Mở in lại hóa đơn
   const handleReprintOrder = (order: StaffOrder) => {
@@ -1273,6 +1263,7 @@ export function StaffOrdersPage() {
         order={paymentModalOrder}
         onClose={() => setPaymentModalOrder(null)}
         onConfirmPayment={handleConfirmPayment}
+        onTransferConfirmed={handleSepayConfirmed}
       />
 
       {/* Phase 2: Modal Xem & In Hóa Đơn K80 / Phiếu Bếp KOT */}
