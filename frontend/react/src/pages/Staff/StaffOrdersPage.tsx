@@ -310,14 +310,14 @@ export function StaffOrdersPage() {
     const numericId = Number(linkedOrderId);
     if (!/^[1-9]\d*$/.test(linkedOrderId) || !Number.isSafeInteger(numericId)
         || !Number.isSafeInteger(storeId) || storeId <= 0) {
-      message.warning("Liên kết đơn hàng không hợp lệ.");
+      message.warning(t('business:counterPayment.sepayInvalidOrderLink'));
       return () => controller.abort();
     }
 
     void ordersApi.getById(numericId, controller.signal).then((backendOrder) => {
       if (controller.signal.aborted) return;
       if (Number(backendOrder.id) !== numericId || Number(backendOrder.storeId) !== storeId) {
-        message.error("Bạn không có quyền xem đơn hàng này.");
+        message.error(t('business:counterPayment.sepayNoOrderScope'));
         return;
       }
       setLinkedOrder(fromBackendOrderToStaffOrder(
@@ -328,7 +328,7 @@ export function StaffOrdersPage() {
       if (!controller.signal.aborted) message.error(getErrorMessage(error));
     });
     return () => controller.abort();
-  }, [linkedOrderId, user?.storeId, user?.id]);
+  }, [linkedOrderId, user?.storeId, user?.id, t]);
 
   const closeOrderDetails = () => {
     setSelectedOrderId(null);
@@ -604,7 +604,7 @@ export function StaffOrdersPage() {
     // The counter-collection endpoint is reserved for REAL CASH only.
     // BANK_TRANSFER/SPLIT must settle via the SePay webhook-backed session.
     if (data.method !== 'CASH' || data.bankDeclaredAmount !== 0 || data.manualReason || data.refCode) {
-      message.error('Không thể xác nhận chuyển khoản thủ công. Vui lòng sử dụng SePay.');
+      message.error(t('business:counterPayment.sepayNoManual'));
       return false;
     }
     const order =
@@ -691,8 +691,8 @@ export function StaffOrdersPage() {
     // corresponding order state. Never infer success from displaying a QR.
     await fetchOrders(true);
     setPaymentModalOrder(null);
-    message.success('SePay đã xác nhận chuyển khoản từ ngân hàng.');
-  }, [fetchOrders]);
+    message.success(t('business:counterPayment.sepayConfirmed'));
+  }, [fetchOrders, t]);
 
   // Mở in lại hóa đơn
   const handleReprintOrder = (order: StaffOrder) => {

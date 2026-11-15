@@ -857,7 +857,7 @@ export default function CheckoutPage() {
 
                 {noPayment ? (
                   <p role="status" style={{ padding: "16px", borderRadius: "12px", background: "#f3f8f0", color: "#245533", fontWeight: 700 }}>
-                    {locale === "vi" ? "Miễn thanh toán — 0đ. Ưu đãi đã thanh toán toàn bộ đơn hàng; không cần quét mã QR hoặc trả tiền khi nhận." : "No payment required — 0 VND. Your offers cover the entire order."}
+                    {t("business.checkout.noPaymentDescription")}
                   </p>
                 ) : <div className={styles.paymentOptions}>
                   <label
@@ -988,7 +988,7 @@ export default function CheckoutPage() {
                 </strong>
               </div>
               {noPayment && <p role="status" style={{ color: "#245533", fontWeight: 700, margin: "10px 0" }}>
-                {locale === "vi" ? "Miễn thanh toán — 0đ" : "No payment required — 0 VND"}
+                {t("business.checkout.noPaymentLabel")}
               </p>}
 
               <Link href="/cart" className={styles.editCart}>
@@ -1027,7 +1027,7 @@ export default function CheckoutPage() {
               >
                 {submitting
                   ? t("business.checkout.processingYourOrder")
-                  : noPayment ? (locale === "vi" ? "Đặt đơn miễn thanh toán" : "Place free order") : t("business.checkout.placeOrderNow")}
+                  : noPayment ? t("business.checkout.placeFreeOrder") : t("business.checkout.placeOrderNow")}
               </button>
             </aside>
           </form>

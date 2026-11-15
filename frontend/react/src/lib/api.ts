@@ -129,10 +129,23 @@ api.interceptors.response.use(response => {
 }, async (error: AxiosError) => {
   const config = error.config as (NonNullable<AxiosError['config']> & { retried?: boolean; sessionRevision?: number }) | undefined;
   const authFailure = { status: error.response?.status, code: (error.response?.data as { code?: string } | undefined)?.code };
-  // Store/role authorization failures (403) cannot be repaired by refreshing
-  // a session and must not log a legitimate user out.
-  if (!isSessionExpired(authFailure) || !config || config.url?.startsWith('/api/auth/')) throw error;
+  // A 403 may mean a real store/role denial OR a session cookie rejected by
+  // the gateway. Probe the identity session once instead of guessing or
+  // immediately signing out a legitimate branch user.
+  const forbidden = authFailure.status === 403 && !isSessionExpired(authFailure);
+  if ((!isSessionExpired(authFailure) && !forbidden) || !config || config.url?.startsWith('/api/auth/')) throw error;
   if (config.sessionRevision !== getSessionState().revision) throw new axios.CanceledError('Session changed');
+  if (forbidden) {
+    if (config.retried) throw error;
+    config.retried = true;
+    const userId = getSessionState().user?.userId;
+    const currentUser = await loadSession(true);
+    if (!currentUser || (userId && userId !== currentUser.userId)) throw error;
+    config.sessionRevision = getSessionState().revision;
+    // Exactly one retry. Persistent business 403 remains a denial, never a
+    // reason to clear an otherwise valid authenticated session.
+    return api.request(config);
+  }
   if (config.retried) {
     expireSession();
     throw error;

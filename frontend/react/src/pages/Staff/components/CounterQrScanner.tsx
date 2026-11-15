@@ -22,6 +22,7 @@ export function CounterQrScanner({ onDetected, onClose }: CounterQrScannerProps)
 
   useEffect(() => {
     let alive = true;
+    const video = videoRef.current;
     let controls: IScannerControls | undefined;
     let consumed = false;
     const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 240 });
@@ -78,9 +79,9 @@ export function CounterQrScanner({ onDetected, onClose }: CounterQrScannerProps)
     return () => {
       alive = false;
       controls?.stop();
-      if (videoRef.current?.srcObject instanceof MediaStream) {
-        for (const track of videoRef.current.srcObject.getTracks()) track.stop();
-        videoRef.current.srcObject = null;
+      if (video?.srcObject instanceof MediaStream) {
+        for (const track of video.srcObject.getTracks()) track.stop();
+        video.srcObject = null;
       }
     };
   }, [deviceId, t]);

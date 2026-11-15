@@ -1114,7 +1114,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             <div className={styles.cartFooter}>
               {/* Chọn nhanh hình thức thanh toán dự kiến */}
               {noPayment ? <p role="status" className={styles.paymentHint}>
-                Miễn thanh toán — 0đ. Voucher và điểm đã giảm toàn bộ số tiền; không thu tiền mặt và không tạo VietQR.
+                {t('business:counterPayment.noPaymentExplanation')}
               </p> : <div className={styles.paymentMethodRow}>
                 <button
                   type="button"
@@ -1331,7 +1331,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                     {activeQuote ? formatVnd(totalAmount) : t('business:counterLoyalty.awaitingQuote')}
                   </span>
                 </div>
-                {noPayment && <p role="status" className={styles.paymentHint}>Miễn thanh toán — 0đ</p>}
+                {noPayment && <p role="status" className={styles.paymentHint}>{t('business:counterPayment.noPaymentCard')}</p>}
               </div>
 
               {/* Nút Tạo đơn quầy */}

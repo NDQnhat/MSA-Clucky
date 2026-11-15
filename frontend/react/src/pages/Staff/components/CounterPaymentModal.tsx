@@ -68,6 +68,8 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const notifiedTransferRef = useRef<string | null>(null);
   const sessionResolvedRef = useRef(false);
   const orderId = order?.id;
+  const orderTotal = order?.total;
+  const orderPaymentMethod = order?.paymentMethod;
   const isWebCod = order?.orderSource === "WEB" && order.paymentMethod === "COD";
   const isWebBank = order?.orderSource === "WEB" && order.paymentMethod === "BANK_TRANSFER";
 
@@ -87,7 +89,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
         const result = await paymentsApi.readSepay(Number(orderId), controller.signal);
         if (controller.signal.aborted) return;
         if (result.orderId !== Number(orderId) || result.orderCode !== order?.orderCode) {
-          setBankError("Thông tin phiên SePay không khớp đơn hàng.");
+          setBankError(t('business:counterPayment.sepaySessionMismatch'));
           setSepaySession(null);
           return;
         }
@@ -125,17 +127,17 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
     void refresh();
     const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 2500);
     return () => { controller.abort(); window.clearInterval(timer); };
-  }, [open, orderId, order?.orderCode, order?.storeId, order?.total, onTransferConfirmed]);
+  }, [open, orderId, order?.orderCode, order?.storeId, order?.total, order?.orderSource, onTransferConfirmed, t]);
 
   // Reset when order changes or modal opens
   useEffect(() => {
-    if (open && order) {
-      const total = order.total || 0;
-      setActiveTab(order.paymentMethod === "SPLIT" ? "SPLIT" : order.paymentMethod === "BANK_TRANSFER" ? "BANK_TRANSFER" : "CASH");
+    if (open && orderId) {
+      const total = orderTotal || 0;
+      setActiveTab(orderPaymentMethod === "SPLIT" ? "SPLIT" : orderPaymentMethod === "BANK_TRANSFER" ? "BANK_TRANSFER" : "CASH");
       setCashTendered(total);
       setSplitCash(Math.floor(total / 2));
     }
-  }, [open, order?.id]);
+  }, [open, orderId, orderTotal, orderPaymentMethod]);
 
   const totalDue = order?.total || 0;
 
@@ -177,7 +179,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
       const session = await paymentsApi.initializeCounterSepay(Number(order.id), cashAmount, attempt.key);
       if (session.orderId !== Number(order.id) || session.orderCode !== order.orderCode
           || Number(session.amount) !== totalDue - cashAmount) {
-        throw new Error('Phiên thanh toán SePay không khớp đơn hàng hoặc số tiền cần thu.');
+        throw new Error(t('business:counterPayment.sepayAmountMismatch'));
       }
       setSepaySession(session);
       setQrFailed(false);
@@ -405,21 +407,22 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
             <div className={styles.bankSection}>
               {sepaySession?.status === 'PAID' ? (
                 <p role="status" className={styles.bankUnavailable}>
-                  SePay đã ghi nhận chuyển khoản; đang đợi hệ thống đơn hàng đồng bộ xác nhận. Không cần thu lại tiền.
+                  {t('business:counterPayment.sepayPaidSyncing')}
                 </p>
               ) : sepaySession && sepaySession.status !== 'PENDING' ? (
                 <p role="alert" className={styles.bankUnavailable}>
-                  Phiên chuyển khoản hiện ở trạng thái {sepaySession.status}. Không được sử dụng mã QR cũ.
+                  {t('business:counterPayment.sepayInactiveStatus', { status: sepaySession.status })}
                 </p>
               ) : null}
               {!sepaySession && order.orderSource === 'COUNTER' && order.paymentStatus === 'PENDING' && (
                 <button type="button" className={styles.confirmButton} disabled={bankCreating || bankLoading || totalDue <= 0}
                   onClick={() => void createSePay()}>
-                  {bankCreating ? 'Đang tạo phiên SePay…' : 'Tạo mã VietQR SePay xác thực ngân hàng'}
+                  {t(bankCreating ? 'business:counterPayment.sepayBusy' : 'business:counterPayment.sepayCreateQr')}
                 </button>
               )}
               {!transferQr || qrFailed ? sepaySession?.status !== 'PAID' && <p role="status" className={styles.bankUnavailable}>
-                {bankLoading ? t("business:counterPayment.loadingBank") : bankError || (!sepaySession ? 'Chưa có phiên chuyển khoản hợp lệ từ Payment Service.' : 'Phiên SePay chưa sẵn sàng để chuyển khoản.')}
+                {bankLoading ? t("business:counterPayment.loadingBank") : bankError || t(!sepaySession
+                  ? 'business:counterPayment.sepayMissingSession' : 'business:counterPayment.sepayNotReady')}
               </p> :
               <div className={styles.qrContainer}>
                 <div className={styles.qrImageFrame}>
@@ -479,9 +482,11 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
 
               }
               <p role="status" className={styles.manualSection}>
-                Chỉ SePay webhook mới xác nhận giao dịch. Ảnh chuyển khoản, lời nói của khách hay mã QR không phải bằng chứng đã nhận tiền.
+                {t('business:counterPayment.sepayWebhookOnly')}
                 {sepaySession?.status === 'PENDING' && Number(sepaySession.receivedAmount) > 0
-                  ? ` Đã nhận qua hệ thống: ${formatVnd(Number(sepaySession.receivedAmount))}; còn thiếu ${formatVnd(bankAmountDue)}.` : ''}
+                  ? ` ${t('business:counterPayment.sepayPartialReceived', {
+                    received: formatVnd(Number(sepaySession.receivedAmount)), missing: formatVnd(bankAmountDue),
+                  })}` : ''}
               </p>
             </div>
           )}
@@ -491,7 +496,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
               <div className={styles.splitGrid}>
                 <div className={styles.splitBox}>
                   <div className={styles.fieldLabel}><Wallet size={15} color="#8f1216" />
-                    <span>1. Tiền mặt tại quầy (VND)</span></div>
+                    <span>{t('business:counterPayment.sepaySplitCashLabel')}</span></div>
                   <input type="number" step="1000" min={1} max={totalDue - 1}
                     className={styles.cashInput} value={splitCash || ''} disabled={Boolean(sepaySession) || bankCreating}
                     onChange={event => {
@@ -499,16 +504,16 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
                       setSplitCash(Number.isSafeInteger(amount) ? Math.max(0, Math.min(totalDue, amount)) : 0);
                     }} />
                   <div style={{ fontSize: 12, color: '#6b6259' }}>
-                    {sepaySession ? 'Phần tiền mặt đã được Payment Service khóa vào phiên này.'
-                      : 'Sau khi tạo phiên SePay, phần tiền mặt sẽ không thể sửa.'}
+                    {t(sepaySession ? 'business:counterPayment.sepayCashLocked'
+                      : 'business:counterPayment.sepayCashLockNote')}
                   </div>
                 </div>
                 <div className={styles.splitBox}>
                   <div className={styles.fieldLabel}><QrCode size={15} color="#22577a" />
-                    <span>2. Chuyển khoản SePay (VND)</span></div>
+                    <span>{t('business:counterPayment.sepaySplitBankLabel')}</span></div>
                   <div style={{ fontSize: 20, fontWeight: 800, color: '#22577a' }}>{formatVnd(splitBank)}</div>
                   <p style={{ fontSize: 12, color: '#6b6259' }}>
-                    Phần chuyển khoản chỉ hoàn tất khi webhook SePay xác minh đủ số tiền.
+                    {t('business:counterPayment.sepaySplitPending')}
                   </p>
                 </div>
               </div>
@@ -517,38 +522,39 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
                   disabled={bankCreating || bankLoading || !Number.isSafeInteger(splitCash)
                     || splitCash <= 0 || splitBank <= 0}
                   onClick={() => void createSePay()}>
-                  {bankCreating ? 'Đang tạo phiên SePay…' : 'Khóa tiền mặt và tạo mã SePay cho phần chuyển khoản'}
+                  {t(bankCreating ? 'business:counterPayment.sepayBusy' : 'business:counterPayment.sepayLockCreate')}
                 </button>
               )}
               {sepaySession?.status === 'PAID' ? (
-                <p role="status" className={styles.manualSection}>SePay xác nhận đã nhận đủ khoản chuyển khoản. Đang đồng bộ đơn hàng.</p>
+                <p role="status" className={styles.manualSection}>{t('business:counterPayment.sepaySplitPaidSync')}</p>
               ) : sepaySession && sepaySession.status !== 'PENDING' ? (
                 <p role="alert" className={styles.bankUnavailable}>
-                  Phiên chuyển khoản có trạng thái {sepaySession.status}; không dùng mã cũ hoặc thu thêm tiền.
+                  {t('business:counterPayment.sepaySplitClosedStatus', { status: sepaySession.status })}
                 </p>
               ) : null}
               {transferQr && !qrFailed ? (
                 <div className={styles.qrContainer}>
                   <div className={styles.qrImageFrame}>
-                    <img src={transferQr} alt="Mã SePay chuyển khoản phần còn lại"
+                    <img src={transferQr} alt={t('business:counterPayment.sepaySplitQrAlt')}
                       className={styles.qrImg} onError={() => setQrFailed(true)} />
                   </div>
                   <div className={styles.bankDetails}>
                     <strong>{bankInfo?.bankName}</strong>
                     <span>{bankInfo?.accountName} · {bankInfo?.accountNo}</span>
-                    <span>Chuyển khoản: <strong>{formatVnd(bankAmountDue)}</strong></span>
-                    <span>Nội dung chính xác: <code>{reference}</code></span>
+                    <span>{t('business:counterPayment.sepayBankAmountLabel')} <strong>{formatVnd(bankAmountDue)}</strong></span>
+                    <span>{t('business:counterPayment.sepayExactReference')} <code>{reference}</code></span>
                     <button type="button" className={styles.copyBtn}
-                      onClick={() => void handleCopy(reference, 'Nội dung SePay')}><Copy size={14} /> Sao chép nội dung</button>
+                      onClick={() => void handleCopy(reference, t('business:counterPayment.sepayContentCopy'))}>
+                      <Copy size={14} /> {t('business:counterPayment.sepayCopyContent')}</button>
                   </div>
                 </div>
               ) : <p role="status" className={styles.bankUnavailable}>
-                {bankError || (bankLoading ? 'Đang đọc trạng thái từ SePay…'
-                  : sepaySession ? 'Phiên hiện không thể chuyển khoản; vui lòng kiểm tra trạng thái.'
-                    : 'Chưa có phiên SePay; nhập số tiền mặt và tạo phiên để hiển thị QR.')}
+                {bankError || t(bankLoading ? 'business:counterPayment.sepayLoadingStatus'
+                  : sepaySession ? 'business:counterPayment.sepayNotTransferable'
+                    : 'business:counterPayment.sepaySplitMissingSession')}
               </p>}
               <p role="status" className={styles.manualSection}>
-                Không có thao tác xác nhận chuyển khoản thủ công. Chỉ webhook SePay mới hoàn tất phần ngân hàng.
+                {t('business:counterPayment.sepayNoManualSplit')}
               </p>
             </div>
           )}
@@ -561,10 +567,10 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
               <span>Thu tiền mặt trực tiếp và trả lại tiền thừa cho khách</span>
             )}
             {activeTab === "BANK_TRANSFER" && (
-              <span>Chờ SePay xác nhận từ ngân hàng; không xác nhận nhận tiền bằng tay.</span>
+              <span>{t('business:counterPayment.sepayAwaitWebhook')}</span>
             )}
             {activeTab === "SPLIT" && (
-              <span>{formatVnd(splitCash)} tiền mặt + {formatVnd(splitBank)} ngân hàng; chỉ webhook SePay xác nhận.</span>
+              <span>{t('business:counterPayment.sepaySplitSummary', { cash: formatVnd(splitCash), bank: formatVnd(splitBank) })}</span>
             )}
           </div>
 

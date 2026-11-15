@@ -185,7 +185,11 @@ if (typeof window !== "undefined") {
     }
   });
   window.addEventListener("focus", () => { if (state.user) void loadSession(true).catch(() => {}); });
-  window.setInterval(() => {
-    if (!document.hidden && state.user) void loadSession(true).catch(() => {});
-  }, 15000);
+  // Minimal window shims (SSR/tests) may not expose timers. Only the real
+  // browser needs this periodic refresh; session/auth logic is independent.
+  if (typeof window.setInterval === "function") {
+    window.setInterval(() => {
+      if (typeof document !== 'undefined' && !document.hidden && state.user) void loadSession(true).catch(() => {});
+    }, 15000);
+  }
 }

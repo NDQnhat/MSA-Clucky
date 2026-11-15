@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("store cards focus logo pins, including repeated selection after panning", async ({ page }) => {
+test("store cards focus logo pins or clearly report missing Mapbox configuration", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(() => sessionStorage.setItem("clucky_location_prompt", "seen"));
   await page.route("**/api/auth/session", route => route.fulfill({ status: 401, json: {} }));
@@ -17,6 +17,19 @@ test("store cards focus logo pins, including repeated selection after panning", 
   await page.goto("http://127.0.0.1:4174/stores");
   await expect(page.locator("main input")).toHaveCount(1);
   await expect(page.locator('a[href="https://www.geoapify.com/"]')).toHaveCount(0);
+  const noToken = page.locator("#store-map").getByRole("status").filter({ hasText: "Chưa cấu hình token bản đồ Mapbox." });
+  // NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN is build-time configuration. Without it,
+  // production must fail closed with an accessible warning, not generate fake
+  // map pins. In a configured environment the full pin/pan test still runs.
+  await expect.poll(async () => (await noToken.count()) + (await page.locator(".clucky-map-marker img").count())).toBeGreaterThan(0);
+  if (await noToken.isVisible()) {
+    await expect(page.locator(".clucky-map-marker img")).toHaveCount(0);
+    await page.locator("#branch-82").getByRole("button").click();
+    await expect(page.locator("#branch-82").getByRole("button")).toHaveAttribute("aria-pressed", "true");
+    await expect(noToken).toBeVisible();
+    expect(lookups).toBe(0);
+    return;
+  }
   await expect(page.locator(".clucky-map-marker img")).toHaveCount(2);
   const centered = () => page.evaluate(() => {
     const map = document.querySelector(".mapboxgl-map")?.getBoundingClientRect();

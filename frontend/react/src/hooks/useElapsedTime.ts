@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 export interface ElapsedTimeResult {
   /** Số phút trôi qua kể từ khi tạo đơn */
@@ -21,7 +21,7 @@ export interface ElapsedTimeResult {
 export function useElapsedTime(
   createdAt: string | Date | number | undefined | null,
 ): ElapsedTimeResult {
-  const calculate = (): ElapsedTimeResult => {
+  const calculate = useCallback((): ElapsedTimeResult => {
     if (!createdAt) {
       return {
         diffMinutes: 0,
@@ -59,7 +59,7 @@ export function useElapsedTime(
       isSlaBreached,
       isSlaWarning,
     };
-  };
+  }, [createdAt]);
 
   const [state, setState] = useState<ElapsedTimeResult>(calculate);
 
@@ -75,7 +75,7 @@ export function useElapsedTime(
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [createdAt]);
+  }, [calculate]);
 
   return state;
 }

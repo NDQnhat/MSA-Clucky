@@ -389,7 +389,8 @@ public class PaymentFlow {
             throw new IllegalArgumentException("Payment decision mismatch");
         }
         if ("ACCEPTED".equals(decision)) {
-            if (jdbc.update("UPDATE payment_service.payments SET status='PAID',paid_at=now() WHERE id=? AND paid_at IS NULL AND status<>'REFUNDED'", payment.id()) > 0) {
+            // A delayed ACCEPTED event must never reopen a payment already closed by cancellation or expiry.
+            if (jdbc.update("UPDATE payment_service.payments SET status='PAID',paid_at=now() WHERE id=? AND paid_at IS NULL AND status='PENDING' AND closed_reason IS NULL", payment.id()) > 0) {
                 var notification = mapper.createObjectNode().put("paymentId", payment.id()).put("orderId", orderId)
                         .put("orderCode", payment.orderCode()).put("storeId", payment.storeId())
                         .put("amount", payment.amount().add(payment.counterCashAmount()))

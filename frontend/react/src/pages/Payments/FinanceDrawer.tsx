@@ -407,7 +407,7 @@ export function FinanceModal({ orderId, receiptId: initialReceiptId, stores = []
         {isQrOrder && snapshot.order.paymentStatus === 'PENDING' && !qrImageUrl && (
           <Alert type="warning" showIcon message={qrPayable
             ? t("business:counterPayment.bankUnavailable")
-            : 'Chưa có phiên SePay đang hoạt động hoặc phiên đã hết hạn. Không sử dụng QR tự tạo hay xác nhận chuyển khoản thủ công.'} />
+            : t('business:counterPayment.sepayNoLiveSession')} />
         )}
         {isQrOrder && qrImageUrl && (
           <section className="order-section finance-method-card">
@@ -541,7 +541,7 @@ export function FinanceModal({ orderId, receiptId: initialReceiptId, stores = []
             {([['cashAmount', t("admin:ui.cashCollected")], ['cashTendered', t("payments:cashTendered")], ['cashChange', t("admin:ui.cashChangeReturned")]] as const).map(([name, label]) =>
               <Form.Item key={name} name={name} label={`${label} (VND)`} rules={amountRules}><InputNumber min={0} max={999999999999} step={1} style={{ width: "100%" }} /></Form.Item>)}
             </div>
-            <Alert type="info" showIcon message="Biểu mẫu này chỉ ghi nhận tiền mặt. Chuyển khoản được xác nhận qua SePay webhook." />
+            <Alert type="info" showIcon message={t('business:counterPayment.sepayCashOnlyFinance')} />
             <Alert type="info" message={t("admin:ui.declaredDiscrepancy", { value1: money(cashAmount + transferAmount - snapshot.order.amount) })}
               description={t("admin:ui.cashTenderedMinusCashCollectedMustEqualChange")} />
           </>}

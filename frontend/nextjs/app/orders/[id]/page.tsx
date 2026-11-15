@@ -252,8 +252,8 @@ export default function OrderTrackingPage({
     icon: Wallet,
   };
   const displayPaymentCopy = noPayment ? {
-    label: locale === "vi" ? "Miễn thanh toán — 0đ" : "No payment required — 0 VND",
-    message: locale === "vi" ? "Ưu đãi đã giảm toàn bộ tiền đơn hàng. Bạn không cần chuyển khoản hoặc trả tiền khi nhận." : "Your offers cover the entire order. No transfer or cash is required.",
+    label: t("business.id.noPaymentLabel"),
+    message: t("business.id.noPaymentDescription"),
     icon: CheckCircle2,
   } : codMockPaid ? {
     label: t("business.id.orderValue"),
@@ -357,7 +357,7 @@ export default function OrderTrackingPage({
                 ? t("business.demoordercontrols.yourOrderIsCompleteThankYouForChoosingClucky")
                 : order.status === "CONFIRMED"
                   ? (noPayment
-                      ? (locale === "vi" ? "Đơn hàng 0đ đã được xác nhận, không cần thanh toán." : "Your free order is confirmed; no payment is needed.")
+                      ? t("business.id.freeOrderConfirmed")
                       : order.paymentMethod === "COD"
                       ? t("business.checkout.yourCashOnDeliveryOrderHasBeenConfirmed")
                       : t("business.checkout.orderConfirmed"))
@@ -528,7 +528,7 @@ export default function OrderTrackingPage({
                   <Wallet size={19} /> {t("business.cart.checkout")}
                 </h2>
                 {noPayment ? (
-                  <span className={styles.paymentNetwork}>{locale === "vi" ? "Miễn thanh toán" : "No payment required"}</span>
+                  <span className={styles.paymentNetwork}>{t("business.id.noPaymentShort")}</span>
                 ) : order.paymentMethod === "BANK_TRANSFER" ? (
                   <span className={styles.paymentStatusCluster}>
                     <span className={styles.paymentNetwork}>VietQR</span>

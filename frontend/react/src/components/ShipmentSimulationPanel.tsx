@@ -85,7 +85,11 @@ function ShipmentRouteMap({ tracking, serverOffset }: { tracking: ShipmentSimula
   const clockOffsetRef = useRef(serverOffset);
   clockOffsetRef.current = serverOffset;
   const routeKey = JSON.stringify(tracking.routeGeometry || null);
-  const points = useMemo(() => validRoute(tracking), [routeKey]);
+  // Derive route points only when the route geometry changes, not on every
+  // shipment status poll. Keep animation state live through the tracking ref.
+  const points = useMemo(() => validRoute({ routeGeometry: JSON.parse(routeKey) } as ShipmentSimulationTracking), [routeKey]);
+  const trackingRef = useRef(tracking);
+  trackingRef.current = tracking;
   const [error, setError] = useState('');
   const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN || '';
 
@@ -131,7 +135,7 @@ function ShipmentRouteMap({ tracking, serverOffset }: { tracking: ShipmentSimula
     const endMarker = new mapboxgl.Marker({ color: '#8f1216', scale: 0.7 }).setLngLat(points[points.length - 1]).addTo(map);
     let frame = 0;
     const animate = () => {
-      marker.setLngLat(positionOnRoute(points, deliveryProgress(tracking, clockOffsetRef.current)));
+      marker.setLngLat(positionOnRoute(points, deliveryProgress(trackingRef.current, clockOffsetRef.current)));
       frame = window.requestAnimationFrame(animate);
     };
     animate();
@@ -259,7 +263,7 @@ export function ShipmentSimulationPanel({ orderId, onChanged }: { orderId: strin
         <p><strong>{i18n.t("shipping:ui.recipient")}</strong> {tracking.customerName || i18n.t("shipping:ui.nameUnavailable")} {tracking.phone && <a href={`tel:${tracking.phone}`}>{tracking.phone}</a>}</p>
         <p><strong>{i18n.t("shipping:ui.address")}</strong> {tracking.address || i18n.t("shipping:ui.deliveryAddressMissing")}</p>
         <p><strong>{i18n.t("shipping:ui.payment")}</strong> {tracking.merchantPaymentStatus === 'NO_PAYMENT'
-          ? 'Miễn thanh toán — 0đ; shipper không thu hộ hoặc ứng tiền.'
+          ? i18n.t('business:counterPayment.noPaymentShip')
           : cod
           ? tracking.merchantPaymentStatus === 'PAID_SIMULATED'
             ? i18n.t("shipping:ui.theRiderHasPaidTheStoreSimulationTheCustomerPaysCodToTheRiderUponDelivery")
