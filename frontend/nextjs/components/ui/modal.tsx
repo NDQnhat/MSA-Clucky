@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -36,12 +37,14 @@ const Modal: React.FC<ModalProps> = ({
   const t = useTranslations();
 
   const dialogRef = React.useRef<HTMLDivElement>(null);
+  const [portalTarget, setPortalTarget] = React.useState<HTMLElement | null>(null);
   const previouslyFocused = React.useRef<HTMLElement | null>(null);
   const onOpenChangeRef = React.useRef(onOpenChange);
   React.useEffect(() => { onOpenChangeRef.current = onOpenChange; }, [onOpenChange]);
+  React.useEffect(() => { setPortalTarget(document.body); }, []);
 
   React.useEffect(() => {
-    if (!open) return;
+    if (!open || !portalTarget) return;
     previouslyFocused.current = document.activeElement as HTMLElement;
     const node = dialogRef.current;
     node?.focus();
@@ -81,11 +84,13 @@ const Modal: React.FC<ModalProps> = ({
       document.body.style.overflow = prevOverflow;
       previouslyFocused.current?.focus?.();
     };
-  }, [open, dismissible]);
+  }, [open, dismissible, portalTarget]);
 
-  if (!open) return null;
+  if (!open || !portalTarget) return null;
 
-  return (
+  // Checkout renders its order form around the address picker. A portal keeps
+  // the dialog's own form outside that form so native validation/submission works.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="presentation"
@@ -135,7 +140,8 @@ const Modal: React.FC<ModalProps> = ({
         <div>{children}</div>
         {footer && <div className="mt-6 flex justify-end gap-3">{footer}</div>}
       </div>
-    </div>
+    </div>,
+    portalTarget,
   );
 };
 

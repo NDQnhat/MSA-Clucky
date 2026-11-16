@@ -53,7 +53,11 @@ export function AddressDialog({ initial, onClose, onSave, checkout = false }: { 
     void pick(location.point);
   }, [location.point, location.locating, location.error, pick]);
   async function submit(event: FormEvent) {
-    event.preventDefault(); if (submitLock.current || resolving) return;
+    event.preventDefault();
+    // Portals follow the React parent tree for event bubbling. Never forward
+    // an address confirmation to checkout's order-submit handler.
+    event.stopPropagation();
+    if (submitLock.current || resolving) return;
     submitLock.current = true; setSaving(true); setError("");
     try { await onSave(address); onClose(); }
     catch { setError("saveError"); }

@@ -68,5 +68,16 @@
   "checkoutEmpty": "Bạn chưa có voucher khả dụng.",
   "checkoutExplore": "Nhận voucher",
   "checkoutApplied": "Đã chọn voucher: {title}",
-  "checkoutInvalid": "Voucher này không còn áp dụng được cho đơn hàng hiện tại."
+  "checkoutInvalid": "Voucher này không còn áp dụng được cho đơn hàng hiện tại.",
+  "checkoutBest": "Lựa chọn tốt nhất",
+  "checkoutSave": "Tiết kiệm dự kiến",
+  "checkoutPotentialSave": "Mức giảm tiềm năng",
+  "checkoutPercentOff": "Giảm {percent}%",
+  "checkoutAmountOff": "Giảm {amount}",
+  "checkoutReasonExpired": "Voucher đã hết hạn",
+  "checkoutReasonUpcoming": "Voucher chưa đến thời gian áp dụng",
+  "checkoutReasonUnavailable": "Voucher hiện chưa khả dụng",
+  "checkoutReasonStore": "Không áp dụng tại chi nhánh đang chọn",
+  "checkoutReasonExhausted": "Voucher đã hết lượt sử dụng",
+  "checkoutReasonMinimum": "Mua thêm {amount} để đủ điều kiện"
 }

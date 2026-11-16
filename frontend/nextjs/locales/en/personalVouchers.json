@@ -68,5 +68,16 @@
   "checkoutEmpty": "You have no available vouchers.",
   "checkoutExplore": "Claim a voucher",
   "checkoutApplied": "Selected voucher: {title}",
-  "checkoutInvalid": "This voucher is no longer available for the current order."
+  "checkoutInvalid": "This voucher is no longer available for the current order.",
+  "checkoutBest": "Best choice",
+  "checkoutSave": "Estimated savings",
+  "checkoutPotentialSave": "Potential discount",
+  "checkoutPercentOff": "{percent}% off",
+  "checkoutAmountOff": "Save {amount}",
+  "checkoutReasonExpired": "This voucher has expired",
+  "checkoutReasonUpcoming": "This voucher is not active yet",
+  "checkoutReasonUnavailable": "This voucher is currently unavailable",
+  "checkoutReasonStore": "Not valid at this store",
+  "checkoutReasonExhausted": "This voucher is fully redeemed",
+  "checkoutReasonMinimum": "Add {amount} to meet the minimum"
 }

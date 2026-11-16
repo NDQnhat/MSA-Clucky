@@ -62,6 +62,20 @@ function accountError(error: unknown, kind: "email" | "phone", fallback: string)
   if (failure?.status === 429 || failure?.code === "OTP_RATE_LIMITED") return "auth.security.otpRateLimited";
   return fallback;
 }
+function passwordOtpError(error: unknown, fallback: string) {
+  const failure = error as { code?: string; status?: number } | null;
+  if (failure?.status === 429 || failure?.code === "TOO_MANY_REQUESTS") {
+    return "auth.security.otpRateLimited";
+  }
+  if (failure?.status === 401 || failure?.code === "UNAUTHENTICATED") {
+    return "auth.security.passwordSessionExpired";
+  }
+  if ([502, 503, 504].includes(failure?.status ?? 0)
+      || ["UPSTREAM_ERROR", "DEPENDENCY_UNAVAILABLE", "GATEWAY_TIMEOUT", "NETWORK_ERROR"].includes(failure?.code ?? "")) {
+    return "auth.security.passwordOtpUnavailable";
+  }
+  return fallback;
+}
 export default function AccountPage() {
   const t = useTranslations();
   const router = useRouter();
@@ -214,7 +228,7 @@ export default function AccountPage() {
       setPasswordChallenge(result.challengeId ?? "");
       setPassword(current => ({ ...current, otp: "" }));
       setNotice("auth.security.passwordOtpSent");
-    } catch { setError("auth.security.passwordRequestFailed"); }
+    } catch (error) { setError(passwordOtpError(error, "auth.security.passwordRequestFailed")); }
     finally { setBusy(false); }
   }
   async function confirmChangePassword(event: FormEvent) {
