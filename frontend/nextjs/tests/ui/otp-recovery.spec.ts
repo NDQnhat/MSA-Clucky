@@ -17,8 +17,8 @@ test("forgot-password UI is responsive and sends a normalized SMS recovery reque
 
   await page.goto(customer + "/forgot-password");
   await expect(page.getByRole("heading", { name: "Quên mật khẩu" })).toBeVisible();
-  await expect(page.getByText("Tin nhắn SMS", { exact: true })).toBeVisible();
-  await expect(page.getByText("Email đã xác thực", { exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /^Tin nhắn SMS/ })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /^Email đã xác thực/ })).toBeVisible();
 
   for (const width of [320, 375, 768, 1280]) {
     await page.setViewportSize({ width, height: 820 });
@@ -38,7 +38,7 @@ test("forgot-password email flow uses only the selected verified-email channel",
     return route.fulfill({ json: { challengeId: "test-recovery-email" } });
   });
   await page.goto(customer + "/forgot-password");
-  await page.getByText("Email đã xác thực", { exact: true }).click();
+  await page.getByRole("radio", { name: /^Email đã xác thực/ }).check();
   await expect(page.locator('input[name="channel"][value="EMAIL"]')).toBeChecked();
   await page.getByLabel("Email liên hệ (xác thực OTP)").fill("example@clucky.test");
   await page.getByRole("button", { name: /Tiếp tục nhận mã OTP/ }).click();
@@ -72,9 +72,9 @@ test("phone-first registration requires SMS OTP and verifies its challenge", asy
     return route.fulfill({ json: { userId: 1, role: "CUSTOMER", fullName: "Test User", email: null } });
   });
   await page.goto(customer + "/register");
-  await page.getByLabel("Họ và tên").fill("Nguyễn Văn An");
-  await page.getByLabel("Số điện thoại nhận OTP").fill("0901 234 567");
-  await page.locator('input[name="password"]').fill("Password1");
+  await page.getByRole("textbox", { name: "Họ và tên" }).fill("Nguyễn Văn An");
+  await page.getByRole("textbox", { name: "Số điện thoại nhận OTP" }).fill("0901 234 567");
+  await page.locator('input[name="password"]:visible').fill("Password1");
   await page.getByRole("button", { name: "Đăng ký", exact: true }).click();
   await expect(page).toHaveURL(/\/verify-otp\?phone=0901234567&challengeId=test-register-challenge/);
   expect(submitted[0]).toEqual({ fullName: "Nguyễn Văn An", phone: "0901234567", password: "Password1" });
