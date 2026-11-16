@@ -15,7 +15,9 @@ test("store cards focus logo pins or clearly report missing Mapbox configuration
   await page.route("https://api.mapbox.com/styles/v1/**", route => route.fulfill({ json: { version: 8, sources: {}, layers: [] } }));
   await page.route("https://events.mapbox.com/**", route => route.fulfill({ status: 200, json: {} }));
   await page.goto("http://127.0.0.1:4174/stores");
-  await expect(page.locator("main input")).toHaveCount(1);
+  // Base UI Select renders an extra hidden form input for the district filter.
+  // Target the actual branch search field by its accessible name instead.
+  await expect(page.getByRole("textbox", { name: "Tìm tên chi nhánh, đường hoặc khu vực" })).toHaveCount(1);
   await expect(page.locator('a[href="https://www.geoapify.com/"]')).toHaveCount(0);
   const noToken = page.locator("#store-map").getByRole("status").filter({ hasText: "Chưa cấu hình token bản đồ Mapbox." });
   // NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN is build-time configuration. Without it,
