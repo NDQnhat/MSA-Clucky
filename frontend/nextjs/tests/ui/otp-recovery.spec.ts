@@ -38,9 +38,10 @@ test("forgot-password email flow uses only the selected verified-email channel",
     return route.fulfill({ json: { challengeId: "test-recovery-email" } });
   });
   await page.goto(customer + "/forgot-password");
-  await page.getByRole("radio", { name: /^Email đã xác thực/ }).check();
-  await expect(page.locator('input[name="channel"][value="EMAIL"]')).toBeChecked();
-  await page.getByLabel("Email liên hệ (xác thực OTP)").fill("example@clucky.test");
+  const emailChannel = page.getByRole("radio", { name: /^Email đã xác thực/ });
+  await emailChannel.check();
+  await expect(emailChannel).toBeChecked();
+  await page.getByRole("textbox", { name: "Email liên hệ (xác thực OTP)" }).fill("example@clucky.test");
   await page.getByRole("button", { name: /Tiếp tục nhận mã OTP/ }).click();
   await expect.poll(() => submitted).toEqual([{ channel: "EMAIL", email: "example@clucky.test" }]);
   await expect(page).toHaveURL(/\/reset-password\?channel=EMAIL&email=example%40clucky.test&challengeId=test-recovery-email/);
