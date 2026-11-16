@@ -22,6 +22,7 @@ def validate_environment(raw):
         "SEPAY_API_KEY", "SEPAY_POS_ENABLED", "CLOUDINARY_ENABLED", "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY",
         "CLOUDINARY_API_SECRET", "MAIL_SENDER_ENABLED", "MAIL_SENDER_USERNAME", "MAIL_SENDER_APP_PASSWORD",
         "REPORT_REVENUE_EVENT", "MAPBOX_GEOCODING_TOKEN", "MAPBOX_DIRECTIONS_TOKEN",
+        "SHIPPING_MOCK_ENABLED",
         "BRIDGE_API_KEY",
         "NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN", "VITE_MAPBOX_ACCESS_TOKEN",
     }
@@ -73,6 +74,8 @@ def validate_environment(raw):
         key = values.get("SEPAY_API_KEY", "")
         if not key or any(marker in key.lower() for marker in ("replace-", "change-me", "placeholder")):
             raise BackendEnvironmentError("A non-placeholder SEPAY_API_KEY is required when SEPAY_POS_ENABLED is true")
+    if values.get("SHIPPING_MOCK_ENABLED", "false") not in ("true", "false"):
+        raise BackendEnvironmentError('SHIPPING_MOCK_ENABLED must be the string "true" or "false"')
     if values.get("REPORT_REVENUE_EVENT", "false") not in ("false", "order.completed", "payment.confirmed"):
         raise BackendEnvironmentError("REPORT_REVENUE_EVENT must be false, order.completed or payment.confirmed")
     for name in ("MAPBOX_GEOCODING_TOKEN", "MAPBOX_DIRECTIONS_TOKEN"):

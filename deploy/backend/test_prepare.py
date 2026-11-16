@@ -123,6 +123,19 @@ class BackendEnvironmentTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "MAPBOX_DIRECTIONS_TOKEN"):
                     validate_environment(json.dumps({**self.values, "MAPBOX_DIRECTIONS_TOKEN": token}))
 
+    def test_shipping_demo_flag_is_explicit_and_remains_private(self):
+        for flag in ("true", "false"):
+            with self.subTest(flag=flag):
+                settings = {**self.values, "SHIPPING_MOCK_ENABLED": flag}
+                self.assertEqual(validate_environment(json.dumps(settings))["SHIPPING_MOCK_ENABLED"], flag)
+                prepare(self.root, self.release, json.dumps(settings))
+                content = (self.root / "backend/incoming" / self.release / "runtime.env").read_text()
+                self.assertIn(f"SHIPPING_MOCK_ENABLED='{flag}'", content)
+        for invalid in ("TRUE", "1", "yes", "", "enabled"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(ValueError, "SHIPPING_MOCK_ENABLED"):
+                    validate_environment(json.dumps({**self.values, "SHIPPING_MOCK_ENABLED": invalid}))
+
     def test_shared_secret_keeps_frontend_mapbox_tokens_out_of_backend_runtime(self):
         settings = {**self.values, "MAPBOX_GEOCODING_TOKEN": "sk.server-mapbox",
                     "NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN": "pk.customer-mapbox", "VITE_MAPBOX_ACCESS_TOKEN": "pk.admin-mapbox"}

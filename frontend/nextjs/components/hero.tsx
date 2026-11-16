@@ -70,14 +70,16 @@ export function Hero({
               <BannerSlider slides={heroBanners} variant="hero" />
             ) : (
               imageSrc && (
-                <Image
-                  src={imageSrc}
-                  alt={imageAlt ?? ''}
-                  width={560}
-                  height={440}
-                  priority
-                  style={{ width: '100%', height: 'auto', borderRadius: 28, objectFit: 'cover' }}
-                />
+                <div className="hero-image-frame">
+                  <Image
+                    src={imageSrc}
+                    alt={imageAlt ?? ''}
+                    fill
+                    sizes="(max-width: 900px) 100vw, (max-width: 1280px) 50vw, 590px"
+                    priority
+                    className="hero-image"
+                  />
+                </div>
               )
             )}
           </div>
