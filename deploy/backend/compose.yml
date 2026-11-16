@@ -194,6 +194,7 @@ services:
     image: clucky-shipping-service:${IMAGE_TAG:?IMAGE_TAG is required}
     environment:
       <<: *environment
+      SHIPPING_MOCK_ENABLED: ${SHIPPING_MOCK_ENABLED:-false}
       MAPBOX_DIRECTIONS_TOKEN: ${MAPBOX_DIRECTIONS_TOKEN:-${MAPBOX_GEOCODING_TOKEN:-${NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN:-}}}
 
   notification-service:

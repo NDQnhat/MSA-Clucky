@@ -3,7 +3,7 @@ import Link from "@/components/ui-loader/navigation-link";
 import { LiveHomePromotions } from "@/components/promotion/live-home-promotions";
 import { ProductCard } from "@/components/product-card";
 import { CategoryIcon } from "@/components/category-icon";
-import { catalogApi } from "@/lib/catalog-and-stores.api";
+import { catalogApi, type CategoryItem } from "@/lib/catalog-and-stores.api";
 import { promotionApi } from "@/lib/api";
 import type { PromoBanner } from "@/lib/types/promotion";
 import { Flame, Award, Truck } from "lucide-react";
@@ -14,18 +14,18 @@ export default async function Home() {
   const t = await getTranslations();
   let displayProducts: any[] = [];
   let activeBanners: PromoBanner[] = [];
+  let categories: CategoryItem[] = [];
 
-  try {
-    const [prods, banners] = await Promise.all([
-      catalogApi.getProducts({ activeOnly: true, page: 0, size: 9 }),
-      promotionApi.getActiveBanners().catch(() => [] as PromoBanner[]),
-    ]);
-    displayProducts = prods;
-    activeBanners = banners;
-  } catch {
-    displayProducts = [];
-    activeBanners = [];
-  }
+  const [prods, banners, liveCategories] = await Promise.all([
+    catalogApi.getProducts({ activeOnly: true, page: 0, size: 9 }).catch(() => []),
+    promotionApi.getActiveBanners().catch(() => [] as PromoBanner[]),
+    catalogApi.getCategories(true).catch(() => [] as CategoryItem[]),
+  ]);
+  displayProducts = prods;
+  activeBanners = banners;
+  categories = liveCategories
+    .filter((category) => category.isActive !== false)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
 
   const featuredProducts = displayProducts
     .filter((p) => p.isActive !== false)
@@ -50,13 +50,19 @@ export default async function Home() {
             imageAlt: t("home.hero.imageAlt"),
           }}
         >
-          {/* Floating Category Dock */}
+          {/* Browse categories from the same catalog API used by the menu. */}
           <section className="category-row-section" aria-label={t("menu.categories.label")}>
             <div className="category-dock">
               <Link href="/menu" className="category-pill active">
                 <CategoryIcon id={0} size={18} active />
                 <span>{t("menu.categories.all")}</span>
               </Link>
+              {categories.map((category) => (
+                <Link key={category.id} href={`/menu?cat=${category.id}`} className="category-pill">
+                  <CategoryIcon id={category.id} name={category.name} size={18} />
+                  <span>{category.name}</span>
+                </Link>
+              ))}
             </div>
           </section>
         </LiveHomePromotions>

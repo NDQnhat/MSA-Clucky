@@ -2,14 +2,18 @@
 import { useFeedback } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { Clock, MapPin, Phone, Search, ArrowUpRight } from "lucide-react";
+import { Select } from "@base-ui/react/select";
+import { Clock, MapPin, Phone, Search, ArrowUpRight, Check, ChevronDown } from "lucide-react";
 import Link from "@/components/ui-loader/navigation-link";
-import { catalogApi, type StoreItem } from "@/lib/api";
+import { request, type StoreItem } from "@/lib/api";
 import { getStoreStatusMeta } from "@/lib/types/store";
 import { coordinates, distanceKm } from "@/lib/locations";
 import { BranchMap } from "@/components/maps/branch-map";
 import { useDistanceOrigin } from "@/components/maps/use-distance-origin";
 import styles from "./stores.module.css";
+
+const ALL_DISTRICTS = "__all-store-districts__";
+
 export default function StoresPage() {
   const t = useTranslations("maps");
   const locale = useLocale();
@@ -27,11 +31,20 @@ export default function StoresPage() {
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    catalogApi.getStores(false).then(result => { if (active) setStores(result); })
-      .catch(() => { if (active) setError(true); }).finally(() => { if (active) setLoading(false); });
+    request<StoreItem[]>("/api/stores?activeOnly=false")
+      .then(result => { if (active) setStores(result); })
+      .catch(() => { if (active) { setStores([]); setError(true); } })
+      .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [reload]);
-  const ranked = useMemo(() => stores.filter(store => (!district || store.district === district)
+  const districtOptions = useMemo(() => Array.from(new Set(
+    stores.map(store => store.district?.trim()).filter((value): value is string => Boolean(value))
+  )).sort((a, b) => a.localeCompare(b, locale)), [stores, locale]);
+  const districtChoices = [
+    { value: ALL_DISTRICTS, label: t("allStoreDistricts") },
+    ...districtOptions.map(value => ({ value, label: value })),
+  ];
+  const ranked = useMemo(() => stores.filter(store => (!district || store.district?.trim() === district)
     && [store.name, store.address, store.district, store.city, store.phone].some(value => value?.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())))
     .map(store => { const point = coordinates(store); return { store, point, distance: point && origin ? distanceKm(origin, point) : null }; })
     .sort((first, second) => (first.distance ?? Infinity) - (second.distance ?? Infinity) || first.store.name.localeCompare(second.store.name, locale)), [stores, query, district, origin, locale]);
@@ -54,7 +67,31 @@ export default function StoresPage() {
     <div className={styles.layout}>
       <section className={styles.listPanel} aria-label={t("title")}>
         <div className={styles.filters}><div className={styles.search}><Search size={18} /><input value={query} onChange={event => setQuery(event.target.value)} aria-label={t("storeSearch")} placeholder={t("storeSearch")} /></div>
-          <select aria-label={t("district")} value={district} onChange={event => setDistrict(event.target.value)}><option value="">{t("district")}</option>{Array.from(new Set(stores.map(store => store.district).filter(Boolean))).map(value => <option key={value} value={value!}>{value}</option>)}</select>
+          <Select.Root
+            value={district || ALL_DISTRICTS}
+            onValueChange={value => { if (typeof value === "string") setDistrict(value === ALL_DISTRICTS ? "" : value); }}
+            items={districtChoices}
+            disabled={loading || !districtOptions.length}
+          >
+            <Select.Trigger type="button" aria-label={t("district")} className={styles.districtTrigger}>
+              <Select.Value className={styles.districtValue} />
+              <Select.Icon className={styles.districtChevron}><ChevronDown size={16} /></Select.Icon>
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Positioner sideOffset={7} align="end" alignItemWithTrigger={false} className={styles.districtPositioner}>
+                <Select.Popup className={styles.districtPopup}>
+                  <Select.List className={styles.districtList}>
+                    {districtChoices.map(choice => (
+                      <Select.Item key={choice.value} value={choice.value} label={choice.label} className={styles.districtOption}>
+                        <Select.ItemText>{choice.label}</Select.ItemText>
+                        <Select.ItemIndicator className={styles.districtCheck}><Check size={16} /></Select.ItemIndicator>
+                      </Select.Item>
+                    ))}
+                  </Select.List>
+                </Select.Popup>
+              </Select.Positioner>
+            </Select.Portal>
+          </Select.Root>
           <div className={styles.count}><strong>{ranked.length} {t("branches")}</strong>{origin && <span title={t("approximate")}>{originLabel} · {t("nearest")}</span>}</div>
         </div>
         <div className={styles.cards} aria-busy={loading}>

@@ -35,6 +35,7 @@
   "phone": "Số điện thoại",
   "province": "Tỉnh / thành phố",
   "district": "Quận / huyện (nếu có)",
+  "allStoreDistricts": "Tất cả quận/huyện",
   "ward": "Phường / xã",
   "detail": "Số nhà, đường, căn hộ",
   "default": "Đặt làm địa chỉ mặc định",

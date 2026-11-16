@@ -35,6 +35,7 @@
   "phone": "Phone number",
   "province": "Province / city",
   "district": "District (if applicable)",
+  "allStoreDistricts": "All districts",
   "ward": "Ward / commune",
   "detail": "House number, street, apartment",
   "default": "Make default address",
