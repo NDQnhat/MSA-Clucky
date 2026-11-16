@@ -244,16 +244,39 @@ export default function CheckoutPage() {
     }).finally(() => { if (active) setVoucherLoading(false); });
     return () => { active = false; };
   }, [userId]);
-  const selectableVouchers = useMemo(() => myVouchers.filter(v => {
-    if (v.state !== "ISSUED") return false;
-    const campaign = v.campaign;
-    if (!campaign || campaign.effectiveStatus !== "ACTIVE") return false;
-    if (campaign.applicability === "SELECTED"
-        && !campaign.storeIds?.some(id => Number(id) === Number(selectedStore))) return false;
-    if (campaign.scope === "STORE" && campaign.storeId && Number(campaign.storeId) !== Number(selectedStore)) return false;
-    return true;
-  }), [myVouchers, selectedStore]);
-  const selectedVoucher = selectableVouchers.find(v => v.instanceId === selectedVoucherId) ?? null;
+  const voucherOptions = useMemo(() => {
+    const amount = Math.max(0, Number(subtotal) || 0);
+    const now = Date.now();
+    return myVouchers.filter(v => Boolean(v.campaign)).map(voucher => {
+      const campaign = voucher.campaign;
+      const minimum = Math.max(0, Number(campaign.minOrderAmount) || 0);
+      const rawDiscount = campaign.type === "PERCENT"
+        ? Math.round(amount * (Number(campaign.value) || 0) / 100)
+        : Number(campaign.value) || 0;
+      const maximum = Number(campaign.maxDiscount);
+      const discount = Math.min(amount, Math.max(0,
+        maximum > 0 ? Math.min(rawDiscount, maximum) : rawDiscount));
+      let reason = "";
+      if (voucher.state !== "ISSUED") reason = vouchersText(`state.${voucher.state}`);
+      else if (voucher.expiresAt && Date.parse(voucher.expiresAt) <= now) reason = vouchersText("checkoutReasonExpired");
+      else if (campaign.startAt && Date.parse(campaign.startAt) > now) reason = vouchersText("checkoutReasonUpcoming");
+      else if (campaign.endAt && Date.parse(campaign.endAt) <= now) reason = vouchersText("checkoutReasonExpired");
+      else if ((campaign.effectiveStatus ?? campaign.status) !== "ACTIVE") reason = vouchersText("checkoutReasonUnavailable");
+      else if (campaign.applicability === "SELECTED"
+        && !campaign.storeIds?.some(id => Number(id) === Number(selectedStore))) reason = vouchersText("checkoutReasonStore");
+      else if (campaign.scope === "STORE" && campaign.storeId && Number(campaign.storeId) !== Number(selectedStore)) reason = vouchersText("checkoutReasonStore");
+      else if (campaign.maxUsage != null && campaign.maxUsage > 0
+        && (campaign.usage ?? 0) + (campaign.reservedCount ?? 0) >= campaign.maxUsage) reason = vouchersText("checkoutReasonExhausted");
+      else if (amount < minimum) reason = vouchersText("checkoutReasonMinimum", { amount: formatPrice(minimum - amount) });
+      return { voucher, discount, eligible: !reason, reason };
+    }).sort((a, b) => Number(b.eligible) - Number(a.eligible)
+      || b.discount - a.discount || a.voucher.campaign.title.localeCompare(b.voucher.campaign.title));
+  }, [myVouchers, selectedStore, subtotal, formatPrice, vouchersText]);
+  const selectedVoucher = voucherOptions.find(option => option.eligible && option.voucher.instanceId === selectedVoucherId)?.voucher ?? null;
+  const bestVoucherId = voucherOptions.find(option => option.eligible && option.discount > 0)?.voucher.instanceId;
+  useEffect(() => {
+    if (selectedVoucherId && !selectedVoucher) setSelectedVoucherId("");
+  }, [selectedVoucherId, selectedVoucher]);
   useEffect(() => {
     let active = true;
     setLoyaltyBalance(null); setLoyaltyError(false); setUsePoints(false); setRequestedPoints(0);
@@ -666,22 +689,10 @@ export default function CheckoutPage() {
                   <div className={styles.fieldGroup}>
                     <CheckoutAddress value={{ ...emptyAddress, receiverName, phone: receiverPhone, detail: deliveryAddress, latitude: deliveryPoint?.latitude ?? null, longitude: deliveryPoint?.longitude ?? null }} onSelect={address => {
                       const formatted = formatAddress(address);
-                      const directPoint = coordinates(address);
                       setReceiverName(address.receiverName); setReceiverPhone(address.phone); setDeliveryAddress(formatted);
-                      if (directPoint) {
-                        setDeliveryPoint(directPoint);
-                      } else {
-                        setDeliveryPoint(null);
-                        locationApi.search(formatted, locale, undefined, storePoint)
-                          .then((places) => {
-                            const pt = coordinates(places?.[0]);
-                            if (pt) setDeliveryPoint(pt);
-                            else if (storePoint) setDeliveryPoint({ latitude: Number((storePoint.latitude + 0.008).toFixed(6)), longitude: Number((storePoint.longitude + 0.008).toFixed(6)) });
-                          })
-                          .catch(() => {
-                            if (storePoint) setDeliveryPoint({ latitude: Number((storePoint.latitude + 0.008).toFixed(6)), longitude: Number((storePoint.longitude + 0.008).toFixed(6)) });
-                          });
-                      }
+                      // Saved pins are authoritative; otherwise the existing
+                      // address lookup effect resolves a fresh coordinate.
+                      setDeliveryPoint(coordinates(address));
                     }} />
                     <label
                       htmlFor="deliveryAddress"
@@ -739,25 +750,69 @@ export default function CheckoutPage() {
                 </div>
 
                 <div className={styles.voucherCard}>
-                  <label htmlFor="checkout-voucher" className={styles.voucherLabel}>
+                  <div className={styles.voucherLabel}>
                     <TicketPercent size={20} aria-hidden="true" />
                     {vouchersText("checkoutLabel")}
-                  </label>
-                  <div className={styles.promoBlock}>
-                  <select
-                    id="checkout-voucher"
-                    value={selectedVoucher?.instanceId ?? ""}
-                    onChange={event => { setSelectedVoucherId(event.target.value); setVoucherMsg(""); }}
-                    disabled={!isAuthenticated || voucherLoading}
-                    className={`${styles.input} ${styles.promoInput}`}
-                  >
-                    <option value="">{vouchersText("checkoutNone")}</option>
-                    {selectableVouchers.map(v => <option key={v.instanceId} value={v.instanceId}>
-                      {v.campaign.title} · {v.campaign.type === "PERCENT" ? `${v.campaign.value}%` : formatPrice(v.campaign.value)}
-                    </option>)}
-                  </select>
                   </div>
-                  {!voucherLoading && isAuthenticated && selectableVouchers.length === 0 && (
+                  <div className={styles.promoBlock}>
+                  <Select.Root
+                    value={selectedVoucher?.instanceId ?? "none"}
+                    onValueChange={value => {
+                      if (typeof value !== "string" || (value !== "none" && !voucherOptions.some(option => option.eligible && option.voucher.instanceId === value))) return;
+                      setSelectedVoucherId(value === "none" ? "" : value);
+                      setVoucherMsg("");
+                    }}
+                    disabled={!isAuthenticated || voucherLoading}
+                  >
+                    <Select.Trigger id="checkout-voucher" type="button" aria-label={vouchersText("checkoutLabel")} className={styles.voucherTrigger}>
+                      <span className={styles.voucherTriggerIcon}><TicketPercent size={19} aria-hidden="true" /></span>
+                      <Select.Value className={styles.voucherSelected}>
+                        <span className={styles.voucherSelectedName}>{selectedVoucher?.campaign.title ?? vouchersText("checkoutNone")}</span>
+                        {selectedVoucher && <strong className={styles.voucherSelectedDiscount}>
+                          −{formatPrice(voucherOptions.find(option => option.voucher.instanceId === selectedVoucherId)?.discount ?? 0)}
+                        </strong>}
+                      </Select.Value>
+                      <Select.Icon className={styles.voucherChevron}><ChevronDown size={18} /></Select.Icon>
+                    </Select.Trigger>
+                    <Select.Portal>
+                      <Select.Positioner sideOffset={8} align="start" alignItemWithTrigger={false} className={styles.voucherPositioner}>
+                        <Select.Popup className={styles.voucherPopup}>
+                          <Select.List className={styles.voucherList}>
+                            {voucherOptions.map(option => {
+                              const campaign = option.voucher.campaign;
+                              return <Select.Item key={option.voucher.instanceId} value={option.voucher.instanceId}
+                                label={campaign.title} disabled={!option.eligible} className={styles.voucherOption}>
+                                <span className={styles.voucherOptionContent}>
+                                  <Select.ItemText className={styles.voucherOptionTitle}>{campaign.title}</Select.ItemText>
+                                  <span className={styles.voucherOptionTerms}>
+                                    {campaign.type === "PERCENT"
+                                      ? vouchersText("checkoutPercentOff", { percent: campaign.value })
+                                      : vouchersText("checkoutAmountOff", { amount: formatPrice(campaign.value) })}
+                                    {campaign.minOrderAmount > 0 && ` · ${vouchersText("minimum", { amount: formatPrice(campaign.minOrderAmount) })}`}
+                                  </span>
+                                  {option.voucher.instanceId === bestVoucherId && <span className={styles.voucherBestBadge}>
+                                    {vouchersText("checkoutBest")}
+                                  </span>}
+                                  {!option.eligible && <span className={styles.voucherOptionReason}>{option.reason}</span>}
+                                </span>
+                                <span className={styles.voucherOptionSavings}>
+                                  <strong>−{formatPrice(option.discount)}</strong>
+                                  <small>{vouchersText(option.eligible ? "checkoutSave" : "checkoutPotentialSave")}</small>
+                                </span>
+                                <Select.ItemIndicator className={styles.voucherOptionCheck}><Check size={16} /></Select.ItemIndicator>
+                              </Select.Item>;
+                            })}
+                            <Select.Item value="none" label={vouchersText("checkoutNone")} className={styles.voucherNoneOption}>
+                              <Select.ItemText>{vouchersText("checkoutNone")}</Select.ItemText>
+                              <Select.ItemIndicator className={styles.voucherOptionCheck}><Check size={16} /></Select.ItemIndicator>
+                            </Select.Item>
+                          </Select.List>
+                        </Select.Popup>
+                      </Select.Positioner>
+                    </Select.Portal>
+                  </Select.Root>
+                  </div>
+                  {!voucherLoading && isAuthenticated && voucherOptions.length === 0 && (
                     <p className={styles.voucherFeedback}>{vouchersText("checkoutEmpty")} <Link href="/vouchers">{vouchersText("checkoutExplore")}</Link></p>
                   )}
 

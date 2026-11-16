@@ -114,6 +114,10 @@ export function refreshSession(): Promise<SessionUser> {
 
 export async function sessionRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const revision = state.revision;
+  // Most auth routes are public login/recovery operations; password changes
+  // are authenticated and must refresh an expired access cookie as well.
+  const authenticatedAuthRoute = path === "/api/auth/change-password/request"
+    || path === "/api/auth/change-password/confirm";
   const publicRead = (!options.method || options.method === "GET")
     && /^\/api\/(?:stores(?:\/\d+)?|catalog\/(?:products|categories|combos)(?:\/\d+)?|reviews\/products\/\d+|promotions\/banners)(?:\?|$)/.test(path);
   try {
@@ -122,7 +126,7 @@ export async function sessionRequest<T>(path: string, options: RequestInit = {})
     return result;
   } catch (error) {
     if (!isSessionExpired(error, path === "/api/auth/session")
-        || (path.startsWith("/api/auth/") && path !== "/api/auth/session")) throw error;
+        || (path.startsWith("/api/auth/") && path !== "/api/auth/session" && !authenticatedAuthRoute)) throw error;
     await refreshSession();
     if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
     if (revision !== state.revision && revision !== 0) throw { status: 401, code: "UNAUTHENTICATED" };
