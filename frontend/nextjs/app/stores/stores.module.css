@@ -26,6 +26,10 @@
 .districtCheck { display:flex; flex-shrink:0; color:#8f1216; }
 .count { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:4px 12px; justify-content:space-between; font-size:12px; color:#75675e; padding:4px 2px; }
 .count strong { color:#493b32; }
+.locateButton { display:inline-flex; align-items:center; gap:6px; border:0; background:transparent; color:#8f1216; font:inherit; font-weight:800; cursor:pointer; padding:2px 0; }
+.locateButton:hover { text-decoration:underline; }
+.locateButton:disabled { opacity:.6; cursor:wait; }
+.locateButton:focus-visible { outline:2px solid #8f1216; outline-offset:3px; border-radius:4px; }
 .cards { max-height:calc(100dvh - 210px); min-height:350px; overflow:auto; padding:2px 8px 10px 2px; display:grid; gap:14px; scrollbar-width:thin; }
 .card { position:relative; border:1px solid #e7ddce; border-radius:20px; padding:20px; background:#fffdf8; transition:border-color .15s,box-shadow .15s; scroll-margin:12px; }
 .card:hover,.selected { border-color:#bd8c65; box-shadow:0 4px 18px #6e351510; }

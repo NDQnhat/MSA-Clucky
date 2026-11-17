@@ -86,8 +86,17 @@ export default function RegisterPage() {
       if (task.isCurrent()) router.push(`/verify-otp?phone=${encodeURIComponent(normalizedPhone)}&challengeId=${encodeURIComponent(result.challengeId)}`);
     } catch (err) {
       if (!task.isCurrent()) return;
-      if (err && typeof err === "object" && "code" in err && err.code === "PHONE_EXISTS") {
+      const duplicatePhone = err && typeof err === "object" && "code" in err && (
+        err.code === "PHONE_EXISTS" || (
+          err.code === "RESOURCE_CONFLICT" && "fieldErrors" in err
+          && err.fieldErrors != null && typeof err.fieldErrors === "object"
+          && "phone" in err.fieldErrors && err.fieldErrors.phone === "ALREADY_EXISTS"
+        )
+      );
+      if (duplicatePhone) {
         setSent(phone.replace(/\s/g, ""));
+        setFieldErrors({});
+        return;
       }
       const errors = registrationServerErrors(err);
       const firstInvalid = Object.keys(errors)[0] as keyof RegisterPayload | undefined;
@@ -115,9 +124,14 @@ export default function RegisterPage() {
             </div>
           )}
           {sent && (
-            <div className="rounded-2xl bg-[#F5EDE0] p-4 text-sm text-[#625247]" role="status">
-              {t("auth.register.phoneExists")}{" "}
-              <Link href={`/verify-otp?phone=${encodeURIComponent(sent)}`}>{t("auth.register.resendHint")}</Link>
+            <div className="rounded-2xl border border-[#E8D6BC] bg-[#FFF5E8] p-4 text-sm text-[#625247]" role="status">
+              <p className="mb-3">{t("auth.register.phoneExists")}</p>
+              <Link
+                className="flex w-full items-center justify-center rounded-xl bg-[#8F1216] px-4 py-3 font-bold text-white hover:bg-[#6D0E11]"
+                href={`/verify-otp?phone=${encodeURIComponent(sent)}`}
+              >
+                {t("auth.register.resendHint")}
+              </Link>
             </div>
           )}
           <Input

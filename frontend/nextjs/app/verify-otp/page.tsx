@@ -91,11 +91,14 @@ function VerifyOtpForm() {
     const task = startDeferred();
     setResending(true);
     setError(null);
+    setSuccess(null);
     try {
       const result = await authApi.resendOtp(phone);
       if (!task.isCurrent()) return;
       if (!result.challengeId) throw new Error(t("auth.validation.missingChallenge"));
       setChallengeId(result.challengeId);
+      setDigits(Array(OTP_LENGTH).fill(""));
+      inputsRef.current[0]?.focus();
       const url = new URL(window.location.href);
       url.searchParams.set("challengeId", result.challengeId);
       window.history.replaceState(window.history.state, "", url.pathname + url.search);
@@ -168,20 +171,13 @@ function VerifyOtpForm() {
         >
           {loading ? t("auth.otp.verifying") : t("common.confirm")}
         </button>
-        <span className="auth-footer-link">
-          {t("auth.otp.notReceived")}{" "}
+        <div className="rounded-2xl border border-[#E8D6BC] bg-[#FFF5E8] p-4 text-center">
+          <p className="mb-3 text-sm font-semibold text-[#625247]">{t("auth.otp.notReceived")}</p>
           <button
             type="button"
             onClick={resend}
-            disabled={resending || cooldown > 0 || !/^0\d{9,10}$/.test(phone)}
-            style={{
-              background: "none",
-              border: 0,
-              padding: 0,
-              color: "var(--wine)",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
+            disabled={resending || loading || cooldown > 0 || !/^0\d{9,10}$/.test(phone)}
+            className="w-full rounded-xl border border-[#8F1216] bg-white px-4 py-3 text-sm font-bold text-[#8F1216] transition-colors hover:bg-[#F9E5E1] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {cooldown > 0
               ? t("auth.otp.resendCountdown", { seconds: cooldown })
@@ -189,7 +185,7 @@ function VerifyOtpForm() {
                 ? t("auth.otp.sending")
                 : t("auth.otp.resend")}
           </button>
-        </span>
+        </div>
         <span className="auth-footer-link">
           <Link href="/login">{t("auth.backToLogin")}</Link>
         </span>

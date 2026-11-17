@@ -3,13 +3,14 @@ import { useFeedback } from "@/components/feedback";
 import { useEffect, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { Select } from "@base-ui/react/select";
-import { Clock, MapPin, Phone, Search, ArrowUpRight, Check, ChevronDown } from "lucide-react";
+import { Clock, MapPin, Phone, Search, ArrowUpRight, Check, ChevronDown, LocateFixed } from "lucide-react";
 import Link from "@/components/ui-loader/navigation-link";
 import { request, type StoreItem } from "@/lib/api";
 import { getStoreStatusMeta } from "@/lib/types/store";
 import { coordinates, distanceKm } from "@/lib/locations";
 import { BranchMap } from "@/components/maps/branch-map";
 import { useDistanceOrigin } from "@/components/maps/use-distance-origin";
+import { useLocation } from "@/components/maps/location-provider";
 import styles from "./stores.module.css";
 
 const ALL_DISTRICTS = "__all-store-districts__";
@@ -17,8 +18,12 @@ const ALL_DISTRICTS = "__all-store-districts__";
 export default function StoresPage() {
   const t = useTranslations("maps");
   const locale = useLocale();
-  const { origin, fromHome } = useDistanceOrigin();
-  const originLabel = t(fromHome ? "defaultAddressOrigin" : "currentLocationOrigin");
+  const { origin: defaultOrigin, fromHome } = useDistanceOrigin();
+  const { point: currentPoint, locate, locating } = useLocation();
+  const [useGps, setUseGps] = useState(false);
+  const origin = useGps && currentPoint ? currentPoint : defaultOrigin;
+  const originLabel = t(useGps && currentPoint ? "currentLocationOrigin"
+    : fromHome ? "defaultAddressOrigin" : "currentLocationOrigin");
   const [stores, setStores] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -28,6 +33,21 @@ export default function StoresPage() {
   const [district, setDistrict] = useState("");
   const [selected, setSelected] = useState("");
   const [focusRequest, setFocusRequest] = useState(0);
+  useEffect(() => {
+    let active = true;
+    if (!window.isSecureContext || !navigator.geolocation || !navigator.permissions?.query) return;
+    void navigator.permissions.query({ name: "geolocation" }).then(permission => {
+      if (!active || permission.state !== "granted") return;
+      // Refresh once when visiting this page. A previous coordinate can be
+      // used immediately while the browser resolves a fresh position.
+      if (currentPoint) setUseGps(true);
+      void locate(false).then(found => { if (active && found) setUseGps(true); });
+    }).catch(() => {});
+    return () => { active = false; };
+    // Only issue one automatic request per visit, even if the point changes.
+    // The manual button below remains available for refresh/retry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locate]);
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
@@ -92,7 +112,14 @@ export default function StoresPage() {
               </Select.Positioner>
             </Select.Portal>
           </Select.Root>
-          <div className={styles.count}><strong>{ranked.length} {t("branches")}</strong>{origin && <span title={t("approximate")}>{originLabel} · {t("nearest")}</span>}</div>
+          <div className={styles.count}>
+            <strong>{ranked.length} {t("branches")}</strong>
+            {origin && <span title={t("approximate")}>{originLabel} · {t("nearest")}</span>}
+            <button type="button" className={styles.locateButton} disabled={locating}
+              onClick={() => { void locate().then(found => { if (found) setUseGps(true); }); }}>
+              <LocateFixed size={15} aria-hidden="true" />{t(locating ? "locating" : "locate")}
+            </button>
+          </div>
         </div>
         <div className={styles.cards} aria-busy={loading}>
           {loading && <p role="status">{t("mapLoading")}</p>}

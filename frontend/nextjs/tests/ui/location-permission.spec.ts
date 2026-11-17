@@ -14,7 +14,7 @@ declare global {
 }
 
 for (const failure of ["insecure", 1, 2, 3] as const) {
-  test(`current-location failure ${failure} stays visible and does not retry on focus`, async ({ page }) => {
+  test(`current-location failure ${failure} settles and remains retryable`, async ({ page }) => {
     await page.clock.install();
     await page.addInitScript(code => {
       sessionStorage.setItem("clucky_location_prompt", "seen");
@@ -44,9 +44,11 @@ for (const failure of ["insecure", 1, 2, 3] as const) {
     await page.goto("http://127.0.0.1:4175/?location");
     await page.getByRole("button", { name: "Dùng vị trí hiện tại", exact: true }).click();
     const alert = page.locator('section[aria-label="Bản đồ vị trí"] > [role="alert"]');
+    if (failure === 1) await page.clock.runFor(1200);
+    if (failure === 2 || failure === 3) await page.clock.runFor(3400);
     await expect(alert).toBeVisible();
     await expect(alert).toContainText(failure === "insecure" ? "ngữ cảnh an toàn" : failure === 1 ? "chặn quyền vị trí" : failure === 2 ? "chưa cung cấp được tọa độ" : "hết thời gian chờ");
-    const requests = failure === "insecure" ? 0 : failure === 1 ? 1 : 2;
+    const requests = failure === "insecure" ? 0 : failure === 1 ? 1 : 3;
     await expect.poll(() => page.evaluate(() => window.locationTest.requests)).toBe(requests);
     await page.evaluate(() => {
       window.dispatchEvent(new Event("focus"));
@@ -59,58 +61,102 @@ for (const failure of ["insecure", 1, 2, 3] as const) {
     expect(reverseRequests).toBe(0);
     await expect(page.getByLabel("Số nhà, đường, căn hộ", { exact: true })).toHaveValue("Old address");
     if (failure === "insecure") return;
-    if (failure !== 1) expect(await page.evaluate(() => window.locationTest.accuracy)).toEqual([false, true]);
+    if (failure !== 1) expect(await page.evaluate(() => window.locationTest.accuracy)).toEqual([false, true, true]);
     await page.evaluate(() => {
       window.locationTest.available = true;
       window.locationTest.permission = "granted";
       window.locationTest.status.dispatchEvent(new Event("change"));
     });
+    await page.getByRole("button", { name: "Dùng vị trí hiện tại", exact: true }).click();
     await expect(alert).toHaveCount(0);
     await expect(page.getByLabel("Số nhà, đường, căn hộ", { exact: true })).toHaveValue("GPS address");
     expect(reverseRequests).toBe(1);
   });
 }
 
-for (const recovery of ["change", "focus", "retry", "pending"] as const) {
-  test(`location warning clears after permission recovery via ${recovery}`, async ({ page }) => {
-    await page.addInitScript(delayFailure => {
-      sessionStorage.removeItem("clucky_location_prompt");
-      const status = new EventTarget();
-      const control = window.locationTest = { available: false, permission: "prompt" as PermissionState,
-        requests: 0, status, fail: () => {} };
-      Object.defineProperty(status, "state", { get: () => control.permission });
-      Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => status } });
-      Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
-        getCurrentPosition(success: PositionCallback, failure?: PositionErrorCallback) {
-          control.requests += 1;
-          if (control.available) {
-            success({ coords: { latitude: 10.8, longitude: 106.7, accuracy: 10, altitude: null,
-              altitudeAccuracy: null, heading: null, speed: null }, timestamp: Date.now() } as GeolocationPosition);
-          } else {
-            control.fail = () => failure?.({ code: 1, message: "Location unavailable", PERMISSION_DENIED: 1,
-              POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
-            if (!delayFailure) control.fail();
-          }
-        },
-      } });
-    }, recovery === "pending");
-    await page.route("**/api/auth/session", route => route.fulfill({ json: null }));
-    await page.route("**/api/cart", route => route.fulfill({ json: { items: [], itemCount: 0, subtotal: 0 } }));
-    await page.goto("http://127.0.0.1:4174/login");
-    await page.getByRole("button", { name: "Chia sẻ vị trí", exact: true }).click();
-    const warning = page.locator('[data-sonner-toast][data-type="warning"]');
-    if (recovery !== "pending") await expect(warning).toContainText("Không lấy được vị trí");
-    await page.evaluate(mode => {
-      const control = window.locationTest;
-      control.available = true;
-      control.permission = "granted";
-      if (mode === "focus") window.dispatchEvent(new Event("focus"));
-      if (mode === "change" || mode === "pending") control.status.dispatchEvent(new Event("change"));
-      if (mode === "pending") control.fail();
-    }, recovery);
-    if (recovery === "retry") await page.getByRole("button", { name: "Chia sẻ vị trí", exact: true }).click();
-    await expect(warning).toHaveCount(0, { timeout: 1500 });
-    await expect(page.getByRole("complementary", { name: "Cho Clucky biết vị trí của bạn?" })).toHaveCount(0);
-    await expect.poll(() => page.evaluate(() => window.locationTest.requests)).toBe(2);
+test("one click recovers when geolocation briefly reports denied before an allowed location is ready", async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("clucky_location_prompt", "seen");
+    const status = new EventTarget();
+    const control = window.locationTest = { available: false, permission: "prompt" as PermissionState,
+      requests: 0, status, fail: () => {} };
+    Object.defineProperty(status, "state", { get: () => control.permission });
+    Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => status } });
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition(success: PositionCallback, failure: PositionErrorCallback) {
+        control.requests += 1;
+        if (control.requests === 1) {
+          control.permission = "granted";
+          status.dispatchEvent(new Event("change"));
+          failure({ code: 1, message: "Permission temporarily unavailable", PERMISSION_DENIED: 1,
+            POSITION_UNAVAILABLE: 2, TIMEOUT: 3 });
+        } else {
+          success({ coords: { latitude: 10.8, longitude: 106.7, accuracy: 10, altitude: null,
+            altitudeAccuracy: null, heading: null, speed: null }, timestamp: Date.now() } as GeolocationPosition);
+        }
+      },
+    } });
   });
-}
+  let reverseRequests = 0;
+  await page.route("**/api/locations/reverse?*", route => {
+    reverseRequests += 1;
+    return route.fulfill({ json: [{ latitude: 10.8, longitude: 106.7, label: "GPS address", detail: "GPS address",
+      province: "Test city", district: "Test district", ward: "Test ward" }] });
+  });
+  await page.goto("http://127.0.0.1:4175/?location");
+  await page.getByRole("button", { name: "Dùng vị trí hiện tại", exact: true }).click();
+  await expect(page.locator('[data-sonner-toast][data-type="warning"]')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => window.locationTest.requests)).toBe(2);
+  await expect(page.getByLabel("Số nhà, đường, căn hộ", { exact: true })).toHaveValue("GPS address");
+  expect(reverseRequests).toBe(1);
+});
+
+test("an already granted permission does not start a background request on page load", async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem("clucky_location_prompt", "seen");
+    const control = window.locationTest = { available: true, permission: "granted" as PermissionState,
+      requests: 0, status: new EventTarget(), fail: () => {} };
+    Object.defineProperty(control.status, "state", { get: () => control.permission });
+    Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => control.status } });
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition() { control.requests += 1; },
+    } });
+  });
+  await page.goto("http://127.0.0.1:4175/?location");
+  await expect.poll(() => page.evaluate(() => window.locationTest.requests)).toBe(0);
+  await page.evaluate(() => { window.dispatchEvent(new Event("focus")); });
+  await expect.poll(() => page.evaluate(() => window.locationTest.requests)).toBe(0);
+  await expect(page.locator('[data-sonner-toast][data-type="warning"]')).toHaveCount(0);
+});
+
+test("an unresponsive geolocation request expires and permits another click", async ({ page }) => {
+  await page.clock.install();
+  await page.addInitScript(() => {
+    sessionStorage.setItem("clucky_location_prompt", "seen");
+    const control = window.locationTest = { available: false, permission: "granted" as PermissionState,
+      requests: 0, status: new EventTarget(), fail: () => {} };
+    Object.defineProperty(control.status, "state", { get: () => control.permission });
+    Object.defineProperty(navigator, "permissions", { configurable: true, value: { query: async () => control.status } });
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: {
+      getCurrentPosition(success: PositionCallback) {
+        control.requests += 1;
+        if (control.available) {
+          success({ coords: { latitude: 10.8, longitude: 106.7, accuracy: 10, altitude: null,
+            altitudeAccuracy: null, heading: null, speed: null }, timestamp: Date.now() } as GeolocationPosition);
+        }
+      },
+    } });
+  });
+  await page.route("**/api/locations/reverse?*", route => route.fulfill({ json: [
+    { latitude: 10.8, longitude: 106.7, label: "GPS address", detail: "GPS address",
+      province: "Test city", district: "Test district", ward: "Test ward" },
+  ] }));
+  await page.goto("http://127.0.0.1:4175/?location");
+  await page.getByRole("button", { name: "Dùng vị trí hiện tại", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Đang xác định vị trí…" })).toBeDisabled();
+  await page.clock.runFor(21000);
+  await expect(page.locator('section[aria-label="Bản đồ vị trí"] > [role="alert"]')).toContainText("hết thời gian chờ");
+  await page.evaluate(() => { window.locationTest.available = true; });
+  await page.getByRole("button", { name: "Dùng vị trí hiện tại", exact: true }).click();
+  await expect(page.getByLabel("Số nhà, đường, căn hộ", { exact: true })).toHaveValue("GPS address");
+});
