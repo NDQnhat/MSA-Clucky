@@ -15,7 +15,7 @@ import {
 import { message } from "../../../components/feedback";
 import type { PaymentMethod, StaffOrder } from "../../../mocks/mockStaffOrders";
 import styles from "./counter-payment.module.css";
-import { getErrorMessage, ordersApi, paymentsApi, type CounterSepaySession } from "../../../lib/api";
+import { getErrorMessage, ordersApi, paymentsApi, type BackendOrder, type CounterSepaySession } from "../../../lib/api";
 import { buildVietQrUrl } from "../../../lib/vietqr";
 import { CodEvidencePanel } from "../../Orders/components/CodEvidencePanel";
 
@@ -32,7 +32,8 @@ interface CounterPaymentModalProps {
     manualReason?: string;
     refCode?: string;
   }) => Promise<boolean>;
-  onTransferConfirmed?: () => void | Promise<void>;
+  onTransferConfirmed?: (confirmedOrder: BackendOrder) => void | Promise<void>;
+  onChangeMethod?: (method: 'CASH' | 'BANK_TRANSFER' | 'SPLIT') => Promise<void>;
 }
 
 const formatVnd = (val: number) => {
@@ -46,6 +47,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   onClose,
   onConfirmPayment,
   onTransferConfirmed,
+  onChangeMethod,
 }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<PaymentMethod>("CASH");
@@ -59,6 +61,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   // Tab 3: SPLIT state
   const [splitCash, setSplitCash] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isChangingMethod, setIsChangingMethod] = useState(false);
   const [sepaySession, setSepaySession] = useState<CounterSepaySession | null>(null);
   const [bankError, setBankError] = useState("");
   const [bankLoading, setBankLoading] = useState(false);
@@ -111,7 +114,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
               && Number(confirmedOrder.storeId) === Number(order?.storeId)
               && ['PAID', 'COLLECTED'].includes(confirmedOrder.paymentStatus ?? '')) {
             notifiedTransferRef.current = String(orderId);
-            await onTransferConfirmed?.();
+            await onTransferConfirmed?.(confirmedOrder);
           }
         }
       } catch (failure) {
@@ -241,6 +244,21 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
     }
   };
 
+  const changeMethod = async (method: 'CASH' | 'BANK_TRANSFER' | 'SPLIT') => {
+    if (method === activeTab || !order || !onChangeMethod || isChangingMethod || bankLoading || sepaySession
+        || order.orderSource !== 'COUNTER' || order.paymentStatus !== 'PENDING') return;
+    setIsChangingMethod(true);
+    try {
+      await onChangeMethod(method);
+      setBankError('');
+      setActiveTab(method);
+    } catch (failure) {
+      message.error(getErrorMessage(failure));
+    } finally {
+      setIsChangingMethod(false);
+    }
+  };
+
   const formattedQueue = `#${String(order.queueNumber).padStart(3, "0")}`;
 
   return (
@@ -283,12 +301,11 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
             type="button"
             role="tab"
             aria-selected={activeTab === "CASH"}
-            disabled={isWebBank || Boolean(sepaySession) || totalDue <= 0 || order.paymentStatus !== 'PENDING'
-              || (order.orderSource === 'COUNTER' && order.paymentMethod !== 'CASH')}
+            disabled={isWebBank || bankLoading || isChangingMethod || Boolean(sepaySession) || totalDue <= 0 || order.paymentStatus !== 'PENDING'}
             className={`${styles.tabBtn} ${
               activeTab === "CASH" ? styles.tabBtnActive : ""
             }`}
-            onClick={() => setActiveTab("CASH")}
+            onClick={() => void changeMethod('CASH')}
           >
             <Wallet size={16} />
             <span>Tiền mặt (CASH)</span>
@@ -298,14 +315,13 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
             type="button"
             role="tab"
             aria-selected={activeTab === "BANK_TRANSFER"}
-            disabled={isSubmitting || totalDue <= 0 || (order.orderSource !== 'COUNTER' && !isWebBank)
-              || (order.orderSource === 'COUNTER' && order.paymentMethod !== 'BANK_TRANSFER')
+            disabled={isSubmitting || isChangingMethod || totalDue <= 0 || (order.orderSource !== 'COUNTER' && !isWebBank)
               || (Boolean(sepaySession) && sessionBankAmount !== totalDue)
-              || order.paymentStatus !== 'PENDING'}
+              || order.paymentStatus !== 'PENDING' || (bankLoading && !sepaySession)}
             className={`${styles.tabBtn} ${
               activeTab === "BANK_TRANSFER" ? styles.tabBtnActive : ""
             }`}
-            onClick={() => setActiveTab("BANK_TRANSFER")}
+            onClick={() => { if (!sepaySession) void changeMethod('BANK_TRANSFER'); else setActiveTab('BANK_TRANSFER'); }}
           >
             <QrCode size={16} />
             <span>SePay (VietQR)</span>
@@ -315,19 +331,24 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
             type="button"
             role="tab"
             aria-selected={activeTab === "SPLIT"}
-            disabled={isSubmitting || totalDue <= 0 || order.orderSource !== 'COUNTER'
-              || order.paymentMethod !== 'SPLIT'
+            disabled={isSubmitting || isChangingMethod || totalDue <= 0 || order.orderSource !== 'COUNTER'
               || (Boolean(sepaySession) && sessionBankAmount === totalDue)
-              || order.paymentStatus !== 'PENDING'}
+              || order.paymentStatus !== 'PENDING' || (bankLoading && !sepaySession)}
             className={`${styles.tabBtn} ${
               activeTab === "SPLIT" ? styles.tabBtnActive : ""
             }`}
-            onClick={() => setActiveTab("SPLIT")}
+            onClick={() => { if (!sepaySession) void changeMethod('SPLIT'); else setActiveTab('SPLIT'); }}
           >
             <Layers size={16} />
             <span>Kết hợp (SPLIT)</span>
           </button>
         </div>
+
+        {order.orderSource === 'COUNTER' && sepaySession && order.paymentStatus === 'PENDING' && (
+          <p role="status" className={styles.methodLockHint}>
+            Mã QR đã phát hành cho đơn này. Phương thức thanh toán được giữ cố định để tránh ghi nhận tiền hai lần.
+          </p>
+        )}
 
         {/* Modal Body */}
         <div className={styles.modalBody}>

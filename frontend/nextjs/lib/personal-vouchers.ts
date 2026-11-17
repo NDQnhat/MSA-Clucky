@@ -2,6 +2,7 @@ import request from "./api";
 
 export type VoucherCampaign = {
   id: number;
+  code?: string | null;
   title: string;
   description: string | null;
   campaignKind: "LEGACY" | "PERSONAL";

@@ -131,7 +131,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
         && tracking?.merchantPaymentStatus === 'PAID_SIMULATED') {
       return (
         <span className={`${styles.badgePayment} ${styles.badgePaymentPaid}`}>
-          <CheckCircle2 size={13} /> {i18n.t("shipping:ui.paid")}
+          <CheckCircle2 size={13} /> {i18n.t("shipping:ui.riderAdvanceReceivedSimulation")}
         </span>
       );
     }
@@ -314,14 +314,17 @@ export const OrderCard: React.FC<OrderCardProps> = ({
           </button>
 
           {/* Theo từng trạng thái xử lý đơn */}
-          {order.status === "PENDING_PAYMENT" && order.orderSource !== "WEB" && (
+          {order.orderSource === 'COUNTER' && order.paymentStatus === 'PENDING'
+            && ['PENDING_PAYMENT', 'CONFIRMED', 'PREPARING', 'READY'].includes(order.status) && (
             <button
               type="button"
               className={`${styles.actionButton} ${styles.btnWarning}`}
               onClick={() => onPaymentCollect?.(order)}
-              aria-label={"Thu tiền đơn " + formattedQueue}
+              aria-label={(order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SPLIT'
+                ? 'Mở lại QR thanh toán đơn ' : 'Thu tiền đơn ') + formattedQueue}
             >
-              <Wallet size={18} /> {t("business:staffcard.collectCounter")}
+              <Wallet size={18} /> {order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SPLIT'
+                ? 'Mở QR / thu tiền' : t("business:staffcard.collectCounter")}
             </button>
           )}
           {order.status === "PENDING_PAYMENT" && order.orderSource === "WEB" && (
@@ -369,7 +372,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
                 <button type="button" className={`${styles.actionButton} ${styles.btnSecondary}`} onClick={() => onViewDetails?.(order.id)}>
                   <Truck size={18} /> {i18n.t("shipping:ui.viewDelivery")}
                 </button>
-              ) : order.paymentStatus === "PENDING" ? (
+              ) : order.paymentStatus === "PENDING" && order.orderSource !== 'COUNTER' ? (
                 <button
                   type="button"
                   className={`${styles.actionButton} ${styles.btnWarning}`}

@@ -413,6 +413,8 @@ export const ordersApi = {
       }),
   getById: (id: string | number, signal?: AbortSignal) =>
     api.get<BackendOrder>(`/api/orders/${id}`, { signal }).then((r) => r.data),
+  changeCounterPaymentMethod: (id: string | number, paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'SPLIT', version?: number) =>
+    api.put<BackendOrder>(`/api/orders/${id}/counter/payment-method`, { paymentMethod, version }).then((r) => r.data),
   createCounterOrder: (
     payload: CreateCounterOrderPayload,
     idempotencyKey: string,

@@ -129,6 +129,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   const draftStorageKey = `clucky:counter-draft:v1:${user.id}:${effectiveStoreId}`;
   // 1. Filter states
   const [activeCategory, setActiveCategory] = useState<string>("ALL");
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const deferredSearch = useDeferredValue(searchQuery);
 
@@ -308,6 +309,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   // same staff/store scope rather than clearing the basket on every open.
   useEffect(() => {
     if (open) {
+      setStep(1);
       lookupSerial.current++;
       scanSerial.current++;
       let stored: SafeCounterDraft | null = null;
@@ -832,7 +834,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   const submitRef = useRef(handleSubmit);
   submitRef.current = handleSubmit;
 
-  // Hotkey listener: Esc to close, Enter to submit
+  // Hotkey listener: Esc to close, Enter to advance or submit on the final step.
   useEffect(() => {
     if (!open) return;
 
@@ -853,7 +855,8 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
         const isEditing = target.closest('input, textarea, select, button, [contenteditable="true"]');
         if (!e.repeat && !submissionInFlight.current && !isEditing && !scanner && !customizingProduct && cartItems.length > 0 && storeOpenState.isOpen) {
           e.preventDefault();
-          void submitRef.current();
+          if (step === 4) void submitRef.current();
+          else setStep((current) => Math.min(4, current + 1) as 1 | 2 | 3 | 4);
         }
       }
     };
@@ -862,7 +865,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open, scanner, customizingProduct, cartItems.length, onClose, storeOpenState.isOpen]);
+  }, [open, scanner, customizingProduct, cartItems.length, onClose, storeOpenState.isOpen, step]);
 
   // Filter products by category and search
   const visibleProducts = useMemo(() => {
@@ -904,7 +907,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
               <span className={styles.kbd}>Esc</span> {t('business:counterPos.close')}
             </div>
             <div className={styles.shortcutHint}>
-              <span className={styles.kbd}>Enter</span> {t('business:counterPos.create')}
+              <span className={styles.kbd}>Enter</span> {step === 4 ? t('business:counterPos.create') : 'Tiếp tục'}
             </div>
             <button
               type="button"
@@ -961,10 +964,20 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
           </div>
         )}
 
-        {/* 2-Column Body */}
-        <div className={styles.modalBody}>
+        <nav className={styles.stepper} aria-label="Các bước nhập đơn nhanh">
+          {(['Chọn món', 'Thông tin đơn', 'Tích điểm', 'Thanh toán'] as const).map((label, index) => {
+            const target = (index + 1) as 1 | 2 | 3 | 4;
+            return <button key={label} type="button" className={`${styles.stepButton} ${step === target ? styles.stepButtonActive : ''}`}
+              aria-current={step === target ? 'step' : undefined} disabled={target > step}
+              onClick={() => setStep(target)}>
+              <span className={styles.stepNumber}>{target}</span><span>{label}</span>
+            </button>;
+          })}
+        </nav>
+
+        <div className={`${styles.modalBody} ${step > 1 ? styles.stepBody : ''}`}>
           {/* Cột Trái: Catalog Grid */}
-          <div className={styles.catalogColumn}>
+          {step === 1 && <div className={styles.catalogColumn}>
             {/* Toolbar: Search + Category Tabs */}
             <div className={styles.catalogToolbar}>
               <div className={styles.searchBar}>
@@ -1019,17 +1032,24 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   storeReason={!storeOpenState.isOpen ? storeOpenState.bannerTitle : undefined} onSelect={handleOpenCustomizer} />)}
               </div>
             </div>
-          </div>
+          </div>}
 
           {/* Cột Phải: Giỏ Hàng Quầy */}
-          <div className={styles.cartColumn}>
+          <div className={`${styles.cartColumn} ${step > 1 ? styles.stepCartColumn : ''}`}>
+            {step > 1 && <div className={styles.stepIntro} role="status">
+              <h2>{step === 2 ? 'Kiểm tra đơn hàng' : step === 3 ? 'Tích và dùng điểm' : 'Xác nhận thanh toán'}</h2>
+              <p>{step === 2 ? 'Chọn cách dùng bữa và kiểm tra đầy đủ món đã chọn.'
+                : step === 3 ? 'Tra cứu khách hàng, sử dụng điểm hoặc áp dụng mã ưu đãi nếu có.'
+                  : 'Kiểm tra tổng tiền và hoàn tất đơn tại quầy.'}</p>
+            </div>}
             {/* Toggle ĂN TẠI QUÁN / MANG VỀ */}
-            <div className={styles.diningToggleBar}>
+            {step === 2 && <div className={styles.diningToggleBar}>
               <button
                 type="button"
                 className={`${styles.diningBtn} ${
                   diningOption === "DINE_IN" ? styles.diningBtnActive : ""
                 }`}
+                aria-pressed={diningOption === 'DINE_IN'}
                 onClick={() => setDiningOption("DINE_IN")}
               >
                 <Utensils size={18} />
@@ -1041,19 +1061,20 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 className={`${styles.diningBtn} ${
                   diningOption === "TAKE_AWAY" ? styles.diningBtnActive : ""
                 }`}
+                aria-pressed={diningOption === 'TAKE_AWAY'}
                 onClick={() => setDiningOption("TAKE_AWAY")}
               >
                 <ShoppingBag size={18} />
                 <span>MANG VỀ</span>
               </button>
-            </div>
+            </div>}
 
-            <div className={styles.cartSectionHeader}>
+            {step <= 2 && <div className={styles.cartSectionHeader}>
               <strong>{t('business:counterPos.cartTitle')}</strong>
               <span>{t('business:counterPos.cartCount', { count: cartItems.reduce((sum, item) => sum + item.quantity, 0) })}</span>
-            </div>
+            </div>}
             {/* Danh sách món trong giỏ */}
-            <div className={`${styles.cartListContainer} ${cartItems.length === 0 ? styles.cartListEmpty : ''}`}>
+            {step <= 2 && <div className={`${styles.cartListContainer} ${step === 1 ? styles.compactCartList : ''} ${cartItems.length === 0 ? styles.cartListEmpty : ''}`}>
               {cartItems.length === 0 ? (
                 <div className={styles.cartEmptyState}>
                   <Utensils size={36} strokeWidth={1.5} />
@@ -1063,7 +1084,10 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 cartItems.map((item) => (
                   <div key={item.id} className={styles.cartItemRow}>
                     <div className={styles.cartItemMain}>
-                      <span className={styles.cartItemName}>{item.name}</span>
+                      <div className={styles.cartItemIdentity}>
+                        {step === 2 && <FoodImage src={item.image} alt="" className={styles.cartItemImage} />}
+                        <span className={styles.cartItemName}>{item.name}</span>
+                      </div>
                       <span className={styles.cartItemTotal}>
                         {formatVnd(item.lineTotal)}
                       </span>
@@ -1074,6 +1098,10 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                         {item.optionsSummary}
                       </div>
                     )}
+                    {step === 2 && <div className={styles.cartItemOptions}>
+                      {item.quantity} × {formatVnd(item.unitPrice)}
+                      {item.note && <> · {item.note}</>}
+                    </div>}
 
                     <div className={styles.cartItemActions}>
                       <div className={styles.qtyControls}>
@@ -1108,12 +1136,17 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   </div>
                 ))
               )}
-            </div>
+            </div>}
+
+            {step === 1 && <div className={styles.stepOneSummary}>
+              <span>{cartItems.reduce((sum, item) => sum + item.quantity, 0)} món trong giỏ</span>
+              <strong>{formatVnd(subtotal)}</strong>
+            </div>}
 
             {/* Footer giỏ hàng: Ghi chú, Phương thức, Tổng kết & Nút tạo đơn */}
-            <div className={styles.cartFooter}>
-              {/* Chọn nhanh hình thức thanh toán dự kiến */}
-              {noPayment ? <p role="status" className={styles.paymentHint}>
+            {step > 1 && <div className={styles.cartFooter}>
+              {/* Chọn hình thức thanh toán ở bước cuối. */}
+              {step === 4 && (noPayment ? <p role="status" className={styles.paymentHint}>
                 {t('business:counterPayment.noPaymentExplanation')}
               </p> : <div className={styles.paymentMethodRow}>
                 <button
@@ -1121,6 +1154,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   className={`${styles.pmBtn} ${
                     paymentMethod === "CASH" ? styles.pmBtnActive : ""
                   }`}
+                  aria-pressed={paymentMethod === 'CASH'}
                   onClick={() => setPaymentMethod("CASH")}
                 >
                   TIỀN MẶT
@@ -1130,6 +1164,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   className={`${styles.pmBtn} ${
                     paymentMethod === "BANK_TRANSFER" ? styles.pmBtnActive : ""
                   }`}
+                  aria-pressed={paymentMethod === 'BANK_TRANSFER'}
                   onClick={() => setPaymentMethod("BANK_TRANSFER")}
                 >
                   SEPAY / VIETQR
@@ -1139,14 +1174,15 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   className={`${styles.pmBtn} ${
                     paymentMethod === "SPLIT" ? styles.pmBtnActive : ""
                   }`}
+                  aria-pressed={paymentMethod === 'SPLIT'}
                   onClick={() => setPaymentMethod("SPLIT")}
                 >
                   KẾT HỢP
                 </button>
-              </div>}
+              </div>)}
 
               {/* Thu tiền trực tiếp: chỉ hiển thị nhập tiền khi đã chọn thu tại quầy. */}
-              {!noPayment && paymentMethod === "CASH" && (
+              {step === 4 && !noPayment && paymentMethod === "CASH" && (
                 <div className={styles.cashPanel}>
                   <label className={styles.cashCheckboxRow}>
                     <input
@@ -1186,13 +1222,13 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 </div>
               )}
 
-              {!noPayment && (paymentMethod === "BANK_TRANSFER" || paymentMethod === "SPLIT") && (
+              {step === 4 && !noPayment && (paymentMethod === "BANK_TRANSFER" || paymentMethod === "SPLIT") && (
                 <p role="note" className={styles.paymentHint}>
                   {t("business:counterPos.qrAfterCreation")}
                 </p>
               )}
 
-              <section className={styles.loyaltyPanel} aria-label={t('business:counterLoyalty.title')}>
+              {step === 3 && <section className={styles.loyaltyPanel} aria-label={t('business:counterLoyalty.title')}>
                 <div className={styles.panelHeadingRow}>
                   <div className={styles.loyaltyHeading}><UserRound size={18} />
                     <strong>{t('business:counterLoyalty.title')}</strong>
@@ -1256,9 +1292,9 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                       seconds: Math.max(0, Math.ceil((liveProof.expiresAt - clock) / 1000)) })
                     : t('business:counterLoyalty.optionalHint')}
                 </p>
-              </section>
+              </section>}
 
-              <section className={styles.loyaltyPanel} aria-label={t('business:counterLoyalty.voucherTitle')}>
+              {step === 3 && <section className={styles.loyaltyPanel} aria-label={t('business:counterLoyalty.voucherTitle')}>
                 <div className={styles.panelHeadingRow}>
                   <div className={styles.loyaltyHeading}><Ticket size={18} />
                     <strong>{t('business:counterLoyalty.voucherTitle')}</strong>
@@ -1284,23 +1320,24 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                     {t('business:counterLoyalty.removeVoucher')}
                   </button>
                 </div>}
-              </section>
+              </section>}
 
-              {(quoteError || quoteBusy) && <p role={quoteError ? 'alert' : 'status'}
+              {step >= 3 && (quoteError || quoteBusy) && <p role={quoteError ? 'alert' : 'status'}
                 className={quoteError ? styles.loyaltyWarning : styles.loyaltyHint}>
                 {quoteError || t('business:counterLoyalty.quoting')}
               </p>}
 
-              <input
+              {step === 2 && <input
                 type="text"
                 className={styles.noteInput}
+                aria-label={t('business:counterPos.orderNotePlaceholder')}
                 placeholder={t('business:counterPos.orderNotePlaceholder')}
                 value={orderNote}
                 onChange={(e) => setOrderNote(e.target.value)}
-              />
+              />}
 
-            </div>
-            <div className={styles.checkoutBar}>
+            </div>}
+            {step === 4 && <div className={styles.checkoutBar}>
               {/* Giữ phần thanh toán cố định thật gọn; chỉ hiện các khoản giảm thực tế. */}
               <div className={styles.summaryBox}>
                 {hasDiscount && (
@@ -1334,34 +1371,30 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 {noPayment && <p role="status" className={styles.paymentHint}>{t('business:counterPayment.noPaymentCard')}</p>}
               </div>
 
-              {/* Nút Tạo đơn quầy */}
-              <button
-                type="button"
-                disabled={cartItems.length === 0 || isSubmitting || !storeOpenState.isOpen
-                  || (!retryableAttempt && (!activeQuote || quoteBusy || !!quoteError))}
-                className={styles.submitOrderBtn}
-                onClick={handleSubmit}
-              >
-                {!storeOpenState.isOpen ? (
-                  <>
-                    <Lock size={16} />
-                    <span>
-                      {t("business:storeStatus.closedNowChip")} ({storeOpenState.openTime} - {storeOpenState.closeTime})
-                    </span>
-                  </>
-                ) : isSubmitting ? (
-                  <>
-                    <Loader2 size={18} className="animate-spin" />
-                    <span>{t('business:counterPos.creating')}</span>
-                  </>
-                ) : (
-                  <>
-                    <span>{t('business:counterPos.createOrder')}</span>
-                  </>
-                )}
-              </button>
-            </div>
+            </div>}
           </div>
+        </div>
+
+        <div className={styles.stepNavigation}>
+          {step > 1 && <button type="button" className={styles.backButton}
+            onClick={() => setStep((current) => Math.max(1, current - 1) as 1 | 2 | 3 | 4)}>Quay lại</button>}
+          <span className={styles.navigationTotal}>
+            {step < 3 ? 'Tạm tính' : 'Tổng thanh toán'}{' '}
+            <strong>{step < 3 ? formatVnd(subtotal) : activeQuote ? formatVnd(totalAmount) : t('business:counterLoyalty.awaitingQuote')}</strong>
+          </span>
+          {step < 4 && <button type="button" className={styles.nextButton}
+            disabled={!cartItems.length || !storeOpenState.isOpen}
+            onClick={() => setStep((current) => Math.min(4, current + 1) as 1 | 2 | 3 | 4)}>
+            {step === 1 ? 'Tiếp: Thông tin đơn' : step === 2 ? 'Tiếp: Tích điểm' : 'Tiếp: Thanh toán'}
+          </button>}
+          {step === 4 && <button type="button"
+            disabled={cartItems.length === 0 || isSubmitting || !storeOpenState.isOpen
+              || (!retryableAttempt && (!activeQuote || quoteBusy || !!quoteError))}
+            className={styles.submitOrderBtn} onClick={handleSubmit}>
+            {!storeOpenState.isOpen ? <><Lock size={16} />{t('business:storeStatus.closedNowChip')}</>
+              : isSubmitting ? <><Loader2 size={18} className="animate-spin" />{t('business:counterPos.creating')}</>
+              : t('business:counterPos.createOrder')}
+          </button>}
         </div>
 
         {scanner && (

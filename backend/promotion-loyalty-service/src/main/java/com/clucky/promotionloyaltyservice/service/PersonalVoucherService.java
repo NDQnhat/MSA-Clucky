@@ -11,6 +11,7 @@ import com.clucky.promotionloyaltyservice.exception.ErrorCode;
 import com.clucky.promotionloyaltyservice.model.Voucher;
 import com.clucky.promotionloyaltyservice.model.VoucherApplicability;
 import com.clucky.promotionloyaltyservice.model.VoucherCampaignKind;
+import com.clucky.promotionloyaltyservice.model.VoucherScope;
 import com.clucky.promotionloyaltyservice.model.VoucherStatus;
 import com.clucky.promotionloyaltyservice.model.VoucherType;
 import com.clucky.promotionloyaltyservice.repository.VoucherRepository;
@@ -59,13 +60,30 @@ public class PersonalVoucherService {
 
     public PersonalVoucherService(VoucherRepository campaigns, JdbcTemplate jdbc, StringRedisTemplate redis,
             VoucherAuditOutbox audit, @Value("${CLUCKY_VOUCHER_HMAC_KEY:}") String hmacKey,
-            @Value("${CLUCKY_VOUCHER_ENC_KEY:}") String encryptionKey) {
+            @Value("${CLUCKY_VOUCHER_ENC_KEY:}") String encryptionKey,
+            @Value("${JWT_SECRET:}") String jwtSecret) {
         this.campaigns = campaigns;
         this.jdbc = jdbc;
         this.redis = redis;
         this.audit = audit;
-        this.hmacKey = hmacKey;
-        this.encryptionKey = encryptionKey;
+        // Explicit voucher keys take precedence. Existing installations without
+        // them derive separate, stable keys from the already required JWT secret.
+        this.hmacKey = hmacKey == null || hmacKey.isBlank()
+                ? derivedKey(jwtSecret, "clucky-personal-voucher-hmac-v1") : hmacKey;
+        this.encryptionKey = encryptionKey == null || encryptionKey.isBlank()
+                ? derivedKey(jwtSecret, "clucky-personal-voucher-aes-v1") : encryptionKey;
+    }
+
+    private static String derivedKey(String secret, String purpose) {
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32)
+            throw new IllegalStateException("Configure voucher keys or a strong JWT_SECRET");
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return Base64.getEncoder().encodeToString(mac.doFinal(purpose.getBytes(StandardCharsets.US_ASCII)));
+        } catch (Exception failure) {
+            throw new IllegalStateException("Cannot derive personal voucher key", failure);
+        }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -77,8 +95,6 @@ public class PersonalVoucherService {
         if (campaignId == null || campaignId <= 0 || ownerId <= 0) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         Voucher campaign = campaigns.findByIdWithLock(campaignId)
                 .orElseThrow(() -> new ApiException(ErrorCode.VOUCHER_NOT_FOUND));
-        if (campaign.getCampaignKind() != VoucherCampaignKind.PERSONAL)
-            throw new ApiException(ErrorCode.VOUCHER_NOT_FOUND);
         var existing = jdbc.queryForList("SELECT * FROM promotion_service.customer_voucher_instances WHERE campaign_id=? AND customer_id=?",
                 campaignId, ownerId);
         if (!existing.isEmpty()) return view(existing.getFirst(), campaign, false);
@@ -310,15 +326,16 @@ public class PersonalVoucherService {
     }
 
     private void checkCampaign(Voucher campaign, Instant now) {
-        if (campaign.getCampaignKind() != VoucherCampaignKind.PERSONAL) throw new ApiException(ErrorCode.VOUCHER_NOT_FOUND);
         if (campaign.getStatus() != VoucherStatus.ACTIVE) throw new ApiException(ErrorCode.VOUCHER_INACTIVE);
         if (now.isBefore(campaign.getStartAt())) throw new ApiException(ErrorCode.VOUCHER_NOT_STARTED);
         if (!now.isBefore(campaign.getEndAt())) throw new ApiException(ErrorCode.VOUCHER_EXPIRED);
     }
 
     private void checkStore(Voucher campaign, Long storeId) {
-        if (storeId == null || storeId <= 0 || (campaign.getApplicability() == VoucherApplicability.SELECTED
-                && !campaign.getStoreIds().contains(storeId)))
+        if (storeId == null || storeId <= 0 || (campaign.getCampaignKind() == VoucherCampaignKind.LEGACY
+                ? campaign.getScope() == VoucherScope.STORE && !storeId.equals(campaign.getStoreId())
+                : campaign.getApplicability() == VoucherApplicability.SELECTED
+                    && !campaign.getStoreIds().contains(storeId)))
             throw new ApiException(ErrorCode.VOUCHER_SCOPE_MISMATCH);
     }
 

@@ -13,12 +13,13 @@ export default async function ProductPage({
 }) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   const isCombo = slug.startsWith('combo-');
-  const id = Number(isCombo ? slug.slice('combo-'.length) : slug.match(/-(\d+)$/)?.[1] || slug);
+  const id = Number(slug.match(/-(\d+)$/)?.[1] ?? slug);
   const storeIdValue = Array.isArray(query.storeId) ? query.storeId[0] : query.storeId;
   const parsedStoreId = storeIdValue === undefined ? undefined : Number(storeIdValue);
   const storeId = Number.isSafeInteger(parsedStoreId) && (parsedStoreId ?? 0) > 0 ? parsedStoreId : undefined;
 
   let product: Product | null = null;
+  let productIsCombo = isCombo;
   try {
     if (Number.isSafeInteger(id) && id > 0) {
       product = isCombo
@@ -33,6 +34,7 @@ export default async function ProductPage({
         const matchedIsCombo =
           (matched.categoryName ?? matched.category ?? '').toLowerCase() === 'combo' ||
           Boolean(matched.comboItems?.length);
+        productIsCombo = matchedIsCombo;
         product = matchedIsCombo
           ? await catalogApi.getComboProductById(matched.id, storeId)
           : await catalogApi.getProductById(matched.id, storeId);
@@ -61,7 +63,7 @@ export default async function ProductPage({
 
   return (
     <main>
-      <ProductDetailClient product={product} storeId={storeId} itemType={isCombo ? "COMBO" : "PRODUCT"} />
+      <ProductDetailClient product={product} storeId={storeId} itemType={productIsCombo ? "COMBO" : "PRODUCT"} />
     </main>
   );
 }

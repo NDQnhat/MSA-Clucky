@@ -62,6 +62,7 @@ public class OrderService {
     private final StringRedisTemplate redisTemplate;
     private final VoucherCheckoutRecovery voucherRecovery;
     private final CustomerProfileClient customerProfiles;
+    private final PaymentClient paymentClient;
     private final JdbcTemplate jdbc;
     private final Random random = new SecureRandom();
 
@@ -176,7 +177,7 @@ public class OrderService {
     ) {
         this(orderRepository, orderItemRepository, orderStatusHistoryRepository, cartService,
                 accessGuard, objectMapper, orderEventPublisher, catalogClient, promotionClient,
-                shippingClient, loyaltyClient, null, voucherRecovery, customerProfiles, null);
+                shippingClient, loyaltyClient, null, voucherRecovery, customerProfiles, null, null);
     }
 
     @Autowired
@@ -195,7 +196,8 @@ public class OrderService {
             StringRedisTemplate redisTemplate,
             VoucherCheckoutRecovery voucherRecovery,
             CustomerProfileClient customerProfiles,
-            JdbcTemplate jdbc
+            JdbcTemplate jdbc,
+            PaymentClient paymentClient
     ) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
@@ -212,6 +214,7 @@ public class OrderService {
         this.voucherRecovery = voucherRecovery;
         this.customerProfiles = customerProfiles;
         this.jdbc = jdbc;
+        this.paymentClient = paymentClient;
     }
 
     public OrderPreviewResponse previewOrder(OrderPreviewRequest request, HttpServletRequest httpRequest) {
@@ -893,6 +896,34 @@ public class OrderService {
         orderEventPublisher.publishOrderCancelled(order, items, history.getReason());
 
         return DomainMapper.toResponse(order, items, histories);
+    }
+
+    @Transactional
+    public OrderResponse changeCounterPaymentMethod(Long id, ChangeCounterPaymentMethodRequest request) {
+        Order order = orderRepository.lockById(id)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        accessGuard.requireStore(order.getStoreId());
+        CurrentActor actor = CurrentActor.require();
+        if (!Set.of(Role.STAFF, Role.STORE_MANAGER, Role.ADMIN).contains(actor.role()))
+            throw new ApiException(ErrorCode.FORBIDDEN);
+        String method = request.paymentMethod().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("CASH", "BANK_TRANSFER", "SPLIT").contains(method))
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "Phương thức thanh toán không hợp lệ");
+        if (!"COUNTER".equals(order.getOrderSource()) || !"PENDING".equals(order.getPaymentStatus())
+                || !Set.of("CONFIRMED", "PREPARING", "READY").contains(order.getStatus())
+                || order.getTotalAmount().signum() <= 0)
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn quầy không còn chờ thanh toán");
+        if (request.version() != null && !Objects.equals(request.version(), order.getVersion()))
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã thay đổi, vui lòng tải lại");
+        if (!method.equals(order.getPaymentMethod())) {
+            if (paymentClient == null || paymentClient.hasCounterActivity(id))
+                throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã có phiên QR hoặc thao tác thu tiền, không thể đổi phương thức");
+            order.setPaymentMethod(method);
+            order.setVersion(order.getVersion() + 1);
+            order = orderRepository.save(order);
+        }
+        return DomainMapper.toResponse(order, orderItemRepository.findByOrderIdOrderByIdAsc(id),
+                orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(id));
     }
 
     @Transactional

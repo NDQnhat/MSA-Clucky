@@ -109,9 +109,11 @@ public class CatalogClient {
                 if (response.stockQuantities() == null || response.stockQuantities().isEmpty()
                         || response.stockQuantities().entrySet().stream().anyMatch(entry -> entry.getKey() == null || entry.getKey() <= 0
                             || entry.getValue() == null || entry.getValue() <= 0 || entry.getValue() > Integer.MAX_VALUE)) {
+                    LOG.error("Catalog validation missing stock demand for storeId={}", storeId);
                     throw new ApiException(ErrorCode.UPSTREAM_ERROR);
                 }
                 if (response.subtotal() == null || response.items() == null || response.items().size() != items.size()) {
+                    LOG.error("Catalog validation missing subtotal or item rows for storeId={}", storeId);
                     throw new ApiException(ErrorCode.UPSTREAM_ERROR);
                 }
                 for (int index = 0; index < items.size(); index++) {
@@ -119,8 +121,8 @@ public class CatalogClient {
                     CartItemDto requested = items.get(index);
                     if (!validated.available() || validated.unitPrice() == null || validated.name() == null
                             || !Objects.equals(validated.productId(), requested.getProductId())
-                            || !Objects.equals(validated.comboId(), requested.getComboId())
-                            || validated.optionsSnapshot() == null || validated.toppingsSnapshot() == null) {
+                            || !Objects.equals(validated.comboId(), requested.getComboId())) {
+                        LOG.error("Catalog validation item mismatch for storeId={} row={}", storeId, index);
                         throw new ApiException(ErrorCode.UPSTREAM_ERROR);
                     }
                 }

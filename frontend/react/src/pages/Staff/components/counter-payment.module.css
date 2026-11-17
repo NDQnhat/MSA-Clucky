@@ -165,6 +165,14 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
+.methodLockHint {
+  margin: 0;
+  padding: 8px 18px;
+  color: #6b6259;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* Modal Body */
 .modalBody {
   padding: 24px;

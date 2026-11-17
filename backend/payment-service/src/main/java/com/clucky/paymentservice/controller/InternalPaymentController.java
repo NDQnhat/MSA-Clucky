@@ -4,6 +4,7 @@ import com.clucky.paymentservice.dto.EligibleRefundQueryResponse;
 import com.clucky.paymentservice.dto.ReserveRefundRequest;
 import com.clucky.paymentservice.dto.ReserveRefundResponse;
 import com.clucky.paymentservice.service.PaymentRefundService;
+import org.springframework.jdbc.core.JdbcTemplate;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -15,9 +16,21 @@ import java.math.BigDecimal;
 public class InternalPaymentController {
 
     private final PaymentRefundService refundService;
+    private final JdbcTemplate jdbc;
 
-    public InternalPaymentController(PaymentRefundService refundService) {
+    public InternalPaymentController(PaymentRefundService refundService, JdbcTemplate jdbc) {
         this.refundService = refundService;
+        this.jdbc = jdbc;
+    }
+
+    @GetMapping("/orders/{orderId}/counter-activity")
+    public java.util.Map<String, Boolean> counterActivity(@PathVariable Long orderId) {
+        Boolean exists = jdbc.queryForObject("""
+                SELECT EXISTS(SELECT 1 FROM payment_service.payments WHERE order_id=?)
+                    OR EXISTS(SELECT 1 FROM payment_service.collections WHERE order_id=? AND status IN ('PENDING','ACCEPTED'))
+                    OR EXISTS(SELECT 1 FROM payment_service.counter_payment_receipts WHERE order_id=? AND status<>'VOIDED')
+                """, Boolean.class, orderId, orderId, orderId);
+        return java.util.Map.of("started", Boolean.TRUE.equals(exists));
     }
 
     @GetMapping("/orders/{orderId}/eligible-refund")

@@ -258,7 +258,7 @@ export function StaffOrdersPage() {
   // Shipping Service owns the attempt state. Keep failed shipments visible even
   // while the corresponding Order remains SHIPPING pending manager resolution.
   const trackedOrderIds = useMemo(() => orders
-    .filter(order => order.orderType === 'DELIVERY' && ['READY', 'SHIPPING', 'DELIVERY_FAILED'].includes(order.status))
+    .filter(order => order.orderType === 'DELIVERY' && ['READY', 'SHIPPING', 'DELIVERY_FAILED', 'COMPLETED'].includes(order.status))
     .map(order => order.id).sort().join(','), [orders]);
 
   useEffect(() => {
@@ -407,7 +407,8 @@ export function StaffOrdersPage() {
     if (selectedDate !== today) {
       setSelectedDate(today);
     }
-    setActiveTab("CONFIRMED");
+    setActiveTab(created?.paymentStatus === 'PENDING' && created?.orderSource === 'COUNTER'
+      ? 'PENDING_PAYMENT' : 'CONFIRMED');
     await fetchOrders(false);
   };
 
@@ -686,13 +687,29 @@ export function StaffOrdersPage() {
     return collectionAccepted;
   };
 
-  const handleSepayConfirmed = useCallback(async () => {
+  const handleSepayConfirmed = useCallback(async (confirmedOrder: BackendOrder) => {
     // Called ONLY after SePay reports PAID and Order Service confirms the
     // corresponding order state. Never infer success from displaying a QR.
     await fetchOrders(true);
     setPaymentModalOrder(null);
+    setReceiptModalOrder(fromBackendOrderToStaffOrder(
+      confirmedOrder, imageMapRef.current ?? new Map(), storesRef.current,
+      paymentModalOrder?.queueNumber,
+    ));
+    setReceiptInitialMode('RECEIPT');
     message.success(t('business:counterPayment.sepayConfirmed'));
-  }, [fetchOrders, t]);
+  }, [fetchOrders, paymentModalOrder?.queueNumber, t]);
+
+  const handleChangeCounterPaymentMethod = async (method: 'CASH' | 'BANK_TRANSFER' | 'SPLIT') => {
+    if (!paymentModalOrder) return;
+    const updated = await ordersApi.changeCounterPaymentMethod(
+      paymentModalOrder.id, method, paymentModalOrder.version,
+    );
+    const mapped = fromBackendOrderToStaffOrder(updated, imageMapRef.current ?? new Map(),
+      storesRef.current, paymentModalOrder.queueNumber);
+    setPaymentModalOrder(mapped);
+    setOrders((previous) => previous.map((order) => order.id === mapped.id ? mapped : order));
+  };
 
   // Mở in lại hóa đơn
   const handleReprintOrder = (order: StaffOrder) => {
@@ -719,11 +736,16 @@ export function StaffOrdersPage() {
   // 11. Đếm số lượng đơn trên từng tab
   const queueCounts = useMemo(() => {
     return {
-      PENDING_PAYMENT: orders.filter((o) => o.status === "PENDING_PAYMENT")
+      PENDING_PAYMENT: orders.filter((o) => o.status === "PENDING_PAYMENT"
+        || (o.orderSource === 'COUNTER' && o.paymentStatus === 'PENDING'
+          && ['CONFIRMED', 'PREPARING', 'READY'].includes(o.status)))
         .length,
-      CONFIRMED: orders.filter((o) => o.status === "CONFIRMED").length,
-      PREPARING: orders.filter((o) => o.status === "PREPARING").length,
-      READY: orders.filter((o) => o.status === "READY").length,
+      CONFIRMED: orders.filter((o) => o.status === "CONFIRMED"
+        && !(o.orderSource === 'COUNTER' && o.paymentStatus === 'PENDING')).length,
+      PREPARING: orders.filter((o) => o.status === "PREPARING"
+        && !(o.orderSource === 'COUNTER' && o.paymentStatus === 'PENDING')).length,
+      READY: orders.filter((o) => o.status === "READY"
+        && !(o.orderSource === 'COUNTER' && o.paymentStatus === 'PENDING')).length,
       SHIPPING: orders.filter((o) => o.status === 'SHIPPING' && trackingById[o.id]?.status !== 'FAILED').length,
       NEEDS_RESOLUTION: orders.filter(o => o.orderType === 'DELIVERY' && o.status === 'SHIPPING' && trackingById[o.id]?.status === 'FAILED' && trackingById[o.id]?.resolution !== 'CLOSED_UNDELIVERABLE').length,
       DELIVERY_FAILED: orders.filter(o => o.status === 'DELIVERY_FAILED' || (o.status === 'SHIPPING' && trackingById[o.id]?.status === 'FAILED' && trackingById[o.id]?.resolution === 'CLOSED_UNDELIVERABLE')).length,
@@ -742,7 +764,13 @@ export function StaffOrdersPage() {
           if (order.status !== 'DELIVERY_FAILED' && (!failedShipment || trackingById[order.id]?.resolution !== 'CLOSED_UNDELIVERABLE')) return false;
         } else if (activeTab === 'SHIPPING') {
           if (order.status !== 'SHIPPING' || failedShipment) return false;
-        } else if (order.status !== activeTab) return false;
+        } else if (activeTab === 'PENDING_PAYMENT') {
+          if (order.status !== 'PENDING_PAYMENT' && !(order.orderSource === 'COUNTER'
+              && order.paymentStatus === 'PENDING'
+              && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status))) return false;
+        } else if (order.status !== activeTab || (order.orderSource === 'COUNTER'
+            && order.paymentStatus === 'PENDING'
+            && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status))) return false;
 
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
@@ -1223,6 +1251,7 @@ export function StaffOrdersPage() {
       {/* Drawer Chi Tiết Đơn Hàng */}
       <OrderDetailDrawer
         order={selectedOrderForDrawer}
+        tracking={selectedOrderId ? trackingById[selectedOrderId] : undefined}
         open={Boolean(selectedOrderId)}
         onClose={closeOrderDetails}
         onStatusChange={handleStatusChange}
@@ -1264,6 +1293,7 @@ export function StaffOrdersPage() {
         onClose={() => setPaymentModalOrder(null)}
         onConfirmPayment={handleConfirmPayment}
         onTransferConfirmed={handleSepayConfirmed}
+        onChangeMethod={handleChangeCounterPaymentMethod}
       />
 
       {/* Phase 2: Modal Xem & In Hóa Đơn K80 / Phiếu Bếp KOT */}

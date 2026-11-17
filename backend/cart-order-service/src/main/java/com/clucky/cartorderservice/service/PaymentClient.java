@@ -41,6 +41,21 @@ public class PaymentClient {
             String reason
     ) {}
 
+    public boolean hasCounterActivity(Long orderId) {
+        try {
+            @SuppressWarnings("unchecked")
+            var result = restClient.get()
+                    .uri(paymentServiceUrl + "/api/payments/internal/orders/{orderId}/counter-activity", orderId)
+                    .headers(headers -> headers.setBearerAuth(credential.token()))
+                    .retrieve().body(java.util.Map.class);
+            if (result == null || !(result.get("started") instanceof Boolean started))
+                throw new ApiException(ErrorCode.UPSTREAM_ERROR);
+            return started;
+        } catch (Exception failure) {
+            throw failure(failure);
+        }
+    }
+
     public record ReserveRefundRequest(
             Long refundRequestId,
             Long orderId,

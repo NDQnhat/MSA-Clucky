@@ -64,16 +64,18 @@ export default function VouchersPage() {
     let active = true;
     setLoading(true);
     setError("");
-    void Promise.all([
+    void Promise.allSettled([
       personalVoucherApi.campaigns(),
       userId ? personalVoucherApi.mine() : Promise.resolve([] as PersonalVoucher[]),
       catalogApi.getStores(false).catch(() => [] as StoreItem[]),
     ]).then(([available, mine, locations]) => {
       if (!active) return;
-      setCampaigns(available.filter(c => c.campaignKind === "PERSONAL"));
-      setOwned(mine);
-      setStores(locations);
-    }).catch(failure => { if (active) setError(getErrorMessage(failure)); })
+      if (available.status === 'fulfilled') setCampaigns(available.value);
+      else setError(getErrorMessage(available.reason));
+      if (mine.status === 'fulfilled') setOwned(mine.value);
+      else setError(getErrorMessage(mine.reason));
+      if (locations.status === 'fulfilled') setStores(locations.value);
+    })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [ready, userId, version]);
@@ -103,12 +105,14 @@ export default function VouchersPage() {
     setBusyId(campaignId); setError("");
     try {
       const result = await personalVoucherApi.claim(campaignId);
-      // Refresh the owner's list without storing bearer codes in browser storage.
-      const mine = await personalVoucherApi.mine();
       if (getSessionState().user?.userId !== ownerId) return;
-      setOwned(mine);
+      setOwned(previous => [result, ...previous.filter(item => item.instanceId !== result.instanceId)]);
       setTab("mine");
       await loadDetail(result.instanceId);
+      // A temporary list failure must not hide a successfully claimed voucher.
+      void personalVoucherApi.mine().then(mine => {
+        if (getSessionState().user?.userId === ownerId) setOwned(mine);
+      }).catch(() => {});
     } catch (failure) { setError(getErrorMessage(failure)); }
     finally { setBusyId(null); }
   }
@@ -124,9 +128,11 @@ export default function VouchersPage() {
 
   const canView = (v: PersonalVoucher) => v.state === "ISSUED";
 
-  const storeScope = (campaign: VoucherCampaign) => campaign.applicability === "ALL"
+  const storeScope = (campaign: VoucherCampaign) => (campaign.campaignKind === 'PERSONAL'
+    ? campaign.applicability === 'ALL' : campaign.scope === 'ALL')
     ? t("allStores")
-    : (campaign.storeIds ?? []).map(id => stores.find(store => Number(store.id) === Number(id))?.name ?? `#${id}`).join(", ");
+    : (campaign.campaignKind === 'PERSONAL' ? campaign.storeIds ?? [] : [campaign.storeId].filter((id): id is number => id != null))
+      .map(id => stores.find(store => Number(store.id) === Number(id))?.name ?? `#${id}`).join(", ");
 
   async function copyCode(code: string) {
     try {
@@ -206,7 +212,7 @@ export default function VouchersPage() {
                 </div>
                 <div className={styles.cardContent}>
                   <div className={styles.cardTop}>
-                    <span className={styles.cardCategory}><Sparkles size={14} aria-hidden="true" /> {t("cardCategory")}</span>
+                    <span className={styles.cardCategory}><Sparkles size={14} aria-hidden="true" /> {t(campaign.campaignKind === 'PERSONAL' ? "cardCategory" : "publicCategory")}</span>
                     {voucher
                       ? <span className={styles.stateBadge + (voucher.state === "ISSUED" ? " " + styles.stateAvailable : "")}>{t("state." + voucher.state)}</span>
                       : inactive && <span className={styles.stateBadge}>{t("unavailable")}</span>}
