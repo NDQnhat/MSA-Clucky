@@ -65,6 +65,48 @@ public class OrderStockService {
                 cancelled ? "CANCELLED" : "DEDUCTED", mapper.valueToTree(quantities).toString(), event.eventId(), event.correlationId(), orderId);
     }
 
+    @Transactional
+    public void reserveOrderStock(long orderId, long storeId, Map<Long, Integer> quantities, Map<Long, Long> expectedVersions, String correlationId) {
+        if (orderId <= 0 || storeId <= 0 || quantities == null || quantities.isEmpty()) {
+            throw new IllegalArgumentException("Invalid order reservation parameters");
+        }
+        Map<Long, Integer> sortedQuantities = new TreeMap<>(quantities);
+
+        jdbc.update("INSERT INTO catalog_service.order_stock_ledger(order_id,store_id,status,event_id,correlation_id,quantities) VALUES (?,?,'DEDUCTED',?,?::text,?::jsonb) " +
+                    "ON CONFLICT (order_id) DO UPDATE SET status='DEDUCTED', quantities=?::jsonb, updated_at=now()",
+                orderId, storeId, "sync-reserve-" + orderId, correlationId != null ? correlationId : "sync",
+                mapper.valueToTree(sortedQuantities).toString(), mapper.valueToTree(sortedQuantities).toString());
+
+        for (var entry : sortedQuantities.entrySet()) {
+            long productId = entry.getKey();
+            int qty = entry.getValue();
+            Long expectedVersion = expectedVersions != null ? expectedVersions.get(productId) : null;
+            inventory.reserveItemForOrder(storeId, productId, qty, expectedVersion);
+        }
+    }
+
+    @Transactional
+    public void releaseOrderStock(long orderId, long storeId, String correlationId) {
+        if (orderId <= 0) return;
+        var rows = jdbc.queryForList("SELECT status, quantities::text FROM catalog_service.order_stock_ledger WHERE order_id=? FOR UPDATE", orderId);
+        if (rows.isEmpty()) return;
+        String status = rows.get(0).get("status").toString();
+        if (!"DEDUCTED".equals(status)) return;
+
+        try {
+            var fields = mapper.readTree(rows.get(0).get("quantities").toString()).fields();
+            while (fields.hasNext()) {
+                var entry = fields.next();
+                long productId = Long.parseLong(entry.getKey());
+                int qty = entry.getValue().intValue();
+                inventory.changeForOrder(storeId, productId, qty);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Không thể hoàn trả tồn kho", e);
+        }
+        jdbc.update("UPDATE catalog_service.order_stock_ledger SET status='CANCELLED', updated_at=now() WHERE order_id=?", orderId);
+    }
+
     static Map<Long, Integer> quantities(JsonNode items, ComboItemRepository combos) {
         if (!items.isArray() || items.isEmpty()) throw new IllegalArgumentException("Order items required");
         Map<Long, Integer> quantities = new TreeMap<>();

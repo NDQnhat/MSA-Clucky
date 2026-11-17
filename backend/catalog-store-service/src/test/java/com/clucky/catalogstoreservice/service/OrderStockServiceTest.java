@@ -70,4 +70,18 @@ class OrderStockServiceTest {
         assertThrows(IllegalStateException.class, () -> service.apply(event("order.created")));
         verify(jdbc, never()).update(startsWith("UPDATE catalog_service.order_stock_ledger"), any(Object[].class));
     }
+
+    @Test void reserveOrderStockDeductsAndRecordsInLedger() {
+        service.reserveOrderStock(99L, 2L, Map.of(3L, 2), Map.of(3L, 5L), "corr-1");
+        verify(jdbc).update(startsWith("INSERT INTO catalog_service.order_stock_ledger"), eq(99L), eq(2L), eq("sync-reserve-99"), eq("corr-1"), any(), any());
+        verify(inventory).reserveItemForOrder(2L, 3L, 2, 5L);
+    }
+
+    @Test void releaseOrderStockRestoresWhenDeducted() {
+        when(jdbc.queryForList(startsWith("SELECT status, quantities::text"), eq(99L)))
+                .thenReturn(List.of(Map.of("status", "DEDUCTED", "quantities", "{\"3\":2}")));
+        service.releaseOrderStock(99L, 2L, "corr-cancel");
+        verify(inventory).changeForOrder(2L, 3L, 2);
+        verify(jdbc).update(startsWith("UPDATE catalog_service.order_stock_ledger SET status='CANCELLED'"), eq(99L));
+    }
 }

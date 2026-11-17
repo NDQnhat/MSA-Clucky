@@ -66,6 +66,14 @@ class CheckoutRegressionTest {
         when(orders.save(any())).thenAnswer(call -> {
             com.clucky.cartorderservice.entity.Order order = call.getArgument(0); order.setId(8L); return order;
         });
+        when(orders.findById(8L)).thenAnswer(call -> {
+            com.clucky.cartorderservice.entity.Order order = new com.clucky.cartorderservice.entity.Order();
+            order.setId(8L);
+            order.setStoreId(1L);
+            order.setCustomerId(1L);
+            order.setStatus("PENDING_STOCK");
+            return Optional.of(order);
+        });
         doThrow(new ApiException(ErrorCode.RESOURCE_CONFLICT)).when(loyalty)
                 .reserveVoucher(8, 1L, 1L, null, voucherInstanceId, BigDecimal.valueOf(100), BigDecimal.TEN);
         var service = new OrderService(orders, mock(OrderItemRepository.class), mock(OrderStatusHistoryRepository.class), carts,
@@ -82,8 +90,49 @@ class CheckoutRegressionTest {
             sequence.verify(recovery).lock(8);
             sequence.verify(recovery).track(8);
             sequence.verify(loyalty).reserveVoucher(8, 1L, 1L, null, voucherInstanceId, BigDecimal.valueOf(100), BigDecimal.TEN);
+            verify(catalog).releaseStock(8L, 1L);
             verify(carts, never()).clearCart(anyString());
             verify(loyalty, never()).reserve(anyLong(), anyLong(), any(), any());
+        } finally { SecurityContextHolder.clearContext(); }
+    }
+
+    @Test
+    void stockConflictAbortsOrderCreationImmediately() {
+        var orders = mock(OrderRepository.class);
+        var carts = mock(CartService.class);
+        var catalog = mock(CatalogClient.class);
+        var promotion = mock(PromotionClient.class);
+        var shipping = mock(ShippingClient.class);
+        var loyalty = mock(LoyaltyClient.class);
+        var recovery = mock(VoucherCheckoutRecovery.class);
+        var profiles = mock(CustomerProfileClient.class);
+        var item = new CartItemDto(1L, null, "Chicken", 1, BigDecimal.valueOf(100), List.of(), List.of(), null, 1L);
+        item.setExpectedVersion(5L);
+        when(carts.getCart(anyString())).thenReturn(CartDto.of(List.of(item)));
+        when(catalog.validateItems(anyLong(), anyList())).thenReturn(new CatalogClient.CatalogValidationResponse(true, true, null,
+                BigDecimal.valueOf(100), List.of(), java.util.Map.of(1L, 1L)));
+        when(shipping.calculateShippingFee(anyString(), anyLong(), any(), any())).thenReturn(
+                new ShippingClient.ShippingFeeResult(true, BigDecimal.ZERO, "PICKUP", null, null, null));
+        when(promotion.validateVoucher(any(), any(), anyLong(), any())).thenReturn(new PromotionClient.VoucherResult(false, null, BigDecimal.ZERO, null, null, null));
+        when(loyalty.preview(any(), any())).thenReturn(new LoyaltyClient.Quote(1, 0, 0, BigDecimal.ZERO, 0, "MEMBER", BigDecimal.ZERO));
+        when(orders.save(any())).thenAnswer(call -> {
+            com.clucky.cartorderservice.entity.Order order = call.getArgument(0); order.setId(9L); return order;
+        });
+        doThrow(new ApiException(ErrorCode.RESOURCE_CONFLICT, "Số lượng tồn kho đã thay đổi"))
+                .when(catalog).reserveStock(eq(9L), eq(1L), any(), any());
+
+        var service = new OrderService(orders, mock(OrderItemRepository.class), mock(OrderStatusHistoryRepository.class), carts,
+                new AccessGuard(), new ObjectMapper(), mock(OrderEventPublisher.class), catalog, promotion, shipping,
+                loyalty, null, recovery, profiles, mock(org.springframework.jdbc.core.JdbcTemplate.class));
+        var jwt = Jwt.withTokenValue("test").header("alg", "HS256").subject("1").claim("role", "CUSTOMER").build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, List.of()));
+        try {
+            var request = new CreateOrderRequest(1L, "PICKUP", "Customer", "0900000000", null, null,
+                    "BANK_TRANSFER", null, 0, null, null, null, null, null, null);
+            assertEquals(ErrorCode.RESOURCE_CONFLICT, assertThrows(ApiException.class, () -> service.createOrder(request)).getCode());
+            verify(recovery, never()).lock(anyLong());
+            verify(loyalty, never()).reserveVoucher(anyLong(), any(), anyLong(), any(), any(), any(), any());
+            verify(carts, never()).clearCart(anyString());
         } finally { SecurityContextHolder.clearContext(); }
     }
     @Test

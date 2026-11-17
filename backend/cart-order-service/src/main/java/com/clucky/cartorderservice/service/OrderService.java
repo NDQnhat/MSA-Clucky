@@ -63,6 +63,8 @@ public class OrderService {
     private final VoucherCheckoutRecovery voucherRecovery;
     private final CustomerProfileClient customerProfiles;
     private final JdbcTemplate jdbc;
+    private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
     private final Random random = new SecureRandom();
 
     /** Server and POS use the same identity for a counter draft; points are excluded. */
@@ -176,7 +178,29 @@ public class OrderService {
     ) {
         this(orderRepository, orderItemRepository, orderStatusHistoryRepository, cartService,
                 accessGuard, objectMapper, orderEventPublisher, catalogClient, promotionClient,
-                shippingClient, loyaltyClient, null, voucherRecovery, customerProfiles, null);
+                shippingClient, loyaltyClient, null, voucherRecovery, customerProfiles, null, null);
+    }
+
+    public OrderService(
+            OrderRepository orderRepository,
+            OrderItemRepository orderItemRepository,
+            OrderStatusHistoryRepository orderStatusHistoryRepository,
+            CartService cartService,
+            AccessGuard accessGuard,
+            ObjectMapper objectMapper,
+            OrderEventPublisher orderEventPublisher,
+            CatalogClient catalogClient,
+            PromotionClient promotionClient,
+            ShippingClient shippingClient,
+            LoyaltyClient loyaltyClient,
+            StringRedisTemplate redisTemplate,
+            VoucherCheckoutRecovery voucherRecovery,
+            CustomerProfileClient customerProfiles,
+            JdbcTemplate jdbc
+    ) {
+        this(orderRepository, orderItemRepository, orderStatusHistoryRepository, cartService,
+                accessGuard, objectMapper, orderEventPublisher, catalogClient, promotionClient,
+                shippingClient, loyaltyClient, redisTemplate, voucherRecovery, customerProfiles, jdbc, null);
     }
 
     @Autowired
@@ -195,7 +219,8 @@ public class OrderService {
             StringRedisTemplate redisTemplate,
             VoucherCheckoutRecovery voucherRecovery,
             CustomerProfileClient customerProfiles,
-            JdbcTemplate jdbc
+            JdbcTemplate jdbc,
+            org.springframework.transaction.PlatformTransactionManager transactionManager
     ) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
@@ -212,6 +237,19 @@ public class OrderService {
         this.voucherRecovery = voucherRecovery;
         this.customerProfiles = customerProfiles;
         this.jdbc = jdbc;
+        this.transactionManager = transactionManager;
+        this.transactionTemplate = transactionManager != null
+                ? new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                : new org.springframework.transaction.support.TransactionTemplate(new org.springframework.transaction.support.AbstractPlatformTransactionManager() {
+                    @Override
+                    protected Object doGetTransaction() { return new Object(); }
+                    @Override
+                    protected void doBegin(Object transaction, org.springframework.transaction.TransactionDefinition definition) {}
+                    @Override
+                    protected void doCommit(org.springframework.transaction.support.DefaultTransactionStatus status) {}
+                    @Override
+                    protected void doRollback(org.springframework.transaction.support.DefaultTransactionStatus status) {}
+                });
     }
 
     public OrderPreviewResponse previewOrder(OrderPreviewRequest request, HttpServletRequest httpRequest) {
@@ -312,12 +350,10 @@ public class OrderService {
         );
     }
 
-    @Transactional(timeout = 60)
     public OrderResponse createOrder(CreateOrderRequest request) {
         return createOrder(request, null);
     }
 
-    @Transactional(timeout = 60)
     public OrderResponse createOrder(CreateOrderRequest request, String idempotencyKey) {
         accessGuard.requireCustomer();
         if (request.voucherCode() != null && !request.voucherCode().isBlank()) {
@@ -469,133 +505,186 @@ public class OrderService {
                 ? OrderStatus.CONFIRMED.name()
                 : OrderStatus.PENDING_PAYMENT.name();
 
-        Order order = new Order();
-        order.setOrderCode(generateOrderCode());
-        order.setCustomerId(customerId);
-        String customerEmail = customerProfiles.currentCustomerEmail(customerId);
-        order.setCustomerEmail(customerEmail);
-        order.setCustomerEmailVerified(customerEmail != null);
-        order.setStoreId(request.storeId());
-        order.setQueueNumber(generateDailyQueueNumber(request.storeId()));
-        order.setType(type);
-        order.setStatus(initialStatus);
-        order.setSubtotal(subtotal);
-        order.setDiscountAmount(discountAmount);
-        order.setPointsUsed(pointsUsed);
-        order.setPointsAmount(pointsAmount);
-        order.setShippingFee(shippingFee);
-        order.setTotalAmount(totalAmount);
-        order.setPaymentMethod(paymentMethod);
-        if (totalAmount.signum() == 0) {
-            // A fully discounted order has nothing to collect. Keep it
-            // eligible for the same paid-order loyalty/voucher settlement,
-            // without issuing a zero-value transfer or cash collection.
-            order.setPaymentStatus("COLLECTED");
-            order.setCollectionMethod("NO_PAYMENT");
-            order.setCollectedCash(BigDecimal.ZERO);
-            order.setDeclaredTransfer(BigDecimal.ZERO);
-        }
-        // Personal credentials never enter Order persistence or outbound events.
-        order.setVoucherCode(voucherCalc.valid() && request.voucherCode() != null
-                && voucherCalc.voucherInstanceId() == null ? request.voucherCode().trim() : null);
-        order.setReceiverName(request.receiverName().trim());
-        order.setReceiverPhone(request.receiverPhone().trim());
-        order.setDeliveryAddress(request.deliveryAddress() == null ? null : request.deliveryAddress().trim());
-        order.setLatitude("DELIVERY".equals(type) ? request.latitude() : null);
-        order.setLongitude("DELIVERY".equals(type) ? request.longitude() : null);
-        order.setNote(request.note());
-        order.setScheduledAt(request.scheduledAt());
-        order = orderRepository.save(order);
+        final BigDecimal finalDiscountAmount = discountAmount;
+        final BigDecimal finalPointsAmount = pointsAmount;
+        final BigDecimal finalTotalAmount = totalAmount;
+        final List<CartItemDto> finalItems = items;
+        final String effectivePaymentMethod = paymentMethod;
 
-        voucherRecovery.lock(order.getId());
-        if (order.getVoucherCode() != null || request.voucherInstanceId() != null) {
-            voucherRecovery.track(order.getId());
-            loyaltyClient.reserveVoucher(order.getId(), customerId, order.getStoreId(),
-                    order.getVoucherCode(), request.voucherInstanceId(), subtotal, voucherCalc.discountAmount());
-        }
-        if (voucherCalc.valid()) {
-            jdbc.update("""
-                    UPDATE order_service.orders SET
-                      customer_voucher_instance_id=?, voucher_campaign_id=?,
-                      voucher_policy_version=?, voucher_discount_amount=?
-                    WHERE id=?
-                    """, request.voucherInstanceId(), voucherCalc.campaignId(),
-                    voucherCalc.campaignVersion(), voucherCalc.discountAmount(), order.getId());
-        }
-        LoyaltyClient.Quote reserved = loyaltyClient.reserveWithReceipt(
-                order.getId(), customerId,
-                subtotal.subtract(voucherCalc.discountAmount()).max(BigDecimal.ZERO), loyaltyCalc);
-        jdbc.update("""
-                UPDATE order_service.orders
-                SET loyalty_wallet_id=?,loyalty_subject_type='CUSTOMER',loyalty_policy_version=?,
-                    loyalty_auth_method='ACCOUNT',points_to_earn=?
-                WHERE id=?
-                """, reserved.walletId(), reserved.policyVersion(), reserved.pointsToEarn(), order.getId());
-
-        List<OrderItem> savedItems = new ArrayList<>();
-        for (int i = 0; i < items.size(); i++) {
-            CartItemDto it = items.get(i);
-            CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
-            BigDecimal unitPrice = validated.unitPrice();
-            BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
-            String itemName = validated.name();
-
-            OrderItem item = new OrderItem();
-            item.setOrderId(order.getId());
-            item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
-            item.setProductId(it.getProductId());
-            item.setComboId(it.getComboId());
-            item.setItemName(itemName);
-            item.setUnitPrice(unitPrice.add(extraPrice));
-            item.setQuantity(it.getQuantity());
-            item.setNote(it.getNote());
-            item.setLineTotal(unitPrice.add(extraPrice).multiply(BigDecimal.valueOf(it.getQuantity())));
-
-            if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
-                item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
-            } else if (it.getOptionsSnapshot() != null) {
-                item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionsSnapshot()));
-            } else if (it.getOptionIds() != null && !it.getOptionIds().isEmpty()) {
-                item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionIds()));
+        // Phase 1: Persist Order Draft with status PENDING_STOCK
+        Order draftOrder = transactionTemplate.execute(status -> {
+            Order order = new Order();
+            order.setOrderCode(generateOrderCode());
+            order.setCustomerId(customerId);
+            String customerEmail = customerProfiles.currentCustomerEmail(customerId);
+            order.setCustomerEmail(customerEmail);
+            order.setCustomerEmailVerified(customerEmail != null);
+            order.setStoreId(request.storeId());
+            order.setQueueNumber(generateDailyQueueNumber(request.storeId()));
+            order.setType(type);
+            order.setStatus(OrderStatus.PENDING_STOCK.name());
+            order.setSubtotal(subtotal);
+            order.setDiscountAmount(finalDiscountAmount);
+            order.setPointsUsed(pointsUsed);
+            order.setPointsAmount(finalPointsAmount);
+            order.setShippingFee(shippingFee);
+            order.setTotalAmount(finalTotalAmount);
+            order.setPaymentMethod(effectivePaymentMethod);
+            if (finalTotalAmount.signum() == 0) {
+                // A fully discounted order has nothing to collect. Keep it
+                // eligible for the same paid-order loyalty/voucher settlement,
+                // without issuing a zero-value transfer or cash collection.
+                order.setPaymentStatus("COLLECTED");
+                order.setCollectionMethod("NO_PAYMENT");
+                order.setCollectedCash(BigDecimal.ZERO);
+                order.setDeclaredTransfer(BigDecimal.ZERO);
             }
-            if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
-                item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
-            } else if (it.getToppingsSnapshot() != null) {
-                item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingsSnapshot()));
-            } else if (it.getToppingIds() != null && !it.getToppingIds().isEmpty()) {
-                item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingIds()));
+            // Personal credentials never enter Order persistence or outbound events.
+            order.setVoucherCode(voucherCalc.valid() && request.voucherCode() != null
+                    && voucherCalc.voucherInstanceId() == null ? request.voucherCode().trim() : null);
+            order.setReceiverName(request.receiverName().trim());
+            order.setReceiverPhone(request.receiverPhone().trim());
+            order.setDeliveryAddress(request.deliveryAddress() == null ? null : request.deliveryAddress().trim());
+            order.setLatitude("DELIVERY".equals(type) ? request.latitude() : null);
+            order.setLongitude("DELIVERY".equals(type) ? request.longitude() : null);
+            order.setNote(request.note());
+            order.setScheduledAt(request.scheduledAt());
+            order = orderRepository.save(order);
+
+            if (idempotencyKey != null && jdbc != null) {
+                jdbc.update("UPDATE order_service.web_order_operations SET order_id=? WHERE customer_id=? AND idempotency_key=?",
+                        order.getId(), customerId, idempotencyKey.trim());
             }
-            savedItems.add(orderItemRepository.save(item));
+            return order;
+        });
+
+        // Phase 2: Synchronous Stock Reservation (outside DB transaction)
+        Map<Long, Integer> stockMap = new HashMap<>();
+        if (catalogValidation.stockQuantities() != null) {
+            catalogValidation.stockQuantities().forEach((k, v) -> stockMap.put(k, v != null ? v.intValue() : 1));
+        }
+        Map<Long, Long> expectedVersions = new HashMap<>();
+        for (CartItemDto it : finalItems) {
+            if (it.getProductId() != null && it.getExpectedVersion() != null) {
+                expectedVersions.put(it.getProductId(), it.getExpectedVersion());
+            }
+        }
+        try {
+            catalogClient.reserveStock(draftOrder.getId(), draftOrder.getStoreId(), stockMap, expectedVersions);
+        } catch (RuntimeException ex) {
+            LOG.warn("event=order_stock_reservation_failed orderId={} reason={}", draftOrder.getId(), ex.getMessage());
+            markOrderCancelledWithCompensation(draftOrder.getId(), draftOrder.getStoreId(), "Stock reservation rejected: " + ex.getMessage(), false);
+            throw ex;
         }
 
-        OrderStatusHistory history = new OrderStatusHistory();
-        history.setOrderId(order.getId());
-        history.setFromStatus(null);
-        history.setToStatus(initialStatus);
-        history.setChangedBy(customerId);
-        history.setChangedRole("CUSTOMER");
-        history.setReason("Order created with payment method: " + paymentMethod);
-        history.setCreatedAt(Instant.now());
-        orderStatusHistoryRepository.save(history);
+        // Phase 3: Finalize order in database transaction with guaranteed compensation on failure
+        try {
+            return transactionTemplate.execute(status -> {
+                Order order = orderRepository.findById(draftOrder.getId())
+                        .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
 
-        // Clear user cart in Redis only when order is successfully created
-        cartService.clearCart(userCartKey);
+                voucherRecovery.lock(order.getId());
+                if (order.getVoucherCode() != null || request.voucherInstanceId() != null) {
+                    voucherRecovery.track(order.getId());
+                    loyaltyClient.reserveVoucher(order.getId(), customerId, order.getStoreId(),
+                            order.getVoucherCode(), request.voucherInstanceId(), subtotal, voucherCalc.discountAmount());
+                }
+                if (voucherCalc.valid() && jdbc != null) {
+                    jdbc.update("""
+                            UPDATE order_service.orders SET
+                              customer_voucher_instance_id=?, voucher_campaign_id=?,
+                              voucher_policy_version=?, voucher_discount_amount=?
+                            WHERE id=?
+                            """, request.voucherInstanceId(), voucherCalc.campaignId(),
+                            voucherCalc.campaignVersion(), voucherCalc.discountAmount(), order.getId());
+                }
+                LoyaltyClient.Quote reserved = loyaltyClient.reserveWithReceipt(
+                        order.getId(), customerId,
+                        subtotal.subtract(voucherCalc.discountAmount()).max(BigDecimal.ZERO), loyaltyCalc);
+                if (jdbc != null) {
+                    jdbc.update("""
+                            UPDATE order_service.orders
+                            SET loyalty_wallet_id=?,loyalty_subject_type='CUSTOMER',loyalty_policy_version=?,
+                                loyalty_auth_method='ACCOUNT',points_to_earn=?
+                            WHERE id=?
+                            """, reserved.walletId(), reserved.policyVersion(), reserved.pointsToEarn(), order.getId());
+                }
 
-        LOG.info("event=order_created orderId={} orderCode={} customerId={} storeId={} total={} paymentMethod={}",
-                order.getId(), order.getOrderCode(), customerId, order.getStoreId(), order.getTotalAmount(), paymentMethod);
+                List<OrderItem> savedItems = new ArrayList<>();
+                for (int i = 0; i < finalItems.size(); i++) {
+                    CartItemDto it = finalItems.get(i);
+                    CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
+                    BigDecimal unitPrice = validated.unitPrice();
+                    BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
+                    String itemName = validated.name();
 
-        // Transactional Outbox: Saves outbox event in the same DB transaction
-        orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
+                    OrderItem item = new OrderItem();
+                    item.setOrderId(order.getId());
+                    item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
+                    item.setProductId(it.getProductId());
+                    item.setComboId(it.getComboId());
+                    item.setItemName(itemName);
+                    item.setUnitPrice(unitPrice.add(extraPrice));
+                    item.setQuantity(it.getQuantity());
+                    item.setNote(it.getNote());
+                    item.setLineTotal(unitPrice.add(extraPrice).multiply(BigDecimal.valueOf(it.getQuantity())));
 
-        if (idempotencyKey != null) {
-            jdbc.update("UPDATE order_service.web_order_operations SET order_id=? WHERE customer_id=? AND idempotency_key=?",
-                    order.getId(), customerId, idempotencyKey.trim());
+                    if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
+                        item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
+                    } else if (it.getOptionsSnapshot() != null) {
+                        item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionsSnapshot()));
+                    } else if (it.getOptionIds() != null && !it.getOptionIds().isEmpty()) {
+                        item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionIds()));
+                    }
+                    if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
+                        item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
+                    } else if (it.getToppingsSnapshot() != null) {
+                        item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingsSnapshot()));
+                    } else if (it.getToppingIds() != null && !it.getToppingIds().isEmpty()) {
+                        item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingIds()));
+                    }
+                    savedItems.add(orderItemRepository.save(item));
+                }
+
+                order.setStatus(initialStatus);
+                order = orderRepository.save(order);
+
+                OrderStatusHistory history = new OrderStatusHistory();
+                history.setOrderId(order.getId());
+                history.setFromStatus(OrderStatus.PENDING_STOCK.name());
+                history.setToStatus(initialStatus);
+                history.setChangedBy(customerId);
+                history.setChangedRole("CUSTOMER");
+                history.setReason("Order created with payment method: " + effectivePaymentMethod);
+                history.setCreatedAt(Instant.now());
+                orderStatusHistoryRepository.save(history);
+
+                // Clear user cart in Redis only when order is successfully created
+                cartService.clearCart(userCartKey);
+
+                LOG.info("event=order_created orderId={} orderCode={} customerId={} storeId={} total={} paymentMethod={}",
+                        order.getId(), order.getOrderCode(), customerId, order.getStoreId(), order.getTotalAmount(), effectivePaymentMethod);
+
+                // Transactional Outbox: Saves outbox event in the same DB transaction
+                orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
+
+                return DomainMapper.toResponse(order, savedItems, List.of(history));
+            });
+        } catch (Exception failure) {
+            LOG.warn("event=order_creation_failed_releasing_stock orderId={} storeId={} reason={}",
+                    draftOrder.getId(), draftOrder.getStoreId(), failure.getMessage());
+            try {
+                catalogClient.releaseStock(draftOrder.getId(), draftOrder.getStoreId());
+            } catch (Exception releaseEx) {
+                LOG.error("event=sync_release_stock_failed orderId={} storeId={} err={}",
+                        draftOrder.getId(), draftOrder.getStoreId(), releaseEx.getMessage());
+            }
+            markOrderCancelledWithCompensation(draftOrder.getId(), draftOrder.getStoreId(), failure.getMessage(), true);
+            if (failure instanceof RuntimeException re) throw re;
+            throw new IllegalStateException("Failed to finalize order", failure);
         }
-
-        return DomainMapper.toResponse(order, savedItems, List.of(history));
     }
 
-    @Transactional(timeout = 60)
     public OrderResponse createCounterOrder(CreateCounterOrderRequest request, String idempotencyKey) {
         accessGuard.requireCounterStaff();
         CurrentActor actor = CurrentActor.require();
@@ -706,114 +795,194 @@ public class OrderService {
                 ? request.paymentMethod().trim().toUpperCase() : "CASH";
         if (amountToCollect.signum() == 0) paymentMethod = "CASH";
 
-        Order order = new Order();
-        order.setOrderCode(generateOrderCode());
-        order.setCustomerId(null);
-        order.setStoreId(effectiveStoreId);
-        order.setOrderSource("COUNTER");
-        order.setDiningOption(diningOption);
-        order.setQueueNumber(queueNumber);
-        order.setType("PICKUP");
-        order.setStatus("CONFIRMED");
-        order.setPaymentStatus(amountToCollect.signum() == 0 ? "COLLECTED" : "PENDING");
-        if (amountToCollect.signum() == 0) {
-            order.setCollectionMethod("NO_PAYMENT");
-            order.setCollectedCash(BigDecimal.ZERO);
-            order.setDeclaredTransfer(BigDecimal.ZERO);
-        }
-        order.setPaymentMethod(paymentMethod);
-        order.setSubtotal(subtotal);
-        order.setDiscountAmount(counterVoucher.discountAmount().add(tierDiscount));
-        order.setPointsUsed(counterLoyalty == null ? 0 : counterLoyalty.pointsUsed());
-        order.setPointsAmount(redeemedAmount);
-        order.setShippingFee(BigDecimal.ZERO);
-        order.setTotalAmount(amountToCollect);
-        order.setReceiverName("Khách tại quầy #" + String.format("%03d", queueNumber));
-        order.setReceiverPhone("Tại quầy");
-        order.setDeliveryAddress("Tại quầy");
-        order.setNote(request.note());
-        order.setVersion(0L);
+        final String effectivePaymentMethod = paymentMethod;
 
-        order = orderRepository.save(order);
-        jdbc.update("UPDATE order_service.counter_order_operations SET order_id=? WHERE store_id=? AND idempotency_key=?", order.getId(), effectiveStoreId, idempotencyKey.trim());
-        jdbc.update("""
-                UPDATE order_service.orders SET
-                    loyalty_policy_version=?, loyalty_auth_method=?, points_to_earn=?,
-                    customer_voucher_instance_id=?, voucher_campaign_id=?,
-                    voucher_policy_version=?, voucher_discount_amount=?, loyalty_subject_type=?,
-                    loyalty_scan_proof_id=?
-                WHERE id=?
-                """, counterLoyalty == null ? null : counterLoyalty.policyVersion(),
-                counterLoyalty == null ? null : counterLoyalty.redeemAllowed() ? "QR_SCAN" : "CONTACT",
-                counterLoyalty == null ? 0 : counterLoyalty.pointsToEarn(),
-                counterVoucher.voucherInstanceId(), counterVoucher.campaignId(),
-                counterVoucher.campaignVersion(), counterVoucher.discountAmount(),
-                request.loyaltySubject() == null ? null : "COUNTER",
-                hashedScanProof(request.loyaltyScanProof()), order.getId());
-
-        // The Order owns the price. Promotion independently verifies/locks the
-        // voucher and points using this order ID and the server-calculated quote.
-        voucherRecovery.lock(order.getId());
-        if (wantsVoucher) {
-            voucherRecovery.track(order.getId());
-            loyaltyClient.reserveVoucher(order.getId(), null, effectiveStoreId,
-                    request.voucherCode(), request.voucherInstanceId(), subtotal, counterVoucher.discountAmount());
-        }
-        if (counterLoyalty != null) {
-            LoyaltyClient.CounterQuote reserved = loyaltyClient.counterReserve(
-                    order.getId(), request.loyaltySubject(), request.loyaltyScanProof(),
-                    merchandiseAfterVoucher, counterLoyalty, actor.userId(), effectiveStoreId, draftHash);
-            if (reserved.walletId() == null || reserved.walletId() <= 0)
-                throw new ApiException(ErrorCode.UPSTREAM_ERROR, "Loyalty wallet was not reserved");
-            jdbc.update("UPDATE order_service.orders SET loyalty_wallet_id=? WHERE id=?",
-                    reserved.walletId(), order.getId());
-        }
-
-        List<OrderItem> savedItems = new ArrayList<>();
-        for (int i = 0; i < items.size(); i++) {
-            CartItemDto it = items.get(i);
-            CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
-            BigDecimal unitPrice = validated.unitPrice();
-            BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
-            BigDecimal effectiveUnitPrice = unitPrice.add(extraPrice);
-
-            OrderItem item = new OrderItem();
-            item.setOrderId(order.getId());
-            item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
-            item.setProductId(it.getProductId());
-            item.setComboId(it.getComboId());
-            item.setItemName(validated.name());
-            item.setUnitPrice(effectiveUnitPrice);
-            item.setQuantity(it.getQuantity());
-            item.setNote(it.getNote());
-            item.setLineTotal(effectiveUnitPrice.multiply(BigDecimal.valueOf(it.getQuantity())));
-
-            if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
-                item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
+        // Phase 1: Persist Counter Order Draft with status PENDING_STOCK
+        Order draftOrder = transactionTemplate.execute(status -> {
+            Order order = new Order();
+            order.setOrderCode(generateOrderCode());
+            order.setCustomerId(null);
+            order.setStoreId(effectiveStoreId);
+            order.setOrderSource("COUNTER");
+            order.setDiningOption(diningOption);
+            order.setQueueNumber(queueNumber);
+            order.setType("PICKUP");
+            order.setStatus(OrderStatus.PENDING_STOCK.name());
+            order.setPaymentStatus(amountToCollect.signum() == 0 ? "COLLECTED" : "PENDING");
+            if (amountToCollect.signum() == 0) {
+                order.setCollectionMethod("NO_PAYMENT");
+                order.setCollectedCash(BigDecimal.ZERO);
+                order.setDeclaredTransfer(BigDecimal.ZERO);
             }
-            if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
-                item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
+            order.setPaymentMethod(effectivePaymentMethod);
+            order.setSubtotal(subtotal);
+            order.setDiscountAmount(counterVoucher.discountAmount().add(tierDiscount));
+            order.setPointsUsed(counterLoyalty == null ? 0 : counterLoyalty.pointsUsed());
+            order.setPointsAmount(redeemedAmount);
+            order.setShippingFee(BigDecimal.ZERO);
+            order.setTotalAmount(amountToCollect);
+            order.setReceiverName("Khách tại quầy #" + String.format("%03d", queueNumber));
+            order.setReceiverPhone("Tại quầy");
+            order.setDeliveryAddress("Tại quầy");
+            order.setNote(request.note());
+            order.setVersion(0L);
+
+            order = orderRepository.save(order);
+
+            if (jdbc != null) {
+                jdbc.update("UPDATE order_service.counter_order_operations SET order_id=? WHERE store_id=? AND idempotency_key=?",
+                        order.getId(), effectiveStoreId, idempotencyKey.trim());
             }
-            savedItems.add(orderItemRepository.save(item));
+            return order;
+        });
+
+        // Phase 2: Synchronous Stock Reservation for Counter Order (outside DB transaction)
+        Map<Long, Integer> counterStockMap = new HashMap<>();
+        if (catalogValidation.stockQuantities() != null) {
+            catalogValidation.stockQuantities().forEach((k, v) -> counterStockMap.put(k, v != null ? v.intValue() : 1));
+        }
+        try {
+            catalogClient.reserveStock(draftOrder.getId(), effectiveStoreId, counterStockMap, Map.of());
+        } catch (RuntimeException ex) {
+            LOG.warn("event=counter_order_stock_reservation_failed orderId={} reason={}", draftOrder.getId(), ex.getMessage());
+            markOrderCancelledWithCompensation(draftOrder.getId(), effectiveStoreId, "Stock reservation rejected: " + ex.getMessage(), false);
+            throw ex;
         }
 
-        OrderStatusHistory history = new OrderStatusHistory();
-        history.setOrderId(order.getId());
-        history.setFromStatus(null);
-        history.setToStatus("CONFIRMED");
-        history.setChangedBy(actor.userId());
-        history.setChangedRole(actor.role() != null ? actor.role().name() : "STAFF");
-        history.setReason("Tạo đơn quầy #" + queueNumber);
-        history.setCreatedAt(Instant.now());
-        orderStatusHistoryRepository.save(history);
+        // Phase 3: Finalize Counter Order in database transaction with compensation
+        try {
+            return transactionTemplate.execute(status -> {
+                Order order = orderRepository.findById(draftOrder.getId())
+                        .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
 
-        // Transactional Outbox
-        orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
+                if (jdbc != null) {
+                    jdbc.update("""
+                            UPDATE order_service.orders SET
+                                loyalty_policy_version=?, loyalty_auth_method=?, points_to_earn=?,
+                                customer_voucher_instance_id=?, voucher_campaign_id=?,
+                                voucher_policy_version=?, voucher_discount_amount=?, loyalty_subject_type=?,
+                                loyalty_scan_proof_id=?
+                            WHERE id=?
+                            """, counterLoyalty == null ? null : counterLoyalty.policyVersion(),
+                            counterLoyalty == null ? null : counterLoyalty.redeemAllowed() ? "QR_SCAN" : "CONTACT",
+                            counterLoyalty == null ? 0 : counterLoyalty.pointsToEarn(),
+                            counterVoucher.voucherInstanceId(), counterVoucher.campaignId(),
+                            counterVoucher.campaignVersion(), counterVoucher.discountAmount(),
+                            request.loyaltySubject() == null ? null : "COUNTER",
+                            hashedScanProof(request.loyaltyScanProof()), order.getId());
+                }
 
-        LOG.info("event=counter_order_created orderId={} orderCode={} queueNumber={} storeId={} total={}",
-                order.getId(), order.getOrderCode(), queueNumber, effectiveStoreId, order.getTotalAmount());
+                // The Order owns the price. Promotion independently verifies/locks the
+                // voucher and points using this order ID and the server-calculated quote.
+                voucherRecovery.lock(order.getId());
+                if (wantsVoucher) {
+                    voucherRecovery.track(order.getId());
+                    loyaltyClient.reserveVoucher(order.getId(), null, effectiveStoreId,
+                            request.voucherCode(), request.voucherInstanceId(), subtotal, counterVoucher.discountAmount());
+                }
+                if (counterLoyalty != null) {
+                    LoyaltyClient.CounterQuote reserved = loyaltyClient.counterReserve(
+                            order.getId(), request.loyaltySubject(), request.loyaltyScanProof(),
+                            merchandiseAfterVoucher, counterLoyalty, actor.userId(), effectiveStoreId, draftHash);
+                    if (reserved.walletId() == null || reserved.walletId() <= 0)
+                        throw new ApiException(ErrorCode.UPSTREAM_ERROR, "Loyalty wallet was not reserved");
+                    if (jdbc != null) {
+                        jdbc.update("UPDATE order_service.orders SET loyalty_wallet_id=? WHERE id=?",
+                                reserved.walletId(), order.getId());
+                    }
+                }
 
-        return DomainMapper.toResponse(order, savedItems, List.of(history));
+                List<OrderItem> savedItems = new ArrayList<>();
+                for (int i = 0; i < items.size(); i++) {
+                    CartItemDto it = items.get(i);
+                    CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
+                    BigDecimal unitPrice = validated.unitPrice();
+                    BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
+                    BigDecimal effectiveUnitPrice = unitPrice.add(extraPrice);
+
+                    OrderItem item = new OrderItem();
+                    item.setOrderId(order.getId());
+                    item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
+                    item.setProductId(it.getProductId());
+                    item.setComboId(it.getComboId());
+                    item.setItemName(validated.name());
+                    item.setUnitPrice(effectiveUnitPrice);
+                    item.setQuantity(it.getQuantity());
+                    item.setNote(it.getNote());
+                    item.setLineTotal(effectiveUnitPrice.multiply(BigDecimal.valueOf(it.getQuantity())));
+
+                    if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
+                        item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
+                    }
+                    if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
+                        item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
+                    }
+                    savedItems.add(orderItemRepository.save(item));
+                }
+
+                order.setStatus("CONFIRMED");
+                order = orderRepository.save(order);
+
+                OrderStatusHistory history = new OrderStatusHistory();
+                history.setOrderId(order.getId());
+                history.setFromStatus(OrderStatus.PENDING_STOCK.name());
+                history.setToStatus("CONFIRMED");
+                history.setChangedBy(actor.userId());
+                history.setChangedRole(actor.role() != null ? actor.role().name() : "STAFF");
+                history.setReason("Tạo đơn quầy #" + queueNumber);
+                history.setCreatedAt(Instant.now());
+                orderStatusHistoryRepository.save(history);
+
+                // Transactional Outbox
+                orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
+
+                LOG.info("event=counter_order_created orderId={} orderCode={} queueNumber={} storeId={} total={}",
+                        order.getId(), order.getOrderCode(), queueNumber, effectiveStoreId, order.getTotalAmount());
+
+                return DomainMapper.toResponse(order, savedItems, List.of(history));
+            });
+        } catch (Exception failure) {
+            LOG.warn("event=counter_order_creation_failed_releasing_stock orderId={} storeId={} reason={}",
+                    draftOrder.getId(), effectiveStoreId, failure.getMessage());
+            try {
+                catalogClient.releaseStock(draftOrder.getId(), effectiveStoreId);
+            } catch (Exception releaseEx) {
+                LOG.error("event=sync_release_stock_failed orderId={} storeId={} err={}",
+                        draftOrder.getId(), effectiveStoreId, releaseEx.getMessage());
+            }
+            markOrderCancelledWithCompensation(draftOrder.getId(), effectiveStoreId, failure.getMessage(), true);
+            if (failure instanceof RuntimeException re) throw re;
+            throw new IllegalStateException("Failed to finalize counter order", failure);
+        }
+    }
+
+    public void markOrderCancelledWithCompensation(Long orderId, Long storeId, String reason, boolean publishOutbox) {
+        if (orderId == null) return;
+        org.springframework.transaction.support.TransactionTemplate requiresNewTemplate = transactionManager != null
+                ? new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                : transactionTemplate;
+        requiresNewTemplate.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        requiresNewTemplate.execute(status -> {
+            Order order = orderRepository.findById(orderId).orElse(null);
+            if (order == null) return null;
+            String prevStatus = order.getStatus();
+            order.setStatus(OrderStatus.CANCELLED.name());
+            order = orderRepository.save(order);
+
+            OrderStatusHistory history = new OrderStatusHistory();
+            history.setOrderId(order.getId());
+            history.setFromStatus(prevStatus);
+            history.setToStatus(OrderStatus.CANCELLED.name());
+            history.setChangedRole("SYSTEM");
+            history.setReason("Hủy do lỗi tạo đơn: " + (reason != null ? reason : ""));
+            history.setCreatedAt(Instant.now());
+            orderStatusHistoryRepository.save(history);
+
+            if (publishOutbox) {
+                orderEventPublisher.publishOrderCancelled(order, List.of(), "Order creation failed after stock reserved: " + reason);
+            }
+            return null;
+        });
     }
 
     @Transactional

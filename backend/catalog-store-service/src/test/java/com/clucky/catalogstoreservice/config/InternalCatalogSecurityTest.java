@@ -28,6 +28,7 @@ class InternalCatalogSecurityTest {
     @Autowired MockMvc mvc;
     @MockitoBean JwtDecoder decoder;
     @MockitoBean ValidationService validation;
+    @MockitoBean com.clucky.catalogstoreservice.service.OrderStockService orderStockService;
 
     @Test
     void onlyInternalServiceOrAdminCanValidateItems() throws Exception {

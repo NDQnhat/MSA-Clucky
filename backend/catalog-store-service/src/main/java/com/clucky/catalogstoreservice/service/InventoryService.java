@@ -142,6 +142,38 @@ public class InventoryService {
         cacheService.evictStoreMenuCache(storeId);
     }
 
+    public void reserveItemForOrder(long storeId, long productId, int quantity, Long expectedVersion) {
+        StoreInventory inventory = storeInventoryRepository.lockByStoreAndProduct(storeId, productId)
+                .orElseThrow(() -> new ApiException(ErrorCode.INSUFFICIENT_INVENTORY, "Món ăn không tồn tại trong kho"));
+
+        if (expectedVersion != null && !expectedVersion.equals(inventory.getVersion())) {
+            LOG.warn("event=inventory_version_conflict storeId={} productId={} currentVer={} expectedVer={}",
+                    storeId, productId, inventory.getVersion(), expectedVersion);
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Số lượng tồn kho của món ăn đã thay đổi, vui lòng tải lại giỏ hàng");
+        }
+
+        int previous = inventory.getQuantityAvailable() != null ? inventory.getQuantityAvailable() : 0;
+        int newQuantity = previous - quantity;
+        if (newQuantity < 0) {
+            LOG.warn("event=insufficient_inventory storeId={} productId={} available={} requested={}",
+                    storeId, productId, previous, quantity);
+            throw new ApiException(ErrorCode.INSUFFICIENT_INVENTORY, "Món ăn không đủ số lượng tồn kho tại chi nhánh");
+        }
+
+        inventory.setQuantityAvailable(newQuantity);
+        inventory.setUpdatedBy(null);
+        inventory.setUpdatedAt(OffsetDateTime.now());
+        storeInventoryRepository.saveAndFlush(inventory);
+
+        storeProductRepository.findByStoreIdAndProductId(storeId, productId).ifPresent(product -> {
+            if (newQuantity == 0) product.setIsSoldOut(true);
+            storeProductRepository.saveAndFlush(product);
+        });
+
+        evaluateStockEpisode(storeId, inventory.getProduct(), previous, newQuantity, inventory.getStore().getLowStockThreshold());
+        cacheService.evictStoreMenuCache(storeId);
+    }
+
     public long updateStoreThreshold(Long storeId, Integer newThreshold, Long expectedVersion) {
         if (newThreshold == null || newThreshold < 0) {
             throw new ApiException(ErrorCode.INVALID_THRESHOLD);
