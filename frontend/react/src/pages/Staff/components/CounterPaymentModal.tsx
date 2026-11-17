@@ -71,6 +71,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const knownSessionRef = useRef<CounterSepaySession | null>(null);
   const transferConfirmedRef = useRef(onTransferConfirmed);
   transferConfirmedRef.current = onTransferConfirmed;
+  const createSePayRef = useRef<(cashOverride?: number) => Promise<void>>(async () => {});
   const translateRef = useRef(t);
   translateRef.current = t;
   const orderId = order?.id;
@@ -142,7 +143,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
               // subsequent polls or for SPLIT (cash amount must be chosen).
               if (firstRead && order?.orderSource === 'COUNTER'
                   && order.paymentMethod === 'BANK_TRANSFER' && order.paymentStatus === 'PENDING') {
-                await createSePay(0);
+                await createSePayRef.current(0);
               }
             }
           } else if (!knownSessionRef.current) setBankError(getErrorMessage(failure));
@@ -190,7 +191,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
     && Boolean(sepaySession.expiresAt && Date.parse(sepaySession.expiresAt) > Date.now());
   const transferQr = useMemo(() => canTransfer && !createError
     ? buildVietQrUrl(bankInfo, bankAmountDue, reference) : null,
-    [canTransfer, createError, bankInfo?.bankCode, bankInfo?.accountNo, bankInfo?.accountName, bankInfo?.bankName, bankAmountDue, reference]);
+    [canTransfer, createError, bankInfo, bankAmountDue, reference]);
 
   async function createSePay(cashOverride?: number) {
     if (!order || isWebBank || order.orderSource !== 'COUNTER'
@@ -231,6 +232,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
       if (activeOrderRef.current === order.id) setBankCreating(false);
     }
   }
+  createSePayRef.current = createSePay;
 
   useEffect(() => { setQrFailed(false); }, [transferQr]);
 
