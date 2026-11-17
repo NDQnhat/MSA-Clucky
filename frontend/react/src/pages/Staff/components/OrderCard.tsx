@@ -9,6 +9,7 @@ import {
   PackageCheck,
   CheckCircle2,
   Wallet,
+  QrCode,
   Eye,
   MessageSquare,
   Utensils,
@@ -330,6 +331,17 @@ export const OrderCard: React.FC<OrderCardProps> = ({
               <Clock3 size={18} /> {t("business:staffcard.awaitingQr")}
             </button>
           )}
+          {order.orderSource === 'COUNTER' && order.paymentStatus === 'PENDING'
+            && order.total > 0 && ['CONFIRMED', 'PREPARING'].includes(order.status) && (
+              <button
+                type="button"
+                className={`${styles.actionButton} ${styles.btnWarning}`}
+                onClick={() => onPaymentCollect?.(order)}
+                aria-label={t('business:staffcard.reopenPaymentFor', { queue: formattedQueue })}
+              >
+                <QrCode size={18} /> {t('business:staffcard.reopenPayment')}
+              </button>
+            )}
 
           {order.status === "CONFIRMED" && (
             <button

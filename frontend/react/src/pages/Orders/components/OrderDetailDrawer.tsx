@@ -311,9 +311,10 @@ export function OrderDetailDrawer({
                 onClick={() => onStatusChange(order.id, "READY")}
               > {t("business:orderdetaildrawer.mealReady")} </Button>
             )}
-            {!onOpenFinance && order.paymentStatus === "PENDING" &&
-              order.orderType === "PICKUP" && order.status === "READY" &&
-              !["CANCELLED", "COMPLETED", "PENDING_PAYMENT"].includes(order.status) && (
+            {!onOpenFinance && order.paymentStatus === "PENDING" && order.total > 0 &&
+              (onCollectCounter
+                ? order.orderSource === 'COUNTER' && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status)
+                : order.orderType === "PICKUP" && order.status === "READY") && (
                 onCollectCounter ? (
                   <Button
                     type="primary"
