@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 for (const hasHome of [true, false]) {
-  test(`branch distances use ${hasHome ? "default address before GPS" : "GPS without a saved home"}`, async ({ page, context }) => {
+  test(`branch distances automatically use granted GPS ${hasHome ? "with a saved home" : "without a saved home"}`, async ({ page, context }) => {
     await context.grantPermissions(["geolocation"]);
     await context.setGeolocation({ latitude: 11, longitude: 106 });
     await page.addInitScript(() => sessionStorage.setItem("clucky_location_prompt", "seen"));
@@ -19,8 +19,8 @@ for (const hasHome of [true, false]) {
     ] }));
     await page.route("https://api.mapbox.com/styles/v1/**", route => route.fulfill({ json: { version: 8, sources: {}, layers: [] } }));
     await page.route("https://events.mapbox.com/**", route => route.fulfill({ status: 200, json: {} }));
-    const nearId = hasHome ? "81" : "82";
-    const farId = hasHome ? "82" : "81";
+    const nearId = "82";
+    const farId = "81";
     await page.goto("http://127.0.0.1:4174/stores");
     await expect(page.locator("main > header img")).toHaveCount(0);
     await expect(page.locator("#branch-" + nearId)).toContainText("~ cách 0 km");

@@ -123,13 +123,34 @@ class AuthServiceTest {
     }
 
     @Test
-    void duplicatePhoneIsIdentifiedWithoutCallingItAnEmailConflict() {
+    void retryingAnUnverifiedRegistrationReissuesOtpWithoutCreatingAnotherAccount() {
+        when(challenges.sendSms(any(User.class), eq("REGISTER"))).thenReturn("challenge-1", "challenge-2");
+        service.register(new RegisterRequest("A", "0901234567", "Password1"));
+        var retry = service.register(new RegisterRequest("A", "0901234567", "Password1"));
+        assertEquals("challenge-2", retry.challengeId());
+        assertEquals(1, users.size());
+        verify(challenges, times(2)).sendSms(any(User.class), eq("REGISTER"));
+    }
+
+    @Test
+    void retryWithDifferentPasswordCannotReplacePendingAccount() {
         service.register(new RegisterRequest("A", "0901234567", "Password1"));
         var failure = assertThrows(ApiException.class,
-                () -> service.register(new RegisterRequest("B", "0901234567", "Password1")));
+                () -> service.register(new RegisterRequest("B", "0901234567", "DifferentPassword2")));
         assertEquals(ErrorCode.RESOURCE_CONFLICT, failure.getCode());
         assertEquals(Map.of("phone", "ALREADY_EXISTS"), failure.getFieldErrors());
         assertEquals(1, users.size());
+        assertTrue(encoder.matches("Password1", users.values().iterator().next().getPasswordHash()));
+        verify(challenges, times(1)).sendSms(any(User.class), eq("REGISTER"));
+    }
+
+    @Test
+    void retryCannotIssueRegistrationOtpForAVerifiedAccount() {
+        service.register(new RegisterRequest("A", "0901234567", "Password1"));
+        users.values().iterator().next().setPhoneVerified(true);
+        var failure = assertThrows(ApiException.class,
+                () -> service.register(new RegisterRequest("A", "0901234567", "Password1")));
+        assertEquals(ErrorCode.RESOURCE_CONFLICT, failure.getCode());
         verify(challenges, times(1)).sendSms(any(User.class), eq("REGISTER"));
     }
 
