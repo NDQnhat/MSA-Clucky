@@ -3,6 +3,7 @@ package com.clucky.catalogstoreservice.controller;
 import com.clucky.catalogstoreservice.dto.ValidationDto;
 import com.clucky.catalogstoreservice.service.OrderStockService;
 import com.clucky.catalogstoreservice.service.ValidationService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,16 +31,18 @@ public class InternalCatalogController {
     }
 
     @PostMapping("/reserve-stock")
+    @PreAuthorize("hasRole('INTERNAL_SERVICE') and authentication.tokenAttributes['service'] == 'cart-order-service'")
     public ResponseEntity<Void> reserveStock(
-            @RequestBody ValidationDto.ReserveStockRequest request,
+            @Valid @RequestBody ValidationDto.ReserveStockRequest request,
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationId) {
         orderStockService.reserveOrderStock(request.orderId(), request.storeId(), request.stockQuantities(), request.expectedVersions(), correlationId);
         return ResponseEntity.ok().build();
     }
 
     @PostMapping("/release-stock")
+    @PreAuthorize("hasRole('INTERNAL_SERVICE') and authentication.tokenAttributes['service'] == 'cart-order-service'")
     public ResponseEntity<Void> releaseStock(
-            @RequestBody ValidationDto.ReleaseStockRequest request,
+            @Valid @RequestBody ValidationDto.ReleaseStockRequest request,
             @RequestHeader(value = "X-Correlation-ID", required = false) String correlationId) {
         orderStockService.releaseOrderStock(request.orderId(), request.storeId(), correlationId);
         return ResponseEntity.ok().build();

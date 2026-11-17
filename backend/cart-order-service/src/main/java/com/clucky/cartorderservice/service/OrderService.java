@@ -362,46 +362,25 @@ public class OrderService {
         }
         Long customerId = CurrentActor.require().userId();
 
-        // Claim the client attempt before any pricing or cross-service reservations.
-        // PostgreSQL's unique key serializes overlapping retries until the first
-        // transaction commits; replay returns the original order snapshot.
+        // Look up completed attempts before pricing again. The claim itself is
+        // committed atomically with the draft in phase 1, below.
+        final String operationKey = idempotencyKey == null ? null : idempotencyKey.trim();
+        String requestHash = null;
         if (idempotencyKey != null) {
             if (idempotencyKey.isBlank() || idempotencyKey.indexOf('\0') >= 0
                     || idempotencyKey.trim().length() > 128 || jdbc == null) {
                 throw new ApiException(ErrorCode.VALIDATION_ERROR, "Idempotency-Key không hợp lệ");
             }
-            String fingerprint;
             try {
-                fingerprint = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                requestHash = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                         .digest(objectMapper.writeValueAsBytes(request)));
             } catch (java.security.NoSuchAlgorithmException | com.fasterxml.jackson.core.JsonProcessingException failure) {
                 throw new IllegalStateException("Cannot hash checkout draft", failure);
             }
-            String key = idempotencyKey.trim();
-            int inserted = jdbc.update("""
-                    INSERT INTO order_service.web_order_operations (customer_id,idempotency_key,payload_hash)
-                    VALUES (?,?,?) ON CONFLICT DO NOTHING
-                    """, customerId, key, fingerprint);
-            if (inserted == 0) {
-                var previous = jdbc.queryForList("""
-                        SELECT payload_hash,order_id FROM order_service.web_order_operations
-                        WHERE customer_id=? AND idempotency_key=?
-                        """, customerId, key);
-                if (previous.isEmpty() || !fingerprint.equals(previous.getFirst().get("payload_hash"))) {
-                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Khóa gửi đơn đã dùng cho nội dung khác");
-                }
-                Object existingId = previous.getFirst().get("order_id");
-                if (existingId == null) {
-                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
-                }
-                Order existing = orderRepository.findById(((Number) existingId).longValue())
-                        .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-                if (!customerId.equals(existing.getCustomerId())) throw new ApiException(ErrorCode.FORBIDDEN);
-                return DomainMapper.toResponse(existing,
-                        orderItemRepository.findByOrderIdOrderByIdAsc(existing.getId()),
-                        orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(existing.getId()));
-            }
+            OrderResponse previous = replayWebOrder(customerId, operationKey, requestHash);
+            if (previous != null) return previous;
         }
+        final String payloadHash = requestHash;
 
         String userCartKey = RedisConfig.key("cart", customerId.toString());
         List<CartItemDto> items = (request.items() != null && !request.items().isEmpty())
@@ -512,7 +491,20 @@ public class OrderService {
         final String effectivePaymentMethod = paymentMethod;
 
         // Phase 1: Persist Order Draft with status PENDING_STOCK
+        java.util.concurrent.atomic.AtomicReference<OrderResponse> replayedOrder = new java.util.concurrent.atomic.AtomicReference<>();
         Order draftOrder = transactionTemplate.execute(status -> {
+            if (operationKey != null) {
+                int inserted = jdbc.update("""
+                        INSERT INTO order_service.web_order_operations (customer_id,idempotency_key,payload_hash)
+                        VALUES (?,?,?) ON CONFLICT DO NOTHING
+                        """, customerId, operationKey, payloadHash);
+                if (inserted == 0) {
+                    OrderResponse replay = replayWebOrder(customerId, operationKey, payloadHash);
+                    if (replay == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
+                    replayedOrder.set(replay);
+                    return null;
+                }
+            }
             Order order = new Order();
             order.setOrderCode(generateOrderCode());
             order.setCustomerId(customerId);
@@ -551,12 +543,13 @@ public class OrderService {
             order.setScheduledAt(request.scheduledAt());
             order = orderRepository.save(order);
 
-            if (idempotencyKey != null && jdbc != null) {
+            if (operationKey != null) {
                 jdbc.update("UPDATE order_service.web_order_operations SET order_id=? WHERE customer_id=? AND idempotency_key=?",
-                        order.getId(), customerId, idempotencyKey.trim());
+                        order.getId(), customerId, operationKey);
             }
             return order;
         });
+        if (draftOrder == null) return replayedOrder.get();
 
         // Phase 2: Synchronous Stock Reservation (outside DB transaction)
         Map<Long, Integer> stockMap = new HashMap<>();
@@ -573,17 +566,22 @@ public class OrderService {
             catalogClient.reserveStock(draftOrder.getId(), draftOrder.getStoreId(), stockMap, expectedVersions);
         } catch (RuntimeException ex) {
             LOG.warn("event=order_stock_reservation_failed orderId={} reason={}", draftOrder.getId(), ex.getMessage());
-            markOrderCancelledWithCompensation(draftOrder.getId(), draftOrder.getStoreId(), "Stock reservation rejected: " + ex.getMessage(), false);
+            markOrderCancelledWithCompensation(draftOrder.getId(), draftOrder.getStoreId(), "Stock reservation rejected: " + ex.getMessage(), true);
             throw ex;
         }
 
         // Phase 3: Finalize order in database transaction with guaranteed compensation on failure
         try {
             return transactionTemplate.execute(status -> {
-                Order order = orderRepository.findById(draftOrder.getId())
+                // Voucher recovery acquires the advisory lock before the order row.
+                // Keep the same order to avoid a DB deadlock with voucher recovery.
+                voucherRecovery.lock(draftOrder.getId());
+                Order order = orderRepository.lockById(draftOrder.getId())
                         .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+                if (!OrderStatus.PENDING_STOCK.name().equals(order.getStatus())) {
+                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã kết thúc giữ hàng");
+                }
 
-                voucherRecovery.lock(order.getId());
                 if (order.getVoucherCode() != null || request.voucherInstanceId() != null) {
                     voucherRecovery.track(order.getId());
                     loyaltyClient.reserveVoucher(order.getId(), customerId, order.getStoreId(),
@@ -714,17 +712,9 @@ public class OrderService {
         }
 
         if (jdbc == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
-        int inserted = jdbc.update("INSERT INTO order_service.counter_order_operations(idempotency_key,store_id,payload_hash) VALUES (?,?,?) ON CONFLICT DO NOTHING",
-                idempotencyKey.trim(), effectiveStoreId, payloadHash);
-        if (inserted == 0) {
-            var existing = jdbc.queryForList("SELECT payload_hash,order_id FROM order_service.counter_order_operations WHERE store_id=? AND idempotency_key=?", effectiveStoreId, idempotencyKey.trim());
-            if (existing.isEmpty() || !Objects.equals(payloadHash, existing.getFirst().get("payload_hash"))) throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
-            Object orderId = existing.getFirst().get("order_id");
-            if (orderId == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Request đang được xử lý, vui lòng thử lại");
-            Order existingOrder = orderRepository.findById(((Number) orderId).longValue()).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-            if (!effectiveStoreId.equals(existingOrder.getStoreId())) throw new ApiException(ErrorCode.FORBIDDEN);
-            return DomainMapper.toResponse(existingOrder, orderItemRepository.findByOrderIdOrderByIdAsc(existingOrder.getId()), orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(existingOrder.getId()));
-        }
+        final String operationKey = idempotencyKey.trim();
+        OrderResponse previous = replayCounterOrder(effectiveStoreId, operationKey, payloadHash);
+        if (previous != null) return previous;
 
         if (request.items() == null || request.items().isEmpty()) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Danh sách món không được để trống");
@@ -798,7 +788,16 @@ public class OrderService {
         final String effectivePaymentMethod = paymentMethod;
 
         // Phase 1: Persist Counter Order Draft with status PENDING_STOCK
+        java.util.concurrent.atomic.AtomicReference<OrderResponse> replayedOrder = new java.util.concurrent.atomic.AtomicReference<>();
         Order draftOrder = transactionTemplate.execute(status -> {
+            int inserted = jdbc.update("INSERT INTO order_service.counter_order_operations(idempotency_key,store_id,payload_hash) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+                    operationKey, effectiveStoreId, payloadHash);
+            if (inserted == 0) {
+                OrderResponse replay = replayCounterOrder(effectiveStoreId, operationKey, payloadHash);
+                if (replay == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
+                replayedOrder.set(replay);
+                return null;
+            }
             Order order = new Order();
             order.setOrderCode(generateOrderCode());
             order.setCustomerId(null);
@@ -829,12 +828,11 @@ public class OrderService {
 
             order = orderRepository.save(order);
 
-            if (jdbc != null) {
-                jdbc.update("UPDATE order_service.counter_order_operations SET order_id=? WHERE store_id=? AND idempotency_key=?",
-                        order.getId(), effectiveStoreId, idempotencyKey.trim());
-            }
+            jdbc.update("UPDATE order_service.counter_order_operations SET order_id=? WHERE store_id=? AND idempotency_key=?",
+                    order.getId(), effectiveStoreId, operationKey);
             return order;
         });
+        if (draftOrder == null) return replayedOrder.get();
 
         // Phase 2: Synchronous Stock Reservation for Counter Order (outside DB transaction)
         Map<Long, Integer> counterStockMap = new HashMap<>();
@@ -845,15 +843,19 @@ public class OrderService {
             catalogClient.reserveStock(draftOrder.getId(), effectiveStoreId, counterStockMap, Map.of());
         } catch (RuntimeException ex) {
             LOG.warn("event=counter_order_stock_reservation_failed orderId={} reason={}", draftOrder.getId(), ex.getMessage());
-            markOrderCancelledWithCompensation(draftOrder.getId(), effectiveStoreId, "Stock reservation rejected: " + ex.getMessage(), false);
+            markOrderCancelledWithCompensation(draftOrder.getId(), effectiveStoreId, "Stock reservation rejected: " + ex.getMessage(), true);
             throw ex;
         }
 
         // Phase 3: Finalize Counter Order in database transaction with compensation
         try {
             return transactionTemplate.execute(status -> {
-                Order order = orderRepository.findById(draftOrder.getId())
+                voucherRecovery.lock(draftOrder.getId());
+                Order order = orderRepository.lockById(draftOrder.getId())
                         .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+                if (!OrderStatus.PENDING_STOCK.name().equals(order.getStatus())) {
+                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã kết thúc giữ hàng");
+                }
 
                 if (jdbc != null) {
                     jdbc.update("""
@@ -874,7 +876,6 @@ public class OrderService {
 
                 // The Order owns the price. Promotion independently verifies/locks the
                 // voucher and points using this order ID and the server-calculated quote.
-                voucherRecovery.lock(order.getId());
                 if (wantsVoucher) {
                     voucherRecovery.track(order.getId());
                     loyaltyClient.reserveVoucher(order.getId(), null, effectiveStoreId,
@@ -956,6 +957,51 @@ public class OrderService {
         }
     }
 
+    private OrderResponse replayWebOrder(Long customerId, String key, String fingerprint) {
+        var rows = jdbc.queryForList("""
+                SELECT payload_hash,order_id FROM order_service.web_order_operations
+                WHERE customer_id=? AND idempotency_key=?
+                """, customerId, key);
+        if (rows.isEmpty()) return null;
+        if (!fingerprint.equals(rows.getFirst().get("payload_hash"))) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Khóa gửi đơn đã dùng cho nội dung khác");
+        }
+        Object id = rows.getFirst().get("order_id");
+        if (id == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
+        Order order = orderRepository.findById(((Number) id).longValue())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!customerId.equals(order.getCustomerId())) throw new ApiException(ErrorCode.FORBIDDEN);
+        return replayFinishedOrder(order);
+    }
+
+    private OrderResponse replayCounterOrder(Long storeId, String key, String fingerprint) {
+        var rows = jdbc.queryForList("""
+                SELECT payload_hash,order_id FROM order_service.counter_order_operations
+                WHERE store_id=? AND idempotency_key=?
+                """, storeId, key);
+        if (rows.isEmpty()) return null;
+        if (!fingerprint.equals(rows.getFirst().get("payload_hash"))) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Khóa gửi đơn đã dùng cho nội dung khác");
+        }
+        Object id = rows.getFirst().get("order_id");
+        if (id == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
+        Order order = orderRepository.findById(((Number) id).longValue())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!storeId.equals(order.getStoreId())) throw new ApiException(ErrorCode.FORBIDDEN);
+        return replayFinishedOrder(order);
+    }
+
+    private OrderResponse replayFinishedOrder(Order order) {
+        // The draft is committed before its stock/loyalty reservation. A concurrent
+        // retry must never report that draft as a successfully placed order.
+        if (OrderStatus.PENDING_STOCK.name().equals(order.getStatus())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
+        }
+        return DomainMapper.toResponse(order,
+                orderItemRepository.findByOrderIdOrderByIdAsc(order.getId()),
+                orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(order.getId()));
+    }
+
     public void markOrderCancelledWithCompensation(Long orderId, Long storeId, String reason, boolean publishOutbox) {
         if (orderId == null) return;
         org.springframework.transaction.support.TransactionTemplate requiresNewTemplate = transactionManager != null
@@ -963,26 +1009,48 @@ public class OrderService {
                 : transactionTemplate;
         requiresNewTemplate.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         requiresNewTemplate.execute(status -> {
-            Order order = orderRepository.findById(orderId).orElse(null);
-            if (order == null) return null;
-            String prevStatus = order.getStatus();
-            order.setStatus(OrderStatus.CANCELLED.name());
-            order = orderRepository.save(order);
-
-            OrderStatusHistory history = new OrderStatusHistory();
-            history.setOrderId(order.getId());
-            history.setFromStatus(prevStatus);
-            history.setToStatus(OrderStatus.CANCELLED.name());
-            history.setChangedRole("SYSTEM");
-            history.setReason("Hủy do lỗi tạo đơn: " + (reason != null ? reason : ""));
-            history.setCreatedAt(Instant.now());
-            orderStatusHistoryRepository.save(history);
-
-            if (publishOutbox) {
-                orderEventPublisher.publishOrderCancelled(order, List.of(), "Order creation failed after stock reserved: " + reason);
+            Order order = orderRepository.lockById(orderId).orElse(null);
+            if (order != null && OrderStatus.PENDING_STOCK.name().equals(order.getStatus())) {
+                cancelPendingStockDraft(order, "Hủy do lỗi tạo đơn: " + (reason != null ? reason : ""), publishOutbox);
             }
             return null;
         });
+    }
+
+    @Transactional
+    public boolean cancelStalePendingStock(Long orderId, Duration minAge) {
+        Order order = orderRepository.lockById(orderId).orElse(null);
+        if (order == null || !OrderStatus.PENDING_STOCK.name().equals(order.getStatus())
+                || order.getCreatedAt() == null || order.getCreatedAt().isAfter(Instant.now().minus(minAge))) {
+            return false;
+        }
+        cancelPendingStockDraft(order, "Quá thời gian giữ hàng chờ hoàn tất đơn", true);
+        return true;
+    }
+
+    private void cancelPendingStockDraft(Order order, String reason, boolean publishOutbox) {
+        order.setStatus(OrderStatus.CANCELLED.name());
+        order = orderRepository.save(order);
+
+        OrderStatusHistory history = new OrderStatusHistory();
+        history.setOrderId(order.getId());
+        history.setFromStatus(OrderStatus.PENDING_STOCK.name());
+        history.setToStatus(OrderStatus.CANCELLED.name());
+        history.setChangedRole("SYSTEM");
+        history.setReason(reason);
+        history.setCreatedAt(Instant.now());
+        orderStatusHistoryRepository.save(history);
+
+        // A failed draft is retryable with the same key. Both deletes and
+        // cancellation/outbox commit together while holding the order row lock.
+        if (jdbc != null) {
+            jdbc.update("DELETE FROM order_service.web_order_operations WHERE order_id=?", order.getId());
+            jdbc.update("DELETE FROM order_service.counter_order_operations WHERE order_id=?", order.getId());
+        }
+        voucherRecovery.cancelled(order.getId());
+        if (publishOutbox) {
+            orderEventPublisher.publishOrderCancelled(order, List.of(), reason);
+        }
     }
 
     @Transactional

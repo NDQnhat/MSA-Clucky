@@ -46,7 +46,7 @@ class StockReconciliationSchedulerTest {
     }
 
     @Test
-    void reconcilesAbandonedStockWhenOrderIsStalePendingStock() {
+    void waitsForCartCancellationWhenOrderIsStalePendingStock() {
         when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(List.of(
                 Map.of("order_id", 102L, "store_id", 2L)
         ));
@@ -56,7 +56,9 @@ class StockReconciliationSchedulerTest {
 
         scheduler.reconcileStaleStockReservations();
 
-        verify(orderStockService).releaseOrderStock(102L, 2L, "reconciliation-pending_stock");
+        verify(orderStockService, never()).releaseOrderStock(anyLong(), anyLong(), anyString());
+        verify(jdbc).update(startsWith("UPDATE catalog_service.order_stock_ledger SET updated_at=now()"), eq(10), eq(102L));
+        verify(jdbc, never()).update(startsWith("UPDATE catalog_service.order_stock_ledger SET event_id="), any(), any());
     }
 
     @Test

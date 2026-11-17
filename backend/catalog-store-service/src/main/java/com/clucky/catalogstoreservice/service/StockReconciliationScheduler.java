@@ -79,10 +79,18 @@ public class StockReconciliationScheduler {
             var remoteStatus = orderOpt.get();
             String status = remoteStatus.status();
 
-            if ("CANCELLED".equalsIgnoreCase(status) || "PENDING_STOCK".equalsIgnoreCase(status)) {
-                LOG.warn("event=reconciliation_releasing_abandoned_stock orderId={} storeId={} remoteStatus={}",
-                        orderId, storeId, status);
-                orderStockService.releaseOrderStock(orderId, storeId, "reconciliation-" + status.toLowerCase());
+            if ("CANCELLED".equalsIgnoreCase(status)) {
+                LOG.warn("event=reconciliation_releasing_cancelled_stock orderId={} storeId={}", orderId, storeId);
+                orderStockService.releaseOrderStock(orderId, storeId, "reconciliation-cancelled");
+            } else if ("PENDING_STOCK".equalsIgnoreCase(status)) {
+                // Cart owns the draft-to-CANCELLED transition. It can still be finalizing this order.
+                // Recheck in one minute without allowing pending drafts to occupy all 50 scan slots.
+                // This timestamp is only a scheduling cursor for the stale-reservation query.
+                LOG.info("event=reconciliation_waiting_for_cart orderId={} storeId={}", orderId, storeId);
+                jdbc.update("UPDATE catalog_service.order_stock_ledger " +
+                                "SET updated_at=now() - (? * INTERVAL '1 minute') + INTERVAL '1 minute' " +
+                                "WHERE order_id=? AND status='DEDUCTED' AND event_id LIKE 'sync-reserve-%'",
+                        timeoutMinutes, orderId);
             } else {
                 // Legitimate confirmed order
                 LOG.info("event=reconciliation_order_confirmed orderId={} remoteStatus={}", orderId, status);

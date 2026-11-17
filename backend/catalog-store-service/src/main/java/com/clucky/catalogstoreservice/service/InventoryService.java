@@ -143,6 +143,9 @@ public class InventoryService {
     }
 
     public void reserveItemForOrder(long storeId, long productId, int quantity, Long expectedVersion) {
+        if (storeId <= 0 || productId <= 0 || quantity <= 0) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "Invalid order stock reservation quantity");
+        }
         StoreInventory inventory = storeInventoryRepository.lockByStoreAndProduct(storeId, productId)
                 .orElseThrow(() -> new ApiException(ErrorCode.INSUFFICIENT_INVENTORY, "Món ăn không tồn tại trong kho"));
 
@@ -153,12 +156,12 @@ public class InventoryService {
         }
 
         int previous = inventory.getQuantityAvailable() != null ? inventory.getQuantityAvailable() : 0;
-        int newQuantity = previous - quantity;
-        if (newQuantity < 0) {
+        if (previous < quantity) {
             LOG.warn("event=insufficient_inventory storeId={} productId={} available={} requested={}",
                     storeId, productId, previous, quantity);
             throw new ApiException(ErrorCode.INSUFFICIENT_INVENTORY, "Món ăn không đủ số lượng tồn kho tại chi nhánh");
         }
+        int newQuantity = previous - quantity;
 
         inventory.setQuantityAvailable(newQuantity);
         inventory.setUpdatedBy(null);

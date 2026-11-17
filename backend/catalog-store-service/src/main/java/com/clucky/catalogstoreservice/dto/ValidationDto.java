@@ -1,5 +1,8 @@
 package com.clucky.catalogstoreservice.dto;
 
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -9,15 +12,15 @@ public class ValidationDto {
     public record ToppingSnapshot(Long id, String name, BigDecimal extraPrice) {}
 
     public record ReserveStockRequest(
-            Long orderId,
-            Long storeId,
-            java.util.Map<Long, Integer> stockQuantities,
+            @NotNull @Positive Long orderId,
+            @NotNull @Positive Long storeId,
+            @NotEmpty java.util.Map<@NotNull @Positive Long, @NotNull @Positive Integer> stockQuantities,
             java.util.Map<Long, Long> expectedVersions
     ) {}
 
     public record ReleaseStockRequest(
-            Long orderId,
-            Long storeId
+            @NotNull @Positive Long orderId,
+            @NotNull @Positive Long storeId
     ) {}
 
     public static class ValidateItemRequest {

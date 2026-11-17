@@ -66,7 +66,7 @@ class CheckoutRegressionTest {
         when(orders.save(any())).thenAnswer(call -> {
             com.clucky.cartorderservice.entity.Order order = call.getArgument(0); order.setId(8L); return order;
         });
-        when(orders.findById(8L)).thenAnswer(call -> {
+        when(orders.lockById(8L)).thenAnswer(call -> {
             com.clucky.cartorderservice.entity.Order order = new com.clucky.cartorderservice.entity.Order();
             order.setId(8L);
             order.setStoreId(1L);
