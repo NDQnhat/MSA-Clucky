@@ -52,6 +52,10 @@ class InternalServiceSecurityTest {
         mvc.perform(get("/internal/loyalty/orders/1").header("X-Loyalty-Service-Token", SECRET)).andExpect(status().isUnauthorized());
         mvc.perform(get("/internal/loyalty/orders/1").header("Authorization", "Bearer " + token("INTERNAL_SERVICE", "promotion-loyalty-service", 60, SECRET, "test-api")))
                 .andExpect(status().isOk());
+        mvc.perform(get("/internal/orders/1/status").header("Authorization", "Bearer " + token("INTERNAL_SERVICE", "catalog-store-service", 60, SECRET, "test-api")))
+                .andExpect(status().isOk());
+        mvc.perform(get("/internal/orders/1/status").header("Authorization", "Bearer " + token("INTERNAL_SERVICE", "unrelated-service", 60, SECRET, "test-api")))
+                .andExpect(status().isForbidden());
         for (String role : List.of("CUSTOMER", "ADMIN")) {
             mvc.perform(get("/internal/loyalty/orders/1").header("Authorization", "Bearer " + token(role, "promotion-loyalty-service", 60, SECRET, "test-api")))
                     .andExpect(status().isForbidden());
@@ -95,6 +99,6 @@ class InternalServiceSecurityTest {
 
     @RestController
     static class ProbeController {
-        @RequestMapping("/internal/loyalty/**") String probe() { return "ok"; }
+        @RequestMapping({"/internal/loyalty/**", "/internal/orders/**"}) String probe() { return "ok"; }
     }
 }
