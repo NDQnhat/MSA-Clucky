@@ -39,11 +39,19 @@ export function toCartPayload(item: CartItem): CartItemPayload {
   const rawToppingIds = item.toppingIds ?? [];
   const optionIds = rawOptionIds.map((id) => parseId(id) ?? id);
   const toppingIds = rawToppingIds.map((id) => parseId(id) ?? id);
+  const comboSelections = (item.comboSelections ?? []).map(selection => ({
+    comboItemId: parseId(selection.comboItemId) ?? 0,
+    optionIds: (selection.optionIds ?? []).map(id => parseId(id) ?? 0),
+    toppingIds: (selection.toppingIds ?? []).map(id => parseId(id) ?? 0),
+  }));
 
   if ((productId == null) === (comboId == null)
       || !validId(productId ?? comboId)
       || !Number.isSafeInteger(item.quantity) || item.quantity < 1
-      || !optionIds.every((id) => validId(id as number)) || !toppingIds.every((id) => validId(id as number))) {
+      || !optionIds.every((id) => validId(id as number)) || !toppingIds.every((id) => validId(id as number))
+      || comboSelections.some(selection => !validId(selection.comboItemId)
+        || !selection.optionIds.every(validId) || !selection.toppingIds.every(validId))
+      || (productId != null && comboSelections.length > 0)) {
     throw { code: "VALIDATION_ERROR" };
   }
   return {
@@ -54,6 +62,7 @@ export function toCartPayload(item: CartItem): CartItemPayload {
     quantity: item.quantity,
     optionIds: optionIds as number[],
     toppingIds: toppingIds as number[],
+    ...(comboId != null && comboSelections.length > 0 ? { comboSelections } : {}),
     ...((item.optionsSnapshot ?? item.options) != null ? { optionsSnapshot: item.optionsSnapshot ?? item.options } : {}),
     ...((item.toppingsSnapshot ?? item.toppings) != null ? { toppingsSnapshot: item.toppingsSnapshot ?? item.toppings } : {}),
     note: item.note,
@@ -62,11 +71,18 @@ export function toCartPayload(item: CartItem): CartItemPayload {
 
 export function mapBackendCart(cart: BackendCartDto, previous: CartItem[] = []): CartItem[] {
   const ids = (values: number[] = []) => JSON.stringify([...values].sort((first, second) => first - second));
+  const comboSignature = (selections: { comboItemId: number; optionIds: number[]; toppingIds: number[] }[] = []) =>
+    JSON.stringify(selections.map(selection => [
+      selection.comboItemId,
+      ids(selection.optionIds),
+      ids(selection.toppingIds),
+    ]).sort((first, second) => Number(first[0]) - Number(second[0])));
   return cart.items.map((item) => {
     const saved = previous.find((candidate) => candidate.itemKey === item.itemKey
       || ((candidate.productId ?? null) === (item.productId ?? null) && (candidate.comboId ?? null) === (item.comboId ?? null)
         && ids(candidate.optionIds) === ids(item.optionIds)
-        && ids(candidate.toppingIds) === ids(item.toppingIds)));
+        && ids(candidate.toppingIds) === ids(item.toppingIds)
+        && comboSignature(candidate.comboSelections) === comboSignature(item.comboSelections)));
     const options = saved?.options ?? parseSnapshotArray<CartItemOption>(item.optionsSnapshot, (o, idx) => ({
       id: typeof o.id === "number" ? o.id : Number(o.id ?? idx),
       groupName: String(o.groupName ?? ""),
@@ -88,6 +104,7 @@ export function mapBackendCart(cart: BackendCartDto, previous: CartItem[] = []):
       itemType: item.productId != null ? "PRODUCT" : "COMBO",
       optionIds: item.optionIds ?? [],
       toppingIds: item.toppingIds ?? [],
+      comboSelections: item.comboSelections ?? saved?.comboSelections,
       options: options.length > 0 ? options : saved?.options,
       toppings: toppings.length > 0 ? toppings : saved?.toppings,
       optionsSnapshot: item.optionsSnapshot ?? saved?.optionsSnapshot,
@@ -112,6 +129,7 @@ export function addCartItem(items: CartItem[], incoming: CartItem): CartItem[] {
       item.unitPrice,
       item.options ?? [],
       item.toppings ?? [],
+      item.comboSelections ?? [],
       item.note?.trim() ?? "",
     ]);
   const existing = items.find(

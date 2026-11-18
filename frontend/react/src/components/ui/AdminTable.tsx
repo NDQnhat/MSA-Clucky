@@ -105,7 +105,7 @@ export function AdminTable<T extends object>({
                   <div style={{ marginTop: 8 }}>
                     <div
                       style={{
-                        fontFamily: 'Fredoka, Quicksand, sans-serif',
+                        fontFamily: 'var(--font-heading)',
                         fontWeight: 600,
                         fontSize: 16,
                         color: '#16100D',

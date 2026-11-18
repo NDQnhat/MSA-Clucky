@@ -33,6 +33,12 @@ export interface CartItemTopping {
   extraPrice: number;
 }
 
+export interface ComboSelection {
+  comboItemId: number;
+  optionIds: number[];
+  toppingIds: number[];
+}
+
 export interface CartItem {
   id: string;
   productId?: number;
@@ -49,6 +55,7 @@ export interface CartItem {
   image: string;
   optionIds?: number[];
   toppingIds?: number[];
+  comboSelections?: ComboSelection[];
   options?: CartItemOption[];
   toppings?: CartItemTopping[];
   optionsSnapshot?: any;

@@ -11,6 +11,29 @@ const server = await createServer({
       name: "catalog-mock-api",
       configureServer(s) {
         s.middlewares.use((req, res, next) => {
+          if (req.url?.split("?")[0] === "/api/catalog/products/1") {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              id: 1, slug: "crispy-chicken-1", name: "Crispy Chicken", categoryName: "Chicken",
+              description: "Product with the same ID as a combo", basePrice: 50000, price: 50000,
+              isActive: true, isAvailable: true,
+              options: [{ id: "grp-heat", name: "Heat", required: true,
+                choices: [{ id: "opt-11", name: "Mild", priceAdjustment: 0 },
+                  { id: "opt-12", name: "Hot", priceAdjustment: 5000 }] }],
+              toppings: [{ id: "top-22", name: "Cheese", price: 10000 }],
+            }));
+            return;
+          }
+          if (req.url?.split("?")[0] === "/api/catalog/combos/1") {
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+              id: 1, slug: "combo-clucky-classic-1", name: "Combo Clucky Classic",
+              description: "Classic Clucky combo", comboPrice: 120000,
+              imageUrl: "/images/food-placeholder.svg", isActive: true, isAvailable: true,
+              items: [{ id: 101, productId: 1, productName: "Crispy Chicken", quantity: 2 }],
+            }));
+            return;
+          }
           if (req.url?.split("?")[0] === "/api/catalog/products/901") {
             res.setHeader("Content-Type", "application/json");
             res.end(JSON.stringify({

@@ -116,6 +116,10 @@ class SecurityConfigTest {
                 }
             }
             client.get().uri("/api/orders").exchange().expectStatus().isUnauthorized();
+            // Menu detail and combo purchase discovery are public, but combo mutations are not.
+            client.get().uri("/api/catalog/combos/1").exchange().expectStatus().isOk();
+            client.get().uri("/api/catalog/combos/1?storeId=7").exchange().expectStatus().isOk();
+            client.post().uri("/api/catalog/combos/1/image").exchange().expectStatus().isUnauthorized();
             client.get().uri("/api/orders").header("Origin", "http://localhost:3000")
                     .header("X-Clucky-Client", "customer").cookie("clucky_customer_access", "expired-token")
                     .exchange().expectStatus().isUnauthorized()
@@ -163,6 +167,7 @@ class SecurityConfigTest {
                     .POST("/api/auth/login", request -> ServerResponse.ok().build())
                     .POST("/api/auth/refresh", request -> ServerResponse.ok().build())
                     .POST("/api/payments/webhook/sepay", request -> ServerResponse.ok().bodyValue(request.headers().firstHeader("Authorization")))
+                    .GET("/api/catalog/combos/{id}", request -> ServerResponse.ok().build())
                     .GET("/api/orders", request -> ServerResponse.ok().build()).build();
         }
     }

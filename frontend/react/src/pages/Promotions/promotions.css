@@ -88,7 +88,7 @@
 
 .promotions-header .title {
   margin: 0 !important;
-  font-family: 'Fredoka', 'Quicksand', sans-serif !important;
+  font-family: var(--font-heading) !important;
   font-weight: 700 !important;
   font-size: 26px !important;
   color: #16100d !important;
@@ -143,7 +143,7 @@
 }
 
 .promotions-kpi-card .kpi-value {
-  font-family: 'Fredoka', 'Quicksand', sans-serif;
+  font-family: var(--font-heading);
   font-weight: 700;
   font-size: 26px;
   line-height: 1.1;

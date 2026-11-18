@@ -119,6 +119,11 @@ public class ValidationService {
             if (itemReq.getProductId() != null) {
                 // Validate Product
                 itemResult.setProductId(itemReq.getProductId());
+                if (itemReq.getComboSelections() != null && !itemReq.getComboSelections().isEmpty()) {
+                    itemResult.setAvailable(false);
+                    itemResult.setReason("Tùy chọn combo chỉ được gửi cho món thuộc combo.");
+                    allValid = false;
+                }
                 Optional<Product> prodOpt = productRepository.findById(itemReq.getProductId());
                 if (prodOpt.isEmpty() || !Boolean.TRUE.equals(prodOpt.get().getIsActive())) {
                     itemResult.setAvailable(false);
@@ -317,13 +322,35 @@ public class ValidationService {
                         }
                     }
 
+                    boolean hasFlatSelections = (itemReq.getOptionIds() != null && !itemReq.getOptionIds().isEmpty())
+                            || (itemReq.getToppingIds() != null && !itemReq.getToppingIds().isEmpty());
+                    if (hasFlatSelections) {
+                        itemResult.setAvailable(false);
+                        itemResult.setReason("Tùy chọn của combo phải được gửi theo từng comboItemId.");
+                        allValid = false;
+                    } else {
+                        ComboSelectionValidation selectionValidation = validateComboSelections(
+                                combo, itemReq.getComboSelections(), itemResult);
+                        if (!selectionValidation.valid()) {
+                            itemResult.setAvailable(false);
+                            itemResult.setReason(selectionValidation.reason());
+                            allValid = false;
+                        } else {
+                            itemResult.setExtraPrice(selectionValidation.extraPrice());
+                        }
+                    }
+
                     itemResult.setName(combo.getName());
                     itemResult.setUnitPrice(combo.getComboPrice());
-                    itemResult.setExtraPrice(BigDecimal.ZERO);
-
-                    BigDecimal lineTotal = combo.getComboPrice().multiply(BigDecimal.valueOf(qty));
-                    itemResult.setLineTotal(lineTotal);
-                    totalSubtotal = totalSubtotal.add(lineTotal);
+                    if (itemResult.isAvailable()) {
+                        BigDecimal lineTotal = combo.getComboPrice().add(itemResult.getExtraPrice())
+                                .multiply(BigDecimal.valueOf(qty));
+                        itemResult.setLineTotal(lineTotal);
+                        totalSubtotal = totalSubtotal.add(lineTotal);
+                    } else {
+                        itemResult.setExtraPrice(BigDecimal.ZERO);
+                        itemResult.setLineTotal(BigDecimal.ZERO);
+                    }
                 }
             } else {
                 itemResult.setAvailable(false);
@@ -352,5 +379,148 @@ public class ValidationService {
         }
 
         return response;
+    }
+
+    private record ComboSelectionValidation(boolean valid, String reason, BigDecimal extraPrice) {}
+
+    private ComboSelectionValidation validateComboSelections(
+            Combo combo,
+            List<ValidationDto.ComboSelectionRequest> requestedSelections,
+            ValidationDto.ValidatedItem itemResult) {
+        Map<Long, ComboItem> comboItemsById = new LinkedHashMap<>();
+        for (ComboItem comboItem : combo.getItems()) {
+            if (comboItem.getId() == null || comboItemsById.put(comboItem.getId(), comboItem) != null) {
+                return new ComboSelectionValidation(false, "Combo có thành phần không hợp lệ.", BigDecimal.ZERO);
+            }
+        }
+
+        Map<Long, ValidationDto.ComboSelectionRequest> selectionsByItemId = new HashMap<>();
+        if (requestedSelections != null) {
+            for (ValidationDto.ComboSelectionRequest selection : requestedSelections) {
+                if (selection == null || selection.comboItemId() == null
+                        || !comboItemsById.containsKey(selection.comboItemId())) {
+                    return new ComboSelectionValidation(false,
+                            "comboItemId không thuộc combo đang được đặt.", BigDecimal.ZERO);
+                }
+                if (selectionsByItemId.put(selection.comboItemId(), selection) != null) {
+                    return new ComboSelectionValidation(false,
+                            "Không thể gửi nhiều lựa chọn cho cùng một thành phần combo.", BigDecimal.ZERO);
+                }
+            }
+        }
+
+        BigDecimal totalExtraPrice = BigDecimal.ZERO;
+        for (ComboItem comboItem : combo.getItems()) {
+            Product product = comboItem.getProduct();
+            if (product == null || product.getId() == null) {
+                return new ComboSelectionValidation(false, "Món thành phần của combo không hợp lệ.", BigDecimal.ZERO);
+            }
+
+            int componentQuantity = comboItem.getQuantity() != null && comboItem.getQuantity() > 0
+                    ? comboItem.getQuantity() : 1;
+            List<ProductOption> productOptions = optionRepository.findByProductId(product.getId());
+            Map<Long, ProductOption> optionsById = productOptions.stream()
+                    .collect(Collectors.toMap(ProductOption::getId, option -> option));
+            Map<String, List<ProductOption>> optionsByGroup = productOptions.stream()
+                    .collect(Collectors.groupingBy(ProductOption::getGroupName, LinkedHashMap::new, Collectors.toList()));
+
+            ProductOption fixedOption = null;
+            if (comboItem.getOptionId() != null) {
+                fixedOption = optionsById.get(comboItem.getOptionId());
+                if (fixedOption == null) {
+                    return new ComboSelectionValidation(false,
+                            "Tùy chọn cố định của món '" + product.getName() + "' không còn hợp lệ.", BigDecimal.ZERO);
+                }
+                itemResult.getComboOptionsSnapshot().add(new ValidationDto.ComboOptionSnapshot(
+                        comboItem.getId(), product.getId(), product.getName(), fixedOption.getId(),
+                        fixedOption.getGroupName(), fixedOption.getName(), BigDecimal.ZERO, BigDecimal.ZERO,
+                        componentQuantity, true));
+            }
+
+            ValidationDto.ComboSelectionRequest selection = selectionsByItemId.get(comboItem.getId());
+            List<Long> requestedOptionIds = selection != null && selection.optionIds() != null
+                    ? selection.optionIds() : List.of();
+            Set<Long> seenOptionIds = new HashSet<>();
+            Set<String> chosenGroups = new HashSet<>();
+            if (fixedOption != null) chosenGroups.add(fixedOption.getGroupName());
+            boolean hasDynamicOptionSelection = false;
+            BigDecimal optionExtras = BigDecimal.ZERO;
+
+            for (Long optionId : requestedOptionIds) {
+                if (optionId == null || !seenOptionIds.add(optionId)) {
+                    return new ComboSelectionValidation(false,
+                            "Danh sách tùy chọn combo chứa mã trống hoặc bị lặp.", BigDecimal.ZERO);
+                }
+                ProductOption option = optionsById.get(optionId);
+                if (option == null) {
+                    return new ComboSelectionValidation(false,
+                            "Tùy chọn (optionId=" + optionId + ") không thuộc món '" + product.getName() + "'.", BigDecimal.ZERO);
+                }
+                if (fixedOption != null && Objects.equals(option.getGroupName(), fixedOption.getGroupName())) {
+                    if (Objects.equals(option.getId(), fixedOption.getId())) {
+                        // The fixed option is already included in comboPrice. It may be echoed by a client,
+                        // but it is never charged as a customer-selected extra.
+                        continue;
+                    }
+                    return new ComboSelectionValidation(false,
+                            "Nhóm '" + fixedOption.getGroupName() + "' đã có lựa chọn cố định trong combo.", BigDecimal.ZERO);
+                }
+                if (!chosenGroups.add(option.getGroupName())) {
+                    return new ComboSelectionValidation(false,
+                            "Không thể chọn nhiều hơn 1 tùy chọn cho nhóm '" + option.getGroupName() + "'.", BigDecimal.ZERO);
+                }
+                hasDynamicOptionSelection = true;
+                BigDecimal optionExtra = option.getExtraPrice() != null ? option.getExtraPrice() : BigDecimal.ZERO;
+                optionExtras = optionExtras.add(optionExtra);
+                itemResult.getComboOptionsSnapshot().add(new ValidationDto.ComboOptionSnapshot(
+                        comboItem.getId(), product.getId(), product.getName(), option.getId(),
+                        option.getGroupName(), option.getName(),
+                        optionExtra.multiply(BigDecimal.valueOf(componentQuantity)), optionExtra,
+                        componentQuantity, false));
+            }
+
+            // Required groups remain optional for legacy combos. If a customer starts choosing
+            // dynamic options for this component, enforce the required groups that are not fixed.
+            if (hasDynamicOptionSelection) {
+                for (Map.Entry<String, List<ProductOption>> group : optionsByGroup.entrySet()) {
+                    boolean required = group.getValue().stream()
+                            .anyMatch(option -> option.getIsRequired() == null || Boolean.TRUE.equals(option.getIsRequired()));
+                    if (required && !chosenGroups.contains(group.getKey())) {
+                        return new ComboSelectionValidation(false,
+                                "Thiếu tùy chọn bắt buộc cho món '" + product.getName() + "', nhóm '" + group.getKey() + "'.",
+                                BigDecimal.ZERO);
+                    }
+                }
+            }
+
+            List<Long> requestedToppingIds = selection != null && selection.toppingIds() != null
+                    ? selection.toppingIds() : List.of();
+            Set<Long> seenToppingIds = new HashSet<>();
+            Map<Long, ProductTopping> toppingsById = toppingRepository.findByProductId(product.getId()).stream()
+                    .collect(Collectors.toMap(ProductTopping::getId, topping -> topping));
+            BigDecimal toppingExtras = BigDecimal.ZERO;
+            for (Long toppingId : requestedToppingIds) {
+                if (toppingId == null || !seenToppingIds.add(toppingId)) {
+                    return new ComboSelectionValidation(false,
+                            "Danh sách topping combo chứa mã trống hoặc bị lặp.", BigDecimal.ZERO);
+                }
+                ProductTopping topping = toppingsById.get(toppingId);
+                if (topping == null) {
+                    return new ComboSelectionValidation(false,
+                            "Topping (toppingId=" + toppingId + ") không thuộc món '" + product.getName() + "'.", BigDecimal.ZERO);
+                }
+                BigDecimal toppingExtra = topping.getExtraPrice() != null ? topping.getExtraPrice() : BigDecimal.ZERO;
+                toppingExtras = toppingExtras.add(toppingExtra);
+                itemResult.getComboToppingsSnapshot().add(new ValidationDto.ComboToppingSnapshot(
+                        comboItem.getId(), product.getId(), product.getName(), topping.getId(),
+                        topping.getToppingName(), toppingExtra.multiply(BigDecimal.valueOf(componentQuantity)),
+                        toppingExtra, componentQuantity));
+            }
+
+            totalExtraPrice = totalExtraPrice.add(optionExtras.add(toppingExtras)
+                    .multiply(BigDecimal.valueOf(componentQuantity)));
+        }
+
+        return new ComboSelectionValidation(true, null, totalExtraPrice);
     }
 }

@@ -54,7 +54,7 @@
 
 .pageTitle {
   margin: 0;
-  font-family: "Fredoka", "Quicksand", sans-serif;
+  font-family: var(--font-heading);
   font-size: 24px;
   font-weight: 800;
   color: #8f1216;
@@ -181,7 +181,7 @@
 }
 
 .widgetAmount {
-  font-family: "Fredoka", "Quicksand", sans-serif;
+  font-family: var(--font-heading);
   font-size: 28px;
   font-weight: 800;
   line-height: 1.1;

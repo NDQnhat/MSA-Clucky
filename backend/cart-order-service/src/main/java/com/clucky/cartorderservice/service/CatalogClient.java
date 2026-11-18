@@ -38,8 +38,16 @@ public class CatalogClient {
             Long comboId,
             Integer quantity,
             List<Long> optionIds,
-            List<Long> toppingIds
-    ) {}
+            List<Long> toppingIds,
+            List<ComboSelectionRequest> comboSelections
+    ) {
+        public ValidateItemRequest(Long productId, Long comboId, Integer quantity,
+                                   List<Long> optionIds, List<Long> toppingIds) {
+            this(productId, comboId, quantity, optionIds, toppingIds, List.of());
+        }
+    }
+
+    public record ComboSelectionRequest(Long comboItemId, List<Long> optionIds, List<Long> toppingIds) {}
 
     public record CatalogValidationRequest(
             Long storeId,
@@ -57,8 +65,18 @@ public class CatalogClient {
             boolean available,
             String reason,
             List<JsonNode> optionsSnapshot,
-            List<JsonNode> toppingsSnapshot
-    ) {}
+            List<JsonNode> toppingsSnapshot,
+            List<JsonNode> comboOptionsSnapshot,
+            List<JsonNode> comboToppingsSnapshot
+    ) {
+        public ValidatedCatalogItem(Long productId, Long comboId, String name, BigDecimal unitPrice,
+                                    BigDecimal extraPrice, Integer quantity, BigDecimal lineTotal,
+                                    boolean available, String reason, List<JsonNode> optionsSnapshot,
+                                    List<JsonNode> toppingsSnapshot) {
+            this(productId, comboId, name, unitPrice, extraPrice, quantity, lineTotal, available,
+                    reason, optionsSnapshot, toppingsSnapshot, List.of(), List.of());
+        }
+    }
 
     public record CatalogValidationResponse(
             boolean valid,
@@ -82,7 +100,12 @@ public class CatalogClient {
                 it.getComboId(),
                 it.getQuantity() != null ? it.getQuantity() : 1,
                 it.getOptionIds() != null ? it.getOptionIds() : List.of(),
-                it.getToppingIds() != null ? it.getToppingIds() : List.of()
+                it.getToppingIds() != null ? it.getToppingIds() : List.of(),
+                it.getComboSelections() == null ? List.of() : it.getComboSelections().stream()
+                        .filter(Objects::nonNull)
+                        .map(selection -> new ComboSelectionRequest(selection.getComboItemId(),
+                                selection.getOptionIds(), selection.getToppingIds()))
+                        .toList()
         )).toList();
 
         CatalogValidationRequest requestBody = new CatalogValidationRequest(storeId, itemRequests);
@@ -123,6 +146,12 @@ public class CatalogClient {
                             || !Objects.equals(validated.productId(), requested.getProductId())
                             || !Objects.equals(validated.comboId(), requested.getComboId())) {
                         LOG.error("Catalog validation item mismatch for storeId={} row={}", storeId, index);
+                        throw new ApiException(ErrorCode.UPSTREAM_ERROR);
+                    }
+                    if (requested.getComboId() != null && requested.getComboSelections() != null
+                            && !requested.getComboSelections().isEmpty()
+                            && (validated.comboOptionsSnapshot() == null || validated.comboToppingsSnapshot() == null)) {
+                        LOG.error("Catalog validation omitted combo selection snapshots for storeId={} row={}", storeId, index);
                         throw new ApiException(ErrorCode.UPSTREAM_ERROR);
                     }
                 }

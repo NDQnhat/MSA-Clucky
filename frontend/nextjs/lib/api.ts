@@ -200,6 +200,7 @@ export interface BackendCartItem {
   quantity: number;
   optionIds?: number[];
   toppingIds?: number[];
+  comboSelections?: { comboItemId: number; optionIds: number[]; toppingIds: number[] }[];
   optionsSnapshot?: unknown;
   toppingsSnapshot?: unknown;
   note?: string;
@@ -220,6 +221,7 @@ export interface CartItemPayload {
   quantity: number;
   optionIds?: number[];
   toppingIds?: number[];
+  comboSelections?: { comboItemId: number; optionIds: number[]; toppingIds: number[] }[];
   optionsSnapshot?: unknown;
   toppingsSnapshot?: unknown;
   note?: string;
@@ -553,7 +555,7 @@ export interface ComboItem {
   isActive: boolean;
   isAvailable?: boolean | null;
   isSoldOut?: boolean | null;
-  items: { productId: number; productName: string; quantity: number; optionId?: number }[];
+  items: { id?: number; productId: number; productName: string; quantity: number; optionId?: number | null }[];
 }
 
 function comboAsProduct(combo: ComboItem): ProductItem {

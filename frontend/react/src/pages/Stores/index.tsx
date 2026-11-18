@@ -208,7 +208,7 @@ export const StoresPage: React.FC = () => {
         <div>
           <div
             style={{
-              fontFamily: 'Fredoka, Quicksand, sans-serif',
+              fontFamily: 'var(--font-body)',
               fontWeight: 600,
               fontSize: 16,
               color: '#16100D',
@@ -374,7 +374,7 @@ export const StoresPage: React.FC = () => {
         <div>
           <h1
             style={{
-              fontFamily: 'Fredoka, Quicksand, sans-serif',
+              fontFamily: 'var(--font-heading)',
               fontWeight: 700,
               fontSize: 28,
               color: '#16100D',

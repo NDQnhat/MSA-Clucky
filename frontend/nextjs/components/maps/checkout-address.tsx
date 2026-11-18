@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { MapPin, ChevronDown, Check, Plus, RefreshCw } from "lucide-react";
 import { Select } from "@base-ui/react/select";
 import { useSession } from "@/components/auth/use-session";
-import { profileApi, formatAddress, type Address } from "@/lib/locations";
+import { emptyAddress, profileApi, formatAddress, type Address } from "@/lib/locations";
 import { AddressDialog } from "./address-dialog";
 import styles from "./checkout-address.module.css";
 export function CheckoutAddress({ value, onSelect }: { value: Address; onSelect: (address: Address) => void }) {
@@ -22,6 +22,7 @@ export function CheckoutAddress({ value, onSelect }: { value: Address; onSelect:
   const selected = addresses.find(address => formatAddress(address) === value.detail && address.receiverName === value.receiverName && address.phone === value.phone);
   const [editing, setEditing] = useState(false);
   const [failed, setFailed] = useState(false);
+  const addressBookReady = Boolean(userId) && loaded?.userId === userId && !loading && !failed;
   useFeedback(failed && t("loadError"));
   const [reload, setReload] = useState(0);
   useEffect(() => {
@@ -38,6 +39,7 @@ export function CheckoutAddress({ value, onSelect }: { value: Address; onSelect:
   }, [userId, reload]);
   return <div className={styles.addressBook}>
     {loading && <p role="status" className={styles.status}>{t("addressLoading")}</p>}
+    {addressBookReady && addresses.length === 0 && <p className={styles.emptyHint}>{t("noSavedAddresses")}</p>}
     {addresses.length > 0 && <div className={styles.field}><span className={styles.label}>{t("savedAddresses")}</span>
       <Select.Root value={selected ? String(selected.id) : null} items={addresses.map(address => ({ value: String(address.id), label: address.receiverName + " — " + formatAddress(address) }))} onValueChange={next => { const address = addresses.find(item => String(item.id) === next); if (address) onSelect(address); }}>
         <Select.Trigger className={styles.trigger} aria-label={t("savedAddresses")}><span className={styles.icon}><MapPin size={20} aria-hidden="true" /></span><span className={styles.content}>{selected ? <><strong>{selected.receiverName}<span className={styles.phone}>{selected.phone}</span></strong><span className={styles.detail}>{formatAddress(selected)}</span></> : <><strong>{t("savedAddresses")}</strong><span className={styles.detail}>{t("selectAddressHint")}</span></>}</span><Select.Icon><ChevronDown size={18} /></Select.Icon></Select.Trigger>
@@ -47,7 +49,11 @@ export function CheckoutAddress({ value, onSelect }: { value: Address; onSelect:
       </Select.Root>
     </div>}
     {failed && <div role="alert" className={styles.status}><p>{t("loadError")}</p><button className={styles.action} type="button" onClick={() => setReload(count => count + 1)}><RefreshCw size={16} />{t("retry")}</button></div>}
-    <button className={styles.action} type="button" onClick={() => setEditing(true)}><Plus size={18} aria-hidden="true" />{t("newAddress")}</button>
-    {editing && <AddressDialog checkout initial={value} onClose={() => setEditing(false)} onSave={async address => onSelect(address)} />}
+    <button className={`${styles.action} ${addresses.length === 0 ? styles.primaryAction : ""}`} type="button" disabled={!addressBookReady} onClick={() => setEditing(true)}><Plus size={18} aria-hidden="true" />{t("newAddress")}</button>
+    {editing && <AddressDialog checkout initial={{ ...emptyAddress, receiverName: value.receiverName, phone: value.phone }} onClose={() => setEditing(false)} onSave={async address => {
+      const saved = await profileApi.saveAddress({ ...address, id: undefined, isDefault: addresses.length === 0 });
+      setLoaded(current => current?.userId === userId ? { userId: current.userId, addresses: [...current.addresses, saved] } : current);
+      selectAddress.current(saved);
+    }} />}
   </div>;
 }

@@ -13,7 +13,8 @@ export default async function ProductPage({
 }) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
   const isCombo = /^combo-[1-9]\d*$/.test(slug);
-  const id = Number(slug.match(/-(\d+)$/)?.[1] ?? slug);
+  const idSuffix = slug.match(/(?:^|-)([1-9]\d*)$/);
+  const id = idSuffix ? Number(idSuffix[1]) : NaN;
   const storeIdValue = Array.isArray(query.storeId) ? query.storeId[0] : query.storeId;
   const parsedStoreId = storeIdValue === undefined ? undefined : Number(storeIdValue);
   const storeId = Number.isSafeInteger(parsedStoreId) && (parsedStoreId ?? 0) > 0 ? parsedStoreId : undefined;
@@ -25,32 +26,43 @@ export default async function ProductPage({
       if (isCombo) {
         product = await catalogApi.getComboProductById(id, storeId);
       } else {
-        const candidate = await catalogApi.getProductById(id, storeId).catch(() => null);
-        // Older menu links used the name-derived slug returned by Catalog.
-        // Those can end in a product ID that also belongs to a combo.
-        if (candidate?.slug !== slug && String(id) !== slug) {
-          const combos = await catalogApi.getCombos(storeId, true).catch(() => []);
-          const legacyCombo = combos.find(combo => combo.slug === slug);
-          if (legacyCombo) {
-            product = comboAsProduct(legacyCombo);
-            productIsCombo = true;
+        // Catalog also emits name-derived combo slugs (e.g. combo-clucky-classic-1).
+        // Combo and product IDs overlap; prefer the combo endpoint for combo-prefixed
+        // links and verify the actual slug before rendering either item.
+        const prefixedCombo = slug.startsWith('combo-')
+          ? await catalogApi.getComboById(id, storeId).catch(() => null)
+          : null;
+        if (prefixedCombo?.slug === slug) {
+          product = comboAsProduct(prefixedCombo);
+          productIsCombo = true;
+        } else {
+          const candidate = await catalogApi.getProductById(id, storeId).catch(() => null);
+          if (candidate && (candidate.slug === slug || String(id) === slug)) {
+            product = candidate;
+          } else {
+            const combo = prefixedCombo ?? await catalogApi.getComboById(id, storeId).catch(() => null);
+            if (combo?.slug === slug) {
+              product = comboAsProduct(combo);
+              productIsCombo = true;
+            }
           }
         }
-        product ??= candidate;
       }
     } else {
-      const allProducts = await catalogApi.getProducts({ storeId, activeOnly: true });
-      const matched = allProducts.find(
-        (p) => p.slug === slug || String(p.id) === slug,
-      );
-      if (matched) {
-        const matchedIsCombo =
-          (matched.categoryName ?? matched.category ?? '').toLowerCase() === 'combo' ||
-          Boolean(matched.comboItems?.length);
-        productIsCombo = matchedIsCombo;
-        product = matchedIsCombo
-          ? await catalogApi.getComboProductById(matched.id, storeId)
-          : await catalogApi.getProductById(matched.id, storeId);
+      const [allProducts, combos] = await Promise.all([
+        catalogApi.getProducts({ storeId, activeOnly: true }),
+        catalogApi.getCombos(storeId, true).catch(() => []),
+      ]);
+      const legacyCombo = combos.find((combo) => combo.slug === slug);
+      if (legacyCombo) {
+        product = comboAsProduct(legacyCombo);
+        productIsCombo = true;
+      } else {
+        const matched = allProducts.find((p) => p.slug === slug);
+        if (matched) {
+          productIsCombo = matched.comboItems !== undefined;
+          product = matched;
+        }
       }
     }
   } catch {
@@ -74,9 +86,19 @@ export default async function ProductPage({
     );
   }
 
+  // Each combo component retains the catalog's own option/topping groups.
+  // Fetch public product detail so customers can configure only existing choices.
+  const comboComponents = productIsCombo
+    ? await Promise.all((product.comboItems ?? []).map(async item => ({
+        item,
+        product: await catalogApi.getProductById(item.productId, storeId).catch(() => null),
+      })))
+    : undefined;
+
   return (
     <main>
-      <ProductDetailClient product={product} storeId={storeId} itemType={productIsCombo ? "COMBO" : "PRODUCT"} />
+      <ProductDetailClient key={`${productIsCombo ? "combo" : "product"}-${product.id}-${storeId ?? "all"}`}
+        product={product} storeId={storeId} itemType={productIsCombo ? "COMBO" : "PRODUCT"} comboComponents={comboComponents} />
     </main>
   );
 }

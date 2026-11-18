@@ -548,7 +548,7 @@ export const PromotionsPage: React.FC = () => {
         return (
           <div style={{ width: '100%', maxWidth: 125 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
-              <span style={{ fontWeight: 800, color: '#8F1216', fontFamily: 'Fredoka, Quicksand, sans-serif', fontSize: 14 }}>
+              <span style={{ fontWeight: 700, color: '#8F1216', fontFamily: 'var(--font-heading)', fontSize: 14 }}>
                 {used}
               </span>
               <span style={{ color: '#6B6259', fontWeight: 600 }}>

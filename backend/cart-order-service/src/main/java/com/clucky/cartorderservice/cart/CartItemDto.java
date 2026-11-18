@@ -8,6 +8,7 @@ import org.springframework.util.DigestUtils;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -24,6 +25,7 @@ public class CartItemDto {
     private BigDecimal unitPrice = BigDecimal.ZERO;
     private List<Long> optionIds = new ArrayList<>();
     private List<Long> toppingIds = new ArrayList<>();
+    private List<ComboSelectionDto> comboSelections = new ArrayList<>();
     private Object optionsSnapshot;
     private Object toppingsSnapshot;
     private String note;
@@ -61,7 +63,23 @@ public class CartItemDto {
         List<Long> sortedTops = toppingIds == null ? List.of() :
                 toppingIds.stream().filter(Objects::nonNull).sorted().toList();
         String raw = type + "|opt:" + sortedOpts + "|top:" + sortedTops;
+        if (comboSelections != null && !comboSelections.isEmpty()) {
+            List<String> sortedComboSelections = comboSelections.stream()
+                    .filter(Objects::nonNull)
+                    .filter(selection -> !sortedIds(selection.getOptionIds()).isEmpty()
+                            || !sortedIds(selection.getToppingIds()).isEmpty())
+                    .map(selection -> String.valueOf(selection.getComboItemId())
+                            + ":opt:" + sortedIds(selection.getOptionIds())
+                            + ":top:" + sortedIds(selection.getToppingIds()))
+                    .sorted(Comparator.naturalOrder())
+                    .toList();
+            if (!sortedComboSelections.isEmpty()) raw += "|combo:" + sortedComboSelections;
+        }
         return DigestUtils.md5DigestAsHex(raw.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static List<Long> sortedIds(List<Long> ids) {
+        return ids == null ? List.of() : ids.stream().filter(Objects::nonNull).sorted().toList();
     }
 
     public BigDecimal calculateLineTotal() {
@@ -83,10 +101,10 @@ public class CartItemDto {
     }
 
     public Long getProductId() { return productId; }
-    public void setProductId(Long productId) { this.productId = productId; }
+    public void setProductId(Long productId) { this.productId = productId; this.itemKey = null; }
 
     public Long getComboId() { return comboId; }
-    public void setComboId(Long comboId) { this.comboId = comboId; }
+    public void setComboId(Long comboId) { this.comboId = comboId; this.itemKey = null; }
 
     public String getItemName() { return itemName; }
     public void setItemName(String itemName) { this.itemName = itemName; }
@@ -104,10 +122,22 @@ public class CartItemDto {
     }
 
     public List<Long> getOptionIds() { return optionIds; }
-    public void setOptionIds(List<Long> optionIds) { this.optionIds = optionIds != null ? optionIds : new ArrayList<>(); }
+    public void setOptionIds(List<Long> optionIds) {
+        this.optionIds = optionIds != null ? new ArrayList<>(optionIds) : new ArrayList<>();
+        this.itemKey = null;
+    }
 
     public List<Long> getToppingIds() { return toppingIds; }
-    public void setToppingIds(List<Long> toppingIds) { this.toppingIds = toppingIds != null ? toppingIds : new ArrayList<>(); }
+    public void setToppingIds(List<Long> toppingIds) {
+        this.toppingIds = toppingIds != null ? new ArrayList<>(toppingIds) : new ArrayList<>();
+        this.itemKey = null;
+    }
+
+    public List<ComboSelectionDto> getComboSelections() { return comboSelections; }
+    public void setComboSelections(List<ComboSelectionDto> comboSelections) {
+        this.comboSelections = comboSelections != null ? new ArrayList<>(comboSelections) : new ArrayList<>();
+        this.itemKey = null;
+    }
 
     public Object getOptionsSnapshot() { return optionsSnapshot; }
     public void setOptionsSnapshot(Object optionsSnapshot) { this.optionsSnapshot = optionsSnapshot; }

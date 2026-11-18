@@ -68,7 +68,8 @@ public class CartService {
             item.setUnitPrice(BigDecimal.ZERO);
         }
 
-        String itemKey = item.getItemKey();
+        String itemKey = item.generateItemKey();
+        item.setItemKey(itemKey);
         Object existingJsonObj = redisTemplate.opsForHash().get(cartKey, itemKey);
         try {
             if (existingJsonObj != null) {
@@ -151,8 +152,38 @@ public class CartService {
             if (request.getToppingIds() != null) {
                 existing.setToppingIds(request.getToppingIds());
             }
-            existing.setItemKey(itemKey);
-            redisTemplate.opsForHash().put(cartKey, itemKey, objectMapper.writeValueAsString(existing));
+            boolean selectionsChanged = request.getOptionIds() != null || request.getToppingIds() != null
+                    || request.getComboSelections() != null;
+            if (request.getComboSelections() != null) {
+                existing.setComboSelections(request.getComboSelections());
+            }
+            if (selectionsChanged) {
+                existing.setOptionsSnapshot(null);
+                existing.setToppingsSnapshot(null);
+            }
+
+            String updatedItemKey = existing.generateItemKey();
+            if (!itemKey.equals(updatedItemKey)) {
+                Object collisionJson = redisTemplate.opsForHash().get(cartKey, updatedItemKey);
+                if (collisionJson != null) {
+                    CartItemDto collision = objectMapper.readValue(collisionJson.toString(), CartItemDto.class);
+                    int collisionQuantity = collision.getQuantity() != null ? collision.getQuantity() : 0;
+                    int updatedQuantity = existing.getQuantity() != null ? existing.getQuantity() : 0;
+                    collision.setQuantity(collisionQuantity + updatedQuantity);
+                    if (existing.getNote() != null && !existing.getNote().isBlank()) {
+                        collision.setNote(existing.getNote());
+                    }
+                    collision.setItemKey(updatedItemKey);
+                    redisTemplate.opsForHash().put(cartKey, updatedItemKey, objectMapper.writeValueAsString(collision));
+                } else {
+                    existing.setItemKey(updatedItemKey);
+                    redisTemplate.opsForHash().put(cartKey, updatedItemKey, objectMapper.writeValueAsString(existing));
+                }
+                redisTemplate.opsForHash().delete(cartKey, itemKey);
+            } else {
+                existing.setItemKey(itemKey);
+                redisTemplate.opsForHash().put(cartKey, itemKey, objectMapper.writeValueAsString(existing));
+            }
             redisTemplate.expire(cartKey, ttl);
         } catch (JsonProcessingException e) {
             LOG.error("Failed to update cart item: {}", e.getMessage(), e);
