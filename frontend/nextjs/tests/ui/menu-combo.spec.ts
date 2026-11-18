@@ -55,8 +55,14 @@ test("legacy named combo URL resolves a combo despite an overlapping product ID"
 
   await page.goto(`${customer}/menu/combo-clucky-classic-1`);
   await expect(page.getByRole("heading", { name: "Combo Clucky Classic" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Chọn vị ngon theo ý bạn" })).toBeVisible();
-  await expect(page.getByText("Crispy Chicken", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sản phẩm trong combo" })).toBeVisible();
+  const comboItem = page.getByRole("button", { name: /Crispy Chicken/ });
+  await expect(comboItem).toHaveAttribute("aria-expanded", "true");
+  await comboItem.click();
+  await expect(comboItem).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByText("Hot", { exact: true })).toBeHidden();
+  await comboItem.click();
+  await expect(comboItem).toHaveAttribute("aria-expanded", "true");
   await page.getByText("Hot", { exact: true }).click();
   await page.getByText("Cheese", { exact: true }).click();
   await expect(page.getByRole("button", { name: /Thêm vào giỏ hàng · 150\.000/ })).toBeEnabled();
