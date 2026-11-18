@@ -72,6 +72,12 @@ public class AdminUserController {
         return service.listCustomers(keyword, status, page, size);
     }
 
+    @GetMapping("/customers/{id}/contact")
+    @PreAuthorize("hasRole('ADMIN')")
+    public CustomerContact customerContact(@PathVariable("id") @Positive Long id) {
+        return service.getCustomerContact(id);
+    }
+
     @PutMapping("/customers/{id}/lock")
     @PreAuthorize("hasRole('ADMIN')")
     public Customer lockCustomer(@PathVariable("id") @Positive Long id, @Valid @RequestBody StatusChange request) {

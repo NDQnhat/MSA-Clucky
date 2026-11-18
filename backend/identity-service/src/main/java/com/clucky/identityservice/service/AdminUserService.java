@@ -180,6 +180,16 @@ public class AdminUserService {
                 result.getNumber(), result.getSize(), result.getTotalElements(), result.getTotalPages());
     }
 
+    @Transactional(readOnly = true)
+    public CustomerContact getCustomerContact(Long userId) {
+        requireAdmin();
+        if (userId == null || userId <= 0) throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        User user = users.findById(userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (user.getRole() != Role.CUSTOMER) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
+        return new CustomerContact(user.getEmail(), user.getPhone());
+    }
+
     private void requireAdmin() {
         if (CurrentActor.require().role() != Role.ADMIN) throw new ApiException(ErrorCode.FORBIDDEN);
     }

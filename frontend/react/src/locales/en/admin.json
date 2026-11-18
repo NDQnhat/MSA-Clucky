@@ -12,7 +12,13 @@
     "subtitle": "Explore customer profiles, review purchase history and manage account access.",
     "details": "View profile",
     "summary": "Profile & history",
-    "result": "{{count}} results"
+    "result": "{{count}} results",
+    "viewEmail": "View email",
+    "viewPhone": "View phone",
+    "contactTitle": "Customer contact",
+    "contact": "Contact",
+    "email": "Email",
+    "phone": "Phone"
   },
   "voucherUi": {
     "reviewTab": "Voucher approvals", "proposalsTab": "Branch proposals", "pendingCount": "{{count}} vouchers awaiting review",

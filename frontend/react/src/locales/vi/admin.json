@@ -12,7 +12,13 @@
     "subtitle": "Tra cứu hồ sơ, theo dõi lịch sử mua và quản lý quyền truy cập của khách hàng.",
     "details": "Xem hồ sơ",
     "summary": "Hồ sơ & lịch sử",
-    "result": "{{count}} kết quả"
+    "result": "{{count}} kết quả",
+    "viewEmail": "Xem email",
+    "viewPhone": "Xem số điện thoại",
+    "contactTitle": "Liên hệ khách hàng",
+    "contact": "Liên hệ",
+    "email": "Email",
+    "phone": "Số điện thoại"
   },
   "voucherUi": {
     "reviewTab": "Duyệt voucher", "proposalsTab": "Đề xuất chi nhánh", "pendingCount": "{{count}} voucher đang chờ duyệt",

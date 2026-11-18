@@ -385,7 +385,6 @@ export const UsersPage: React.FC = () => {
     <div className={styles.root}>
       <div className={styles.intro}>
         <div>
-          <span className={styles.eyebrow}>{t("business:users.peopleMakeClucky")}</span>
           <h1> {t("business:users.userManagement")}<span>.</span>
           </h1>
           <p>{t("business:users.connectYourTeamManageAccountsAndAssignStores")}</p>
@@ -407,28 +406,24 @@ export const UsersPage: React.FC = () => {
           {
             label: t("business:users.totalAccounts"),
             value: users.length,
-            note: t("business:users.inTheCurrentList"),
             icon: <TeamOutlined />,
             tone: "wine",
           },
           {
             label: t("business:catalog.active"),
             value: activeCount,
-            note: t("business:users.unlockedAccounts"),
             icon: <CheckCircleOutlined />,
             tone: "green",
           },
           {
             label: t("business:users.locked"),
             value: lockedCount,
-            note: t("business:users.accessTemporarilySuspended"),
             icon: <LockOutlined />,
             tone: "gold",
           },
           {
             label: t("business:users.storesWithStaff"),
             value: storeCount,
-            note: t("business:users.accountsAssigned"),
             icon: <ShopOutlined />,
             tone: "blue",
           },
@@ -445,7 +440,6 @@ export const UsersPage: React.FC = () => {
             <strong>
               {loading ? "—" : metric.value.toString().padStart(2, "0")}
             </strong>
-            <span className={styles.metricNote}>{metric.note}</span>
           </div>
         ))}
       </section>
@@ -461,7 +455,6 @@ export const UsersPage: React.FC = () => {
               {loading ? "…" : filtered.length}
             </span>
           </div>
-          <span>{t("business:users.manageRolesAndStoresInOnePlace")}</span>
         </div>
         <div
           className={styles.statusFilters}
@@ -518,7 +511,7 @@ export const UsersPage: React.FC = () => {
                   { value: "ADMIN", label: t("business:users.hqAdministrator") },
                   { value: "STORE_MANAGER", label: t("business:reviews.storeManager") },
                   { value: "STAFF", label: t("business:users.shiftStaff") },
-                  { value: "SHIPPER", label: "Shipper" },
+                  { value: "SHIPPER", label: t("business:users.shipper") },
                   { value: "CUSTOMER", label: t("business:dashboard.customer") },
                 ]}
               />
