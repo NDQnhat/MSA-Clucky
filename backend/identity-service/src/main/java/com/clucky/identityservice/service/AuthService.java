@@ -80,8 +80,21 @@ public class AuthService {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
         String phone = PhoneNumbers.normalize(request.phone());
-        if (userRepository.existsByPhone(phone)
-                || userRepository.existsByPhone(PhoneNumbers.legacyVietnamese(phone))) {
+        var existing = phoneUser(phone, true);
+        if (existing.isPresent()) {
+            User pending = existing.get();
+            // A page reload may lead the customer to submit the signup form again.
+            // Reissue the REGISTER challenge for the same pending credentials;
+            // never overwrite an existing account or unlock a verified one.
+            if (pending.getRole() == Role.CUSTOMER && !pending.isCurrentBranchAccount()
+                    && STATUS_ACTIVE.equals(pending.getStatus())
+                    && pending.getEmail() == null && !Boolean.TRUE.equals(pending.getEmailVerified())
+                    && !Boolean.TRUE.equals(pending.getPhoneVerified())
+                    && pending.getPasswordHash() != null
+                    && passwordEncoder.matches(request.password(), pending.getPasswordHash())) {
+                return new MessageResponse("Đã gửi mã OTP mới để tiếp tục đăng ký.",
+                        challenges.sendSms(pending, "REGISTER"));
+            }
             throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("phone", "ALREADY_EXISTS"));
         }
 

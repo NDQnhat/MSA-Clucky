@@ -9,6 +9,7 @@ import {
   PackageCheck,
   CheckCircle2,
   Wallet,
+  QrCode,
   Eye,
   MessageSquare,
   Utensils,
@@ -320,11 +321,11 @@ export const OrderCard: React.FC<OrderCardProps> = ({
               type="button"
               className={`${styles.actionButton} ${styles.btnWarning}`}
               onClick={() => onPaymentCollect?.(order)}
-              aria-label={(order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SPLIT'
-                ? 'Mở lại QR thanh toán đơn ' : 'Thu tiền đơn ') + formattedQueue}
+              aria-label={t(order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SPLIT'
+                ? 'business:staffcard.reopenQrFor' : 'business:staffcard.collectFor', { queue: formattedQueue })}
             >
               <Wallet size={18} /> {order.paymentMethod === 'BANK_TRANSFER' || order.paymentMethod === 'SPLIT'
-                ? 'Mở QR / thu tiền' : t("business:staffcard.collectCounter")}
+                ? t('business:staffcard.reopenQr') : t("business:staffcard.collectCounter")}
             </button>
           )}
           {order.status === "PENDING_PAYMENT" && order.orderSource === "WEB" && (
@@ -333,6 +334,17 @@ export const OrderCard: React.FC<OrderCardProps> = ({
               <Clock3 size={18} /> {t("business:staffcard.awaitingQr")}
             </button>
           )}
+          {order.orderSource === 'COUNTER' && order.paymentStatus === 'PENDING'
+            && order.total > 0 && ['CONFIRMED', 'PREPARING'].includes(order.status) && (
+              <button
+                type="button"
+                className={`${styles.actionButton} ${styles.btnWarning}`}
+                onClick={() => onPaymentCollect?.(order)}
+                aria-label={t('business:staffcard.reopenPaymentFor', { queue: formattedQueue })}
+              >
+                <QrCode size={18} /> {t('business:staffcard.reopenPayment')}
+              </button>
+            )}
 
           {order.status === "CONFIRMED" && (
             <button

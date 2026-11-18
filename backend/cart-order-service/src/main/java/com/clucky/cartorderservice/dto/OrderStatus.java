@@ -1,6 +1,7 @@
 package com.clucky.cartorderservice.dto;
 
 public enum OrderStatus {
+    PENDING_STOCK,
     PENDING_PAYMENT,
     CONFIRMED,
     PREPARING,

@@ -907,7 +907,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
               <span className={styles.kbd}>Esc</span> {t('business:counterPos.close')}
             </div>
             <div className={styles.shortcutHint}>
-              <span className={styles.kbd}>Enter</span> {step === 4 ? t('business:counterPos.create') : 'Tiếp tục'}
+              <span className={styles.kbd}>Enter</span> {t(step === 4 ? 'business:counterPos.create' : 'business:counterPos.continue')}
             </div>
             <button
               type="button"
@@ -964,13 +964,13 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
           </div>
         )}
 
-        <nav className={styles.stepper} aria-label="Các bước nhập đơn nhanh">
-          {(['Chọn món', 'Thông tin đơn', 'Tích điểm', 'Thanh toán'] as const).map((label, index) => {
+        <nav className={styles.stepper} aria-label={t('business:counterPos.stepsLabel')}>
+          {(['chooseFood', 'orderDetails', 'loyalty', 'payment'] as const).map((label, index) => {
             const target = (index + 1) as 1 | 2 | 3 | 4;
             return <button key={label} type="button" className={`${styles.stepButton} ${step === target ? styles.stepButtonActive : ''}`}
               aria-current={step === target ? 'step' : undefined} disabled={target > step}
               onClick={() => setStep(target)}>
-              <span className={styles.stepNumber}>{target}</span><span>{label}</span>
+              <span className={styles.stepNumber}>{target}</span><span>{t(`business:counterPos.${label}`)}</span>
             </button>;
           })}
         </nav>
@@ -1037,10 +1037,10 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
           {/* Cột Phải: Giỏ Hàng Quầy */}
           <div className={`${styles.cartColumn} ${step > 1 ? styles.stepCartColumn : ''}`}>
             {step > 1 && <div className={styles.stepIntro} role="status">
-              <h2>{step === 2 ? 'Kiểm tra đơn hàng' : step === 3 ? 'Tích và dùng điểm' : 'Xác nhận thanh toán'}</h2>
-              <p>{step === 2 ? 'Chọn cách dùng bữa và kiểm tra đầy đủ món đã chọn.'
-                : step === 3 ? 'Tra cứu khách hàng, sử dụng điểm hoặc áp dụng mã ưu đãi nếu có.'
-                  : 'Kiểm tra tổng tiền và hoàn tất đơn tại quầy.'}</p>
+              <h2>{t(step === 2 ? 'business:counterPos.reviewOrder' : step === 3 ? 'business:counterPos.reviewLoyalty' : 'business:counterPos.reviewPayment')}</h2>
+              <p>{t(step === 2 ? 'business:counterPos.reviewOrderHint'
+                : step === 3 ? 'business:counterPos.reviewLoyaltyHint'
+                  : 'business:counterPos.reviewPaymentHint')}</p>
             </div>}
             {/* Toggle ĂN TẠI QUÁN / MANG VỀ */}
             {step === 2 && <div className={styles.diningToggleBar}>
@@ -1139,7 +1139,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             </div>}
 
             {step === 1 && <div className={styles.stepOneSummary}>
-              <span>{cartItems.reduce((sum, item) => sum + item.quantity, 0)} món trong giỏ</span>
+              <span>{t('business:counterPos.itemsInCart', { count: cartItems.reduce((sum, item) => sum + item.quantity, 0) })}</span>
               <strong>{formatVnd(subtotal)}</strong>
             </div>}
 
@@ -1377,15 +1377,15 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
 
         <div className={styles.stepNavigation}>
           {step > 1 && <button type="button" className={styles.backButton}
-            onClick={() => setStep((current) => Math.max(1, current - 1) as 1 | 2 | 3 | 4)}>Quay lại</button>}
+            onClick={() => setStep((current) => Math.max(1, current - 1) as 1 | 2 | 3 | 4)}>{t('business:counterPos.back')}</button>}
           <span className={styles.navigationTotal}>
-            {step < 3 ? 'Tạm tính' : 'Tổng thanh toán'}{' '}
+            {t(step < 3 ? 'business:counterPos.subtotal' : 'business:counterPos.total')}{' '}
             <strong>{step < 3 ? formatVnd(subtotal) : activeQuote ? formatVnd(totalAmount) : t('business:counterLoyalty.awaitingQuote')}</strong>
           </span>
           {step < 4 && <button type="button" className={styles.nextButton}
             disabled={!cartItems.length || !storeOpenState.isOpen}
             onClick={() => setStep((current) => Math.min(4, current + 1) as 1 | 2 | 3 | 4)}>
-            {step === 1 ? 'Tiếp: Thông tin đơn' : step === 2 ? 'Tiếp: Tích điểm' : 'Tiếp: Thanh toán'}
+            {t(step === 1 ? 'business:counterPos.nextOrderDetails' : step === 2 ? 'business:counterPos.nextLoyalty' : 'business:counterPos.nextPayment')}
           </button>}
           {step === 4 && <button type="button"
             disabled={cartItems.length === 0 || isSubmitting || !storeOpenState.isOpen

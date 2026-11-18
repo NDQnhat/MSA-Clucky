@@ -501,6 +501,7 @@
 
 .tabBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 .bankUnavailable { color: #b42318; line-height: 1.6; }
+.bankHint { color: #6b6259; line-height: 1.6; }
 @media (max-width: 600px) {
   .qrContainer { justify-content: center; padding: 12px; }
   .bankDetails { flex-basis: 100%; }

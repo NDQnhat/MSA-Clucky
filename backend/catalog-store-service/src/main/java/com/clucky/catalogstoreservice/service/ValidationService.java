@@ -149,6 +149,7 @@ public class ValidationService {
                         itemResult.setReason("Món ăn không có dữ liệu tồn kho tại chi nhánh này.");
                         allValid = false;
                     } else {
+                        siOpt.ifPresent(si -> itemResult.setInventoryVersion(si.getVersion()));
                         int availableStock = siOpt.get().getQuantityAvailable() != null ? siOpt.get().getQuantityAvailable() : 0;
                         long requiredStock = totalDemandedQuantity.getOrDefault(prod.getId(), (long) qty);
                         if (availableStock < requiredStock) {

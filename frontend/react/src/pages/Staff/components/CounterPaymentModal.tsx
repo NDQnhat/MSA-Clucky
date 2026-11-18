@@ -64,40 +64,58 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const [isChangingMethod, setIsChangingMethod] = useState(false);
   const [sepaySession, setSepaySession] = useState<CounterSepaySession | null>(null);
   const [bankError, setBankError] = useState("");
+  const [createError, setCreateError] = useState("");
   const [bankLoading, setBankLoading] = useState(false);
   const [bankCreating, setBankCreating] = useState(false);
   const [qrFailed, setQrFailed] = useState(false);
   const transferAttemptRef = useRef<{ orderId: string; cashAmount: number; key: string } | null>(null);
   const notifiedTransferRef = useRef<string | null>(null);
   const sessionResolvedRef = useRef(false);
+  const knownSessionRef = useRef<CounterSepaySession | null>(null);
+  const transferConfirmedRef = useRef(onTransferConfirmed);
+  transferConfirmedRef.current = onTransferConfirmed;
+  const createSePayRef = useRef<(cashOverride?: number) => Promise<void>>(async () => {});
+  const translateRef = useRef(t);
+  translateRef.current = t;
   const orderId = order?.id;
+  const activeOrderRef = useRef<string | undefined>(undefined);
+  activeOrderRef.current = open ? orderId : undefined;
   const orderTotal = order?.total;
   const orderPaymentMethod = order?.paymentMethod;
   const isWebCod = order?.orderSource === "WEB" && order.paymentMethod === "COD";
   const isWebBank = order?.orderSource === "WEB" && order.paymentMethod === "BANK_TRANSFER";
 
   useEffect(() => {
-    setSepaySession(null); setBankError(""); setQrFailed(false);
+    setSepaySession(null); setBankError(""); setCreateError(""); setQrFailed(false);
+    setBankCreating(false);
+    setBankLoading(false);
     transferAttemptRef.current = null;
     notifiedTransferRef.current = null;
     sessionResolvedRef.current = false;
+    knownSessionRef.current = null;
     if (!open || !orderId || !Number.isSafeInteger(Number(orderId)) || Number(order?.total) <= 0) return;
     const controller = new AbortController();
     setBankLoading(true);
     let pending = false;
-    const refresh = async () => {
+    const refresh = async (firstRead = false) => {
       if (pending) return;
       pending = true;
       try {
         const result = await paymentsApi.readSepay(Number(orderId), controller.signal);
         if (controller.signal.aborted) return;
         if (result.orderId !== Number(orderId) || result.orderCode !== order?.orderCode) {
-          setBankError(t('business:counterPayment.sepaySessionMismatch'));
+          setBankError(translateRef.current('business:counterPayment.sepaySessionMismatch'));
           setSepaySession(null);
+          knownSessionRef.current = null;
           return;
         }
-        setSepaySession(result);
+        // Keep the same QR DOM node across status polls when nothing changed.
+        if (JSON.stringify(knownSessionRef.current) !== JSON.stringify(result)) {
+          knownSessionRef.current = result;
+          setSepaySession(result);
+        }
         setBankError("");
+        setCreateError("");
         if (!sessionResolvedRef.current && order?.orderSource === 'COUNTER') {
           const bankPart = Number(result.amount);
           if (Number.isSafeInteger(bankPart) && bankPart > 0 && bankPart <= Number(order.total)) {
@@ -114,23 +132,35 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
               && Number(confirmedOrder.storeId) === Number(order?.storeId)
               && ['PAID', 'COLLECTED'].includes(confirmedOrder.paymentStatus ?? '')) {
             notifiedTransferRef.current = String(orderId);
-            await onTransferConfirmed?.(confirmedOrder);
+            await transferConfirmedRef.current?.(confirmedOrder);
           }
         }
       } catch (failure) {
         if (!controller.signal.aborted) {
           if ((failure as { response?: { status?: number }; status?: number }).response?.status === 404
               || (failure as { status?: number }).status === 404) {
-            setSepaySession(null);
-            setBankError("");
-          } else setBankError(getErrorMessage(failure));
+            if (!knownSessionRef.current) {
+              setBankError("");
+              // POS bank transfers have a fixed amount. Open their first
+              // session automatically, but never create a second session on
+              // subsequent polls or for SPLIT (cash amount must be chosen).
+              if (firstRead && order?.orderSource === 'COUNTER'
+                  && order.paymentMethod === 'BANK_TRANSFER' && order.paymentStatus === 'PENDING') {
+                await createSePayRef.current(0);
+              }
+            }
+          } else if (!knownSessionRef.current) setBankError(getErrorMessage(failure));
         }
       } finally { pending = false; if (!controller.signal.aborted) setBankLoading(false); }
     };
-    void refresh();
-    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 2500);
-    return () => { controller.abort(); window.clearInterval(timer); };
-  }, [open, orderId, order?.orderCode, order?.storeId, order?.total, order?.orderSource, onTransferConfirmed, t]);
+    void refresh(true);
+    // Webhook settles payment on the server. The browser only reads that
+    // result; avoid frequent image churn and also recheck when staff returns.
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 6000);
+    const onVisible = () => { if (!document.hidden) void refresh(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { controller.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, [open, orderId, order?.orderCode, order?.storeId, order?.total, order?.orderSource, order?.paymentMethod, order?.paymentStatus]);
 
   // Reset when order changes or modal opens
   useEffect(() => {
@@ -162,14 +192,17 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const canTransfer = transferSessionMatches && sepaySession?.status === 'PENDING'
     && sepaySession.canTransfer && Number.isSafeInteger(bankAmountDue) && bankAmountDue > 0
     && Boolean(sepaySession.expiresAt && Date.parse(sepaySession.expiresAt) > Date.now());
-  const transferQr = canTransfer && !bankError ? buildVietQrUrl(bankInfo, bankAmountDue, reference) : null;
+  const transferQr = useMemo(() => canTransfer && !createError
+    ? buildVietQrUrl(bankInfo, bankAmountDue, reference) : null,
+    [canTransfer, createError, bankInfo, bankAmountDue, reference]);
 
-  const createSePay = async () => {
+  async function createSePay(cashOverride?: number) {
     if (!order || isWebBank || order.orderSource !== 'COUNTER'
         || bankCreating || totalDue <= 0 || !Number.isSafeInteger(totalDue)) return;
-    const cashAmount = activeTab === 'SPLIT' ? splitCash : 0;
-    if (!['BANK_TRANSFER', 'SPLIT'].includes(activeTab) || sepaySession
-        || (activeTab === 'SPLIT' && (!Number.isSafeInteger(cashAmount) || cashAmount <= 0 || splitBank <= 0))) return;
+    const method = cashOverride === undefined ? activeTab : 'BANK_TRANSFER';
+    const cashAmount = cashOverride ?? (activeTab === 'SPLIT' ? splitCash : 0);
+    if (!['BANK_TRANSFER', 'SPLIT'].includes(method) || knownSessionRef.current
+        || (method === 'SPLIT' && (!Number.isSafeInteger(cashAmount) || cashAmount <= 0 || splitBank <= 0))) return;
     const previous = transferAttemptRef.current;
     if (!previous || previous.orderId !== order.id || previous.cashAmount !== cashAmount) {
       transferAttemptRef.current = { orderId: order.id, cashAmount, key: crypto.randomUUID() };
@@ -177,19 +210,32 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
     const attempt = transferAttemptRef.current;
     if (!attempt) return;
     setBankCreating(true);
-    setBankError('');
+    setCreateError('');
     try {
       const session = await paymentsApi.initializeCounterSepay(Number(order.id), cashAmount, attempt.key);
+      // Closing the modal or switching orders must not display an older
+      // request's bank details in a different order's payment dialog.
+      if (activeOrderRef.current !== order.id) return;
       if (session.orderId !== Number(order.id) || session.orderCode !== order.orderCode
           || Number(session.amount) !== totalDue - cashAmount) {
         throw new Error(t('business:counterPayment.sepayAmountMismatch'));
       }
+      knownSessionRef.current = session;
       setSepaySession(session);
+      setBankError('');
       setQrFailed(false);
     } catch (error) {
-      setBankError(getErrorMessage(error));
-    } finally { setBankCreating(false); }
-  };
+      if (activeOrderRef.current !== order.id) return;
+      // Polling GET returns 404 until a session exists. Keep errors from the
+      // POST separate so a subsequent 404 cannot hide a failed initialization.
+      const status = (error as { response?: { status?: number }; status?: number })?.response?.status
+        ?? (error as { status?: number })?.status;
+      setCreateError(status === 503 ? t('business:counterPayment.sepaySetupUnavailable') : getErrorMessage(error));
+    } finally {
+      if (activeOrderRef.current === order.id) setBankCreating(false);
+    }
+  }
+  createSePayRef.current = createSePay;
 
   useEffect(() => { setQrFailed(false); }, [transferQr]);
 
@@ -346,7 +392,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
 
         {order.orderSource === 'COUNTER' && sepaySession && order.paymentStatus === 'PENDING' && (
           <p role="status" className={styles.methodLockHint}>
-            Mã QR đã phát hành cho đơn này. Phương thức thanh toán được giữ cố định để tránh ghi nhận tiền hai lần.
+            {t('business:counterPayment.methodLockedAfterQr')}
           </p>
         )}
 
@@ -441,9 +487,9 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
                   {t(bankCreating ? 'business:counterPayment.sepayBusy' : 'business:counterPayment.sepayCreateQr')}
                 </button>
               )}
-              {!transferQr || qrFailed ? sepaySession?.status !== 'PAID' && <p role="status" className={styles.bankUnavailable}>
-                {bankLoading ? t("business:counterPayment.loadingBank") : bankError || t(!sepaySession
-                  ? 'business:counterPayment.sepayMissingSession' : 'business:counterPayment.sepayNotReady')}
+              {!transferQr || qrFailed ? sepaySession?.status !== 'PAID' && <p role="status" className={createError || bankError || qrFailed ? styles.bankUnavailable : styles.bankHint}>
+                {createError || bankError || (bankLoading ? t("business:counterPayment.loadingBank") : t(!sepaySession
+                  ? 'business:counterPayment.sepayCreateHint' : 'business:counterPayment.sepayNotReady'))}
               </p> :
               <div className={styles.qrContainer}>
                 <div className={styles.qrImageFrame}>
@@ -569,8 +615,8 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
                       <Copy size={14} /> {t('business:counterPayment.sepayCopyContent')}</button>
                   </div>
                 </div>
-              ) : <p role="status" className={styles.bankUnavailable}>
-                {bankError || t(bankLoading ? 'business:counterPayment.sepayLoadingStatus'
+              ) : <p role="status" className={createError || bankError || qrFailed ? styles.bankUnavailable : styles.bankHint}>
+                {createError || bankError || t(bankLoading ? 'business:counterPayment.sepayLoadingStatus'
                   : sepaySession ? 'business:counterPayment.sepayNotTransferable'
                     : 'business:counterPayment.sepaySplitMissingSession')}
               </p>}

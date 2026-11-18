@@ -25,7 +25,7 @@ export function AddressDialog({ initial, onClose, onSave, checkout = false }: { 
   const followLocation = useRef(false);
   const [focusRequest, setFocusRequest] = useState(0);
   const submitLock = useRef(false);
-  useEffect(() => () => reverse.current?.abort(), []);
+  useEffect(() => () => { followLocation.current = false; reverse.current?.abort(); }, []);
   function choose(place: Place) {
     followLocation.current = false;
     reverse.current?.abort(); setResolving(false);
@@ -46,12 +46,14 @@ export function AddressDialog({ initial, onClose, onSave, checkout = false }: { 
     } catch (failure) { if (!abort.signal.aborted) setMapNotice(locationErrorKey(failure)); }
     finally { if (!abort.signal.aborted) setResolving(false); }
   }, [locale]);
-  useEffect(() => {
-    if (!followLocation.current || !location.point || location.locating || location.error) return;
+  async function handleCurrentLocation() {
+    followLocation.current = true;
+    const point = await location.locate();
+    if (!point || !followLocation.current) return;
     followLocation.current = false;
     setFocusRequest(current => current + 1);
-    void pick(location.point);
-  }, [location.point, location.locating, location.error, pick]);
+    await pick(point);
+  }
   async function submit(event: FormEvent) {
     event.preventDefault();
     // Portals follow the React parent tree for event bubbling. Never forward
@@ -80,7 +82,7 @@ export function AddressDialog({ initial, onClose, onSave, checkout = false }: { 
         {error && <p role="alert" className={styles.error}>{t(error)}</p>}
       </fieldset>
       <section className={styles.addressMap} aria-label={t("mapLabel")}>
-        <button type="button" className={styles.locate} disabled={location.locating || saving} aria-describedby={location.error ? `${formId}-location-error` : undefined} onClick={() => { followLocation.current = true; void location.locate(); }}><LocateFixed size={17} />{t(location.locating ? "locating" : "locate")}</button>
+        <button type="button" className={styles.locate} disabled={location.locating || saving} aria-describedby={location.error ? `${formId}-location-error` : undefined} onClick={() => void handleCurrentLocation()}><LocateFixed size={17} />{t(location.locating ? "locating" : "locate")}</button>
         {location.error && <p id={`${formId}-location-error`} role="alert" className={styles.error}>{t(location.error)}</p>}
         <BranchMap pin={coordinates(address)} origin={location.point} focusRequest={focusRequest} onPick={saving ? undefined : point => { followLocation.current = false; void pick(point); }} />
         {(mapNotice || resolving) && <p role="status" className={styles.error}>{t(resolving ? "searching" : mapNotice)}</p>}
