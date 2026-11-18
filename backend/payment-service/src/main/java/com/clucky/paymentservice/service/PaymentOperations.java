@@ -75,6 +75,7 @@ public class PaymentOperations {
         }
         if (!jdbc.queryForList("SELECT id FROM payment_service.collections WHERE order_id=? AND status IN ('PENDING','ACCEPTED')", UUID.class, orderId).isEmpty()) conflict();
         var bank = bankSnapshot(orderId, order.storeId(), transferAmount.signum() > 0);
+        flow.claimCounterPayment(orderId, order);
         UUID collectionId = UUID.randomUUID();
         jdbc.update("INSERT INTO payment_service.collections(id,order_id,order_code,customer_id,store_id,order_version,amount,cash_amount,transfer_amount,cash_tendered,cash_change,reason,actor_id,actor_role,bank_name,bank_code,account_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 collectionId, orderId, order.orderCode(), order.customerId(), order.storeId(), Timestamp.from(order.version()), order.amount(),
@@ -236,6 +237,7 @@ public class PaymentOperations {
         var bank = bankSnapshot(orderId, order.storeId(), request.transferAmount().signum()>0);
         if (request.transferAmount().signum() > 0 && bank.isEmpty()) conflict();
         if(!jdbc.queryForList("SELECT id FROM payment_service.payments WHERE order_id=? AND expires_at<=now() AND status IN ('PENDING','EXPIRED','CANCELLED')",Long.class,orderId).isEmpty())conflict();
+        if ("COUNTER".equals(order.orderSource())) flow.claimCounterPayment(orderId, order);
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO payment_service.collections(id,order_id,order_code,customer_id,store_id,order_version,amount,cash_amount,transfer_amount,"
                 + "cash_tendered,cash_change,reason,actor_id,actor_role,bank_name,bank_code,account_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",

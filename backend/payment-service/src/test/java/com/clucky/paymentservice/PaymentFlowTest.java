@@ -3,6 +3,7 @@ package com.clucky.paymentservice;
 import com.clucky.paymentservice.mapper.EventMapper;
 import com.clucky.paymentservice.dto.DomainEvent;
 import com.clucky.paymentservice.service.PaymentFlow;
+import com.clucky.paymentservice.service.OrderCredential;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
@@ -23,7 +24,7 @@ class PaymentFlowTest {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final EventMapper events = mock(EventMapper.class);
     private final ResultSet row = mock(ResultSet.class);
-    private final PaymentFlow service = new PaymentFlow(jdbc, mock(DiscoveryClient.class), RestClient.builder(), new ObjectMapper(), events, "test-key");
+    private final PaymentFlow service = new PaymentFlow(jdbc, mock(DiscoveryClient.class), RestClient.builder(), new ObjectMapper(), events, mock(OrderCredential.class), "test-key");
 
     @BeforeEach
     void setup() throws Exception {

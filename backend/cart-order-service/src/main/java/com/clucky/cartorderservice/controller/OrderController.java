@@ -116,6 +116,13 @@ public class OrderController {
         return ResponseEntity.ok(response);
     }
 
+    @PutMapping("/{id}/counter/payment-method")
+    public ResponseEntity<OrderResponse> changeCounterPaymentMethod(
+            @PathVariable("id") @Positive Long id,
+            @Valid @RequestBody ChangeCounterPaymentMethodRequest request) {
+        return ResponseEntity.ok(orderService.changeCounterPaymentMethod(id, request));
+    }
+
     @PutMapping("/{id}/cancel")
     public ResponseEntity<OrderResponse> cancelOrder(
             @PathVariable("id") @Positive Long id,

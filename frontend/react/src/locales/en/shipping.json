@@ -104,6 +104,7 @@
     "waitingForTheRiderToCollectTheOrder": "Waiting for the rider to collect the order",
     "deliveringSimulation": "Delivering (simulation)",
     "paid": "Paid",
+    "riderAdvanceReceivedSimulation": "Rider wallet advance received (simulation)",
     "deliveryAddressMissingVerificationRequired": "Delivery address missing — verification required",
     "deliveryFee": "Delivery fee:",
     "deliveryFailedHandleItemReturnOrReattempt": "Delivery failed — handle item return or reattempt",

@@ -1,6 +1,7 @@
 package com.clucky.cartorderservice.service;
 
 import com.clucky.cartorderservice.config.AccessGuard;
+import com.clucky.cartorderservice.dto.CounterPaymentClaimRequest;
 import com.clucky.cartorderservice.dto.DomainEvent;
 import com.clucky.cartorderservice.entity.Order;
 import com.clucky.cartorderservice.entity.OrderStatusHistory;
@@ -57,6 +58,33 @@ public class OrderPaymentService {
         return new Context(order.getId(), order.getOrderCode(), order.getCustomerId(), order.getStoreId(), order.getTotalAmount(),
                 order.getStatus(), order.getPaymentMethod(), order.getPaymentStatus(), order.getPaymentExpiresAt(), order.getUpdatedAt(),
                 order.getOrderSource(), order.getType());
+    }
+
+    /**
+     * Durable POS payment fence. This row lock is shared with the method-change
+     * transaction, even when the services use different databases. Once claimed,
+     * all same-method retries remain possible, but method changes are forbidden.
+     */
+    @Transactional
+    public void claimCounterPayment(long id, CounterPaymentClaimRequest request) {
+        Order order = orders.lockById(id).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!"COUNTER".equals(order.getOrderSource())
+                || !java.util.Set.of("CONFIRMED", "PREPARING", "READY", "SHIPPING").contains(order.getStatus())
+                || !"PENDING".equals(order.getPaymentStatus())
+                || order.getTotalAmount() == null || order.getTotalAmount().signum() <= 0
+                || !Objects.equals(order.getStoreId(), request.storeId())
+                || !Objects.equals(order.getOrderCode(), request.orderCode())
+                || !Objects.equals(order.getPaymentMethod(), request.paymentMethod())
+                || order.getTotalAmount().compareTo(request.totalAmount()) != 0
+                || (!"CASH".equals(order.getPaymentMethod())
+                    && (order.getPaymentExpiresAt() == null
+                        || !order.getPaymentExpiresAt().isAfter(Instant.now())))) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Thông tin đơn POS đã thay đổi trước khi thu tiền");
+        }
+        if (!order.isCounterPaymentStarted()) {
+            order.setCounterPaymentStarted(true);
+            orders.saveAndFlush(order);
+        }
     }
 
 

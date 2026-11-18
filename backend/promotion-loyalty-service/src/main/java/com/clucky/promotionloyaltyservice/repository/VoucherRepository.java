@@ -51,7 +51,7 @@ public interface VoucherRepository extends JpaRepository<Voucher, Long>, JpaSpec
           AND (
                v.campaignKind = 'PERSONAL'
             OR (:storeId IS NOT NULL AND (v.scope = 'ALL' OR (v.scope = 'STORE' AND v.storeId = :storeId)))
-            OR (:storeId IS NULL AND v.scope = 'ALL')
+            OR :storeId IS NULL
           )
         ORDER BY v.id DESC
     """)

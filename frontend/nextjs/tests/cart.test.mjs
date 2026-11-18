@@ -49,6 +49,18 @@ test("server cart keys replace local UUIDs without losing variant images or labe
   assert.deepEqual(mapBackendCart({ items: [] }, previous), []);
 });
 
+test("a reloaded combo cart entry keeps its typed detail URL and combo ID", () => {
+  const [combo] = mapBackendCart({ items: [{
+    itemKey: "combo-server-key", productId: null, comboId: 12,
+    itemName: "Family Combo", unitPrice: 150000, quantity: 1,
+    optionIds: [], toppingIds: [],
+  }] });
+  assert.equal(combo.slug, "combo-12");
+  assert.equal(combo.itemType, "COMBO");
+  assert.equal(toCartPayload(combo).comboId, 12);
+  assert.equal(toCartPayload(combo).productId, undefined);
+});
+
 const portion = {
   id: "chicken-1",
   slug: "ga-gion",

@@ -27,7 +27,7 @@ import { displayOrderTime } from "../../../lib/order-demo";
 import { formatQueueWithDate } from "../../../utils/orderExcelExport";
 import { useOrders } from "../../../context/OrderContext";
 import { useAuth } from "../../../context/AuthContext";
-import { getErrorMessage, vietQrApi, type VietQrBank } from "../../../lib/api";
+import { getErrorMessage, vietQrApi, type VietQrBank, type ShipmentSimulationTracking } from "../../../lib/api";
 import styles from "../orders.module.css";
 import { CodEvidencePanel } from "./CodEvidencePanel";
 import { ShipmentSimulationPanel } from "../../../components/ShipmentSimulationPanel";
@@ -35,6 +35,7 @@ import { fulfillmentLabel, getFulfillmentMode } from "../../../lib/order-fulfill
 
 interface Props {
   order: AdminOrder | null;
+  tracking?: ShipmentSimulationTracking;
   open: boolean;
   onClose: () => void;
   onStatusChange: (
@@ -50,6 +51,7 @@ interface Props {
 
 export function OrderDetailDrawer({
   order,
+  tracking,
   open,
   onClose,
   onStatusChange,
@@ -261,15 +263,20 @@ export function OrderDetailDrawer({
               <dd>
                 {onOpenFinance
                   ? (order.paymentMethod || "UNKNOWN")
-                  : (order.paymentMethod === "COD" || (order.paymentMethod as string) === "CASH")
-                    ? t("business:orderdetaildrawer.cashCod")
-                    : t("business:id.bankTransfer")}
+                  : order.paymentMethod === "SPLIT"
+                    ? t("business:excel.staffMethod.SPLIT")
+                    : (order.paymentMethod === "COD" || (order.paymentMethod as string) === "CASH")
+                      ? t("business:orderdetaildrawer.cashCod")
+                      : t("business:id.bankTransfer")}
               </dd>
             </div>
             <div>
               <dt>{t("business:catalog.status")}</dt>
-              <dd data-paid={["PAID", "COLLECTED"].includes(order.paymentStatus)}>
-                {t(`admin:paymentStates.${order.paymentStatus}`)}
+              <dd data-paid={["PAID", "COLLECTED"].includes(order.paymentStatus) || tracking?.merchantPaymentStatus === 'PAID_SIMULATED'}>
+                {order.orderType === 'DELIVERY' && order.paymentMethod === 'COD'
+                  && tracking?.merchantPaymentStatus === 'PAID_SIMULATED'
+                  ? i18n.t("shipping:ui.riderPaidOnCollectionSimulationCustomerPaysCodOnDelivery")
+                  : t(`admin:paymentStates.${order.paymentStatus}`)}
               </dd>
             </div>
             <div>
@@ -313,7 +320,8 @@ export function OrderDetailDrawer({
             )}
             {!onOpenFinance && order.paymentStatus === "PENDING" && order.total > 0 &&
               (onCollectCounter
-                ? order.orderSource === 'COUNTER' && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status)
+                ? ((order.orderSource === 'COUNTER' && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status))
+                  || (order.orderSource === 'WEB' && order.orderType === 'PICKUP' && order.status === 'READY'))
                 : order.orderType === "PICKUP" && order.status === "READY") && (
                 onCollectCounter ? (
                   <Button

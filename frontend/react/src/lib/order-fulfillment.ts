@@ -1,6 +1,12 @@
 import i18n from "../i18n/index.ts";
 export type FulfillmentMode = 'DELIVERY' | 'DINE_IN' | 'TAKE_AWAY' | 'PICKUP_UNKNOWN';
 
+export function maskedReceiverPhone(phone: string | null | undefined): string | null {
+  const digits = phone?.replace(/\D/g, '') ?? '';
+  if (digits.length < 9 || digits.length > 15) return null;
+  return `${digits.slice(0, 4)}***${digits.slice(-3)}`;
+}
+
 export function getFulfillmentMode(order: {
   orderType?: string | null;
   type?: string | null;

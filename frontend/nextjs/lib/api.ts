@@ -542,7 +542,7 @@ export interface ComboItem {
 function comboAsProduct(combo: ComboItem): ProductItem {
   return {
     id: combo.id,
-    slug: combo.slug || `combo-${combo.id}`,
+    slug: `combo-${combo.id}`,
     name: combo.name,
     categoryName: 'Combo',
     category: 'Combo',

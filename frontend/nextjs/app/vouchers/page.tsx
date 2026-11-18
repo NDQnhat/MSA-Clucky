@@ -30,6 +30,7 @@ export default function VouchersPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [legacyCopyState, setLegacyCopyState] = useState<{ campaignId: number; status: "copied" | "failed" } | null>(null);
   const detailEpoch = useRef(0);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [version, setVersion] = useState(0);
@@ -64,16 +65,18 @@ export default function VouchersPage() {
     let active = true;
     setLoading(true);
     setError("");
-    void Promise.all([
+    void Promise.allSettled([
       personalVoucherApi.campaigns(),
       userId ? personalVoucherApi.mine() : Promise.resolve([] as PersonalVoucher[]),
       catalogApi.getStores(false).catch(() => [] as StoreItem[]),
     ]).then(([available, mine, locations]) => {
       if (!active) return;
-      setCampaigns(available.filter(c => c.campaignKind === "PERSONAL"));
-      setOwned(mine);
-      setStores(locations);
-    }).catch(failure => { if (active) setError(getErrorMessage(failure)); })
+      if (available.status === 'fulfilled') setCampaigns(available.value);
+      else setError(getErrorMessage(available.reason));
+      if (mine.status === 'fulfilled') setOwned(mine.value);
+      else setError(getErrorMessage(mine.reason));
+      if (locations.status === 'fulfilled') setStores(locations.value);
+    })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [ready, userId, version]);
@@ -98,17 +101,19 @@ export default function VouchersPage() {
   }, []);
 
   async function claim(campaignId: number) {
-    if (!user) return;
+    if (!user || !campaigns.some(campaign => campaign.id === campaignId && campaign.campaignKind === "PERSONAL")) return;
     const ownerId = user.userId;
     setBusyId(campaignId); setError("");
     try {
       const result = await personalVoucherApi.claim(campaignId);
-      // Refresh the owner's list without storing bearer codes in browser storage.
-      const mine = await personalVoucherApi.mine();
       if (getSessionState().user?.userId !== ownerId) return;
-      setOwned(mine);
+      setOwned(previous => [result, ...previous.filter(item => item.instanceId !== result.instanceId)]);
       setTab("mine");
       await loadDetail(result.instanceId);
+      // A temporary list failure must not hide a successfully claimed voucher.
+      void personalVoucherApi.mine().then(mine => {
+        if (getSessionState().user?.userId === ownerId) setOwned(mine);
+      }).catch(() => {});
     } catch (failure) { setError(getErrorMessage(failure)); }
     finally { setBusyId(null); }
   }
@@ -124,9 +129,11 @@ export default function VouchersPage() {
 
   const canView = (v: PersonalVoucher) => v.state === "ISSUED";
 
-  const storeScope = (campaign: VoucherCampaign) => campaign.applicability === "ALL"
+  const storeScope = (campaign: VoucherCampaign) => (campaign.campaignKind === 'PERSONAL'
+    ? campaign.applicability === 'ALL' : campaign.scope === 'ALL')
     ? t("allStores")
-    : (campaign.storeIds ?? []).map(id => stores.find(store => Number(store.id) === Number(id))?.name ?? `#${id}`).join(", ");
+    : (campaign.campaignKind === 'PERSONAL' ? campaign.storeIds ?? [] : [campaign.storeId].filter((id): id is number => id != null))
+      .map(id => stores.find(store => Number(store.id) === Number(id))?.name ?? `#${id}`).join(", ");
 
   async function copyCode(code: string) {
     try {
@@ -134,6 +141,15 @@ export default function VouchersPage() {
       setCopyState("copied");
     } catch {
       setCopyState("failed");
+    }
+  }
+
+  async function copyLegacyCode(campaignId: number, code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setLegacyCopyState({ campaignId, status: "copied" });
+    } catch {
+      setLegacyCopyState({ campaignId, status: "failed" });
     }
   }
 
@@ -206,7 +222,7 @@ export default function VouchersPage() {
                 </div>
                 <div className={styles.cardContent}>
                   <div className={styles.cardTop}>
-                    <span className={styles.cardCategory}><Sparkles size={14} aria-hidden="true" /> {t("cardCategory")}</span>
+                    <span className={styles.cardCategory}><Sparkles size={14} aria-hidden="true" /> {t(campaign.campaignKind === 'PERSONAL' ? "cardCategory" : "publicCategory")}</span>
                     {voucher
                       ? <span className={styles.stateBadge + (voucher.state === "ISSUED" ? " " + styles.stateAvailable : "")}>{t("state." + voucher.state)}</span>
                       : inactive && <span className={styles.stateBadge}>{t("unavailable")}</span>}
@@ -231,8 +247,21 @@ export default function VouchersPage() {
                     <div className={styles.actions}>
                       {voucher
                         ? canView(voucher) && <button type="button" className={styles.primary} onClick={() => void loadDetail(voucher.instanceId)}>{t("viewCode")}<ArrowRight size={17} aria-hidden="true" /></button>
-                        : <button type="button" className={styles.primary} disabled={!user || inactive || busyId !== null}
-                            onClick={() => void claim(campaign.id)}>{busyId === campaign.id ? t("claiming") : user ? t("claim") : t("signIn")}<ArrowRight size={17} aria-hidden="true" /></button>}
+                        : campaign.campaignKind === "PERSONAL"
+                          ? <button type="button" className={styles.primary} disabled={!user || inactive || busyId !== null}
+                              onClick={() => void claim(campaign.id)}>{busyId === campaign.id ? t("claiming") : user ? t("claim") : t("signIn")}<ArrowRight size={17} aria-hidden="true" /></button>
+                          : <div className={styles.legacyOffer}>
+                              {campaign.code && <code className={styles.legacyCode}>{campaign.code}</code>}
+                              {campaign.code && <button type="button" className={styles.secondaryButton} disabled={inactive}
+                                onClick={() => void copyLegacyCode(campaign.id, campaign.code!)}>
+                                {legacyCopyState?.campaignId === campaign.id && legacyCopyState.status === "copied"
+                                  ? <CheckCheck size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+                                {t(legacyCopyState?.campaignId === campaign.id && legacyCopyState.status === "copied" ? "copied" : "copy")}
+                              </button>}
+                              <span className={styles.legacyHint} role={legacyCopyState?.campaignId === campaign.id && legacyCopyState.status === "failed" ? "alert" : undefined}>
+                                {legacyCopyState?.campaignId === campaign.id && legacyCopyState.status === "failed" ? t("copyFailed") : t("legacyAtCounter")}
+                              </span>
+                            </div>}
                     </div>
                   </div>
                 </div>

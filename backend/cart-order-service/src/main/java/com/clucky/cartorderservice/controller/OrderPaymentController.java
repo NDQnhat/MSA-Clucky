@@ -1,6 +1,8 @@
 package com.clucky.cartorderservice.controller;
 
 import com.clucky.cartorderservice.service.OrderPaymentService;
+import com.clucky.cartorderservice.dto.CounterPaymentClaimRequest;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,6 +19,12 @@ public class OrderPaymentController {
 
     @PostMapping("/api/orders/{id}/counter-payment-session")
     public OrderPaymentService.Session openCounter(@PathVariable @Positive long id) { return service.openCounter(id); }
+
+    @PostMapping("/api/orders/{id}/counter-payment-claim")
+    public void claimCounterPayment(@PathVariable @Positive long id,
+            @Valid @RequestBody CounterPaymentClaimRequest request) {
+        service.claimCounterPayment(id, request);
+    }
 
     @GetMapping("/api/orders/{id}/payment-context")
     public OrderPaymentService.Context context(@PathVariable @Positive long id) { return service.context(id); }
