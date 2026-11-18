@@ -55,10 +55,10 @@
 }
 
 .payments-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; }
-.payments-header h2.ant-typography { margin: 0 0 4px; font-family: Fredoka, Quicksand, sans-serif; }
+.payments-header h2.ant-typography { margin: 0 0 4px; font-family: var(--font-heading); }
 .payments-header .ant-typography { margin-bottom: 0; }
 .payment-log-toolbar, .payment-log-secondary { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
-.payment-log-toolbar h4.ant-typography { margin: 0 0 4px; font-family: Fredoka, Quicksand, sans-serif; }
+.payment-log-toolbar h4.ant-typography { margin: 0 0 4px; font-family: var(--font-heading); }
 .payment-log-filters { display: grid; grid-template-columns: minmax(260px, 2fr) repeat(3, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .payment-assignment-filters { display: grid; grid-template-columns: minmax(240px, 2fr) minmax(160px, 1fr) minmax(220px, 1.5fr); gap: 12px; margin-bottom: 20px; }
 .payment-log-filters > *, .payment-assignment-filters > * { min-width: 0; width: 100%; }
@@ -66,7 +66,7 @@
 .payment-log-muted { display: block; margin-top: 5px; font-size: 12px; color: #6b6259; }
 .payment-log-content { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
 .payment-receipt-amount { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
-.payment-receipt-amount h2.ant-typography { margin: 0; font-family: Fredoka, Quicksand, sans-serif; color: #8f1216; }
+.payment-receipt-amount h2.ant-typography { margin: 0; font-family: var(--font-heading); color: #8f1216; }
 .payment-receipt-fields { margin: 24px 0; }
 .payment-receipt-section { padding: 22px 0; border-top: 1px solid #ece7e1; }
 .payment-receipt-content { padding: 14px 16px; background: #faf7f2; border-radius: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }

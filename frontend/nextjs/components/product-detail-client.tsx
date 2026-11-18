@@ -11,14 +11,16 @@ import { type Product } from "@/lib/products";
 import { catalogSelectionId } from "@/lib/cart";
 import { ArrowLeft, Minus, Plus, ShoppingBag, Check } from "lucide-react";
 import { ProductReviewsSection } from "@/components/reviews/product-reviews-section";
+import { ComboCustomizer, comboChoiceKey, configuredComboOption, type ComboComponent } from "@/components/combos/combo-customizer";
 
 interface ProductDetailClientProps {
   product: Product;
   storeId?: number;
   itemType: "PRODUCT" | "COMBO";
+  comboComponents?: ComboComponent[];
 }
 
-export function ProductDetailClient({ product, storeId, itemType }: ProductDetailClientProps) {
+export function ProductDetailClient({ product, storeId, itemType, comboComponents = [] }: ProductDetailClientProps) {
   const t = useTranslations();
 
   const { money: formatPrice } = useLocaleTools();
@@ -39,6 +41,19 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
 
   // Selected multi toppings (set of topping IDs)
   const [selectedToppings, setSelectedToppings] = useState<string[]>([]);
+  const [comboOptions, setComboOptions] = useState<Record<string, string>>(() => {
+    const selections: Record<string, string> = {};
+    for (const component of comboComponents) {
+      if (component.item.id == null) continue;
+      for (const group of component.product?.options ?? []) {
+        if (!configuredComboOption(component, group) && group.required && group.choices.length) {
+          selections[comboChoiceKey(component.item.id, group.id)] = group.choices[0].id;
+        }
+      }
+    }
+    return selections;
+  });
+  const [comboToppings, setComboToppings] = useState<Record<string, string[]>>({});
 
   // Quantity stepper
   const [quantity, setQuantity] = useState<number>(1);
@@ -69,6 +84,53 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
     );
   };
 
+  const toggleComboTopping = (itemId: number, toppingId: string) => {
+    setComboToppings(previous => {
+      const current = previous[itemId] ?? [];
+      return { ...previous, [itemId]: current.includes(toppingId)
+        ? current.filter(id => id !== toppingId) : [...current, toppingId] };
+    });
+  };
+
+  const comboSelections = comboComponents.flatMap(component => {
+    const itemId = component.item.id;
+    if (itemId == null) return [];
+    const optionIds = (component.product?.options ?? []).flatMap(group => {
+      if (configuredComboOption(component, group)) return [];
+      const chosen = comboOptions[comboChoiceKey(itemId, group.id)];
+      return chosen ? [catalogSelectionId(chosen, "opt")] : [];
+    });
+    const toppingIds = (comboToppings[itemId] ?? []).map(id => catalogSelectionId(id, "top"));
+    return optionIds.length || toppingIds.length ? [{ comboItemId: itemId, optionIds, toppingIds }] : [];
+  });
+
+  const comboOptionSnapshots = comboComponents.flatMap(component => {
+    const itemId = component.item.id;
+    if (itemId == null) return [];
+    return (component.product?.options ?? []).flatMap(group => {
+      const fixed = configuredComboOption(component, group);
+      const chosen = fixed ?? group.choices.find(choice => choice.id === comboOptions[comboChoiceKey(itemId, group.id)]);
+      return chosen ? [{
+        id: catalogSelectionId(chosen.id, "opt"),
+        groupName: `${component.item.productName} · ${group.name}`,
+        name: chosen.name,
+        extraPrice: fixed ? 0 : chosen.priceAdjustment * component.item.quantity,
+      }] : [];
+    });
+  });
+
+  const comboToppingSnapshots = comboComponents.flatMap(component => {
+    const itemId = component.item.id;
+    if (itemId == null) return [];
+    return (component.product?.toppings ?? [])
+      .filter(top => (comboToppings[itemId] ?? []).includes(top.id))
+      .map(top => ({
+        id: catalogSelectionId(top.id, "top"),
+        name: `${component.item.productName} · ${top.name}`,
+        extraPrice: top.price * component.item.quantity,
+      }));
+  });
+
   // Stepper handlers
   const handleDecrease = () => {
     if (quantity > 1) setQuantity((q) => q - 1);
@@ -79,7 +141,7 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
   };
 
   // Dynamic Price Formula: Total = (BasePrice + sum(Options) + sum(Toppings)) * Quantity
-  const { unitPrice, totalPrice, optionsCost, toppingsCost } = useMemo(() => {
+  const { unitPrice, totalPrice } = useMemo(() => {
     const base = product.basePrice || product.price;
 
     // Sum options
@@ -100,16 +162,18 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
       }
     });
 
+    if (itemType === "COMBO") {
+      optSum = comboOptionSnapshots.reduce((sum, option) => sum + option.extraPrice, 0);
+      topSum = comboToppingSnapshots.reduce((sum, topping) => sum + topping.extraPrice, 0);
+    }
     const singleItemPrice = base + optSum + topSum;
     const finalTotal = singleItemPrice * quantity;
 
     return {
       unitPrice: singleItemPrice,
       totalPrice: finalTotal,
-      optionsCost: optSum,
-      toppingsCost: topSum,
     };
-  }, [product, selectedOptions, selectedToppings, quantity]);
+  }, [product, selectedOptions, selectedToppings, quantity, itemType, comboOptionSnapshots, comboToppingSnapshots]);
 
   const handleAddToCart = async () => {
     if (!ready || cartPending || isSoldOut || isAddedSuccess) return;
@@ -118,8 +182,9 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
       productId: itemType === "PRODUCT" ? Number(product.id) : undefined,
       comboId: itemType === "COMBO" ? Number(product.id) : undefined,
       itemType,
-      optionIds: Object.values(selectedOptions).map(value => catalogSelectionId(value, "opt")),
-      toppingIds: selectedToppings.map(value => catalogSelectionId(value, "top")),
+      optionIds: itemType === "COMBO" ? [] : Object.values(selectedOptions).map(value => catalogSelectionId(value, "opt")),
+      toppingIds: itemType === "COMBO" ? [] : selectedToppings.map(value => catalogSelectionId(value, "top")),
+      ...(itemType === "COMBO" ? { comboSelections } : {}),
       slug: product.slug,
       name: product.name,
       category: product.categoryName || product.category || '',
@@ -128,7 +193,7 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
       quantity,
       image: product.imageUrl || product.image,
       note: specialNote.trim(),
-      options: product.options?.flatMap((group) => {
+      options: itemType === "COMBO" ? comboOptionSnapshots : product.options?.flatMap((group) => {
         const choice = group.choices.find(
           (entry) => entry.id === selectedOptions[group.id],
         );
@@ -143,7 +208,7 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
             ]
           : [];
       }),
-      toppings: product.toppings
+      toppings: itemType === "COMBO" ? comboToppingSnapshots : product.toppings
         ?.filter((top) => selectedToppings.includes(top.id))
         .map((top) => ({ id: catalogSelectionId(top.id, "top"), name: top.name, extraPrice: top.price })),
     });
@@ -205,7 +270,6 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
             <FoodImage
               src={product.imageUrl || product.image}
               alt={product.alt || product.name}
-              usePlaceholder={false}
               style={{
                 width: "100%",
                 aspectRatio: 1,
@@ -336,23 +400,19 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
             {product.description}
           </p>
 
-          {product.comboItems && product.comboItems.length > 0 && (
-            <section style={{ marginBottom: 28 }}>
-              <h2 style={{ fontFamily: "Baloo 2, sans-serif", fontSize: 18, marginBottom: 8 }}>
-                {t("business.productdetailclient.comboItems")}
-              </h2>
-              <ul style={{ margin: 0, paddingLeft: 22, color: "#6B6259" }}>
-                {product.comboItems.map((item) => (
-                  <li key={item.productId}>
-                    {item.productName} × {item.quantity}
-                  </li>
-                ))}
-              </ul>
-            </section>
+          {itemType === "COMBO" && (product.comboItems?.length ?? 0) > 0 && (
+            <ComboCustomizer
+              components={comboComponents.length ? comboComponents : product.comboItems!.map(item => ({ item, product: null }))}
+              selectedOptions={comboOptions}
+              selectedToppings={comboToppings}
+              onSelectOption={(key, value) => setComboOptions(previous => ({ ...previous, [key]: value }))}
+              onToggleTopping={toggleComboTopping}
+              formatPrice={formatPrice}
+            />
           )}
 
           {/* Single Options (Chọn 1) */}
-          {product.options?.map((group) => (
+          {itemType === "PRODUCT" && product.options?.map((group) => (
             <div key={group.id} style={{ marginBottom: 24 }}>
               <div
                 style={{
@@ -418,7 +478,7 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
           ))}
 
           {/* Multi Toppings (Chọn nhiều) */}
-          {product.toppings && product.toppings.length > 0 && (
+          {itemType === "PRODUCT" && product.toppings && product.toppings.length > 0 && (
             <div style={{ marginBottom: 28 }}>
               <div
                 style={{

@@ -10,6 +10,13 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/notifications/admin/unread-count", route => route.fulfill({ json: { unreadCount: 0 } }));
 });
 
+test("admin headings use Baloo 2 while control text uses Quicksand", async ({ page }) => {
+  await page.goto(admin + "/admin/users");
+  await expect(page.locator("body")).toHaveClass(/admin-typography/);
+  await expect(page.getByRole("heading", { name: "Tài khoản chi nhánh" })).toHaveCSS("font-family", /Baloo 2/);
+  await expect(page.getByRole("button").first()).toHaveCSS("font-family", /Quicksand/);
+});
+
 test("email log timestamps render in Vietnam time in the list and delivery details", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));

@@ -25,9 +25,14 @@ test("checkout preserves combo and selection IDs without guessing IDs from a slu
   assert.throws(() => toCartPayload({ ...combo, productId: 1 }));
   assert.throws(() => toCartPayload({ ...combo, comboId: undefined }));
   assert.throws(() => toCartPayload({ ...combo, quantity: 0 }));
+  const selections = [{ comboItemId: 101, optionIds: [12], toppingIds: [22] }];
+  assert.deepEqual(toCartPayload({ ...combo, comboSelections: selections }).comboSelections, selections);
+  assert.throws(() => toCartPayload({ ...combo, comboSelections: [{ ...selections[0], comboItemId: 0 }] }));
+  assert.throws(() => toCartPayload({ ...combo, comboSelections: [{ ...selections[0], optionIds: [NaN] }] }));
   const product = { ...combo, comboId: undefined, productId: 7, optionIds: [11], toppingIds: [22] };
   assert.deepEqual(toCartPayload(product).optionIds, [11]);
   assert.deepEqual(toCartPayload(product).toppingIds, [22]);
+  assert.throws(() => toCartPayload({ ...product, comboSelections: selections }));
 });
 
 test("server cart keys replace local UUIDs without losing variant images or labels", () => {
@@ -59,6 +64,35 @@ test("a reloaded combo cart entry keeps its typed detail URL and combo ID", () =
   assert.equal(combo.itemType, "COMBO");
   assert.equal(toCartPayload(combo).comboId, 12);
   assert.equal(toCartPayload(combo).productId, undefined);
+});
+
+test("combo selections and validated snapshots survive a cart reload", () => {
+  const comboSelections = [{ comboItemId: 101, optionIds: [12], toppingIds: [22] }];
+  const [combo] = mapBackendCart({ items: [{
+    itemKey: "combo-configured-key", productId: null, comboId: 1,
+    itemName: "Clucky Classic", unitPrice: 150000, quantity: 1,
+    optionIds: [], toppingIds: [], comboSelections,
+    optionsSnapshot: [{ id: 12, productName: "Chicken", groupName: "Heat", name: "Hot", extraPrice: 10000 }],
+    toppingsSnapshot: [{ id: 22, productName: "Chicken", name: "Cheese", extraPrice: 20000 }],
+  }] });
+  assert.deepEqual(toCartPayload(combo).comboSelections, comboSelections);
+  assert.equal(combo.options[0].name, "Hot");
+  assert.equal(combo.toppings[0].name, "Cheese");
+  assert.equal(combo.unitPrice, 150000);
+});
+
+test("cart keeps separate combo configurations when refreshing server keys", () => {
+  const previous = [
+    { id: "first", comboId: 1, optionIds: [], toppingIds: [], image: "/hot.jpg",
+      comboSelections: [{ comboItemId: 101, optionIds: [12], toppingIds: [] }] },
+    { id: "second", comboId: 1, optionIds: [], toppingIds: [], image: "/mild.jpg",
+      comboSelections: [{ comboItemId: 101, optionIds: [11], toppingIds: [] }] },
+  ];
+  const [mild] = mapBackendCart({ items: [{
+    itemKey: "server-mild", comboId: 1, productId: null, itemName: "Combo", quantity: 1, unitPrice: 120000,
+    optionIds: [], toppingIds: [], comboSelections: [{ comboItemId: 101, optionIds: [11], toppingIds: [] }],
+  }] }, previous);
+  assert.equal(mild.image, "/mild.jpg");
 });
 
 const portion = {

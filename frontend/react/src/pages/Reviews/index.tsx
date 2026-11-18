@@ -434,7 +434,7 @@ export const ReviewsPage: React.FC = () => {
           <Avatar
             style={{
               backgroundColor: '#8F1216',
-              fontFamily: 'Fredoka, sans-serif',
+              fontFamily: 'var(--font-body)',
               fontWeight: 600,
               flexShrink: 0,
             }}
@@ -752,7 +752,7 @@ export const ReviewsPage: React.FC = () => {
               suffix={t('business:reviews.reviews')}
               valueStyle={{
                 color: '#8F1216',
-                fontFamily: 'Fredoka, sans-serif',
+                fontFamily: 'var(--font-heading)',
                 fontWeight: 700,
               }}
             />
@@ -774,7 +774,7 @@ export const ReviewsPage: React.FC = () => {
               suffix="/ 5.0"
               valueStyle={{
                 color: '#C9A227',
-                fontFamily: 'Fredoka, sans-serif',
+                fontFamily: 'var(--font-heading)',
                 fontWeight: 700,
               }}
             />
@@ -796,7 +796,7 @@ export const ReviewsPage: React.FC = () => {
               suffix={t('business:reviews.reviews')}
               valueStyle={{
                 color: '#D97706',
-                fontFamily: 'Fredoka, sans-serif',
+                fontFamily: 'var(--font-heading)',
                 fontWeight: 700,
               }}
             />
@@ -822,7 +822,7 @@ export const ReviewsPage: React.FC = () => {
               }
               valueStyle={{
                 color: '#B42318',
-                fontFamily: 'Fredoka, sans-serif',
+                fontFamily: 'var(--font-heading)',
                 fontWeight: 700,
               }}
             />
@@ -983,7 +983,7 @@ export const ReviewsPage: React.FC = () => {
       {/* Reply Modal */}
       <Modal
         title={
-          <span style={{ fontFamily: 'Fredoka, sans-serif', color: '#16100D', fontSize: 18 }}>
+          <span style={{ fontFamily: 'var(--font-heading)', color: '#16100D', fontSize: 18 }}>
             {t('business:reviews.replyToCustomerReview')}
           </span>
         }

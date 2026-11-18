@@ -57,7 +57,13 @@ test("cart preserves combo/options and server keys; failed mutations keep the ca
   expect(items[0].quantity).toBe(2);
   await expect(page.getByRole("group", { name: /Thay đổi số lượng/ }).locator("span")).toHaveText("2");
   rejectUpdate = false;
-  await page.getByRole("button", { name: /Xóa món/ }).click();
+  await page.getByRole("button", { name: /Xóa Regression Chicken khỏi giỏ hàng/ }).click();
+  const confirmRemove = page.getByRole("dialog", { name: "Xóa món khỏi giỏ hàng?" });
+  await expect(confirmRemove).toContainText("Regression Chicken");
+  await confirmRemove.getByRole("button", { name: "Giữ lại món" }).click();
+  expect(items).toHaveLength(1);
+  await page.getByRole("button", { name: /Xóa Regression Chicken khỏi giỏ hàng/ }).click();
+  await confirmRemove.getByRole("button", { name: "Xóa món" }).click();
   await expect.poll(() => items.length).toBe(0);
   expect(mutationKeys.every((key) => key === "server-key-1")).toBe(true);
 

@@ -1,7 +1,7 @@
 import { message } from "../components/feedback";
 import { useTranslation } from "react-i18next";
 import { LanguageSwitcher } from "../i18n/language-switcher";
-import React, { useState } from "react";
+import React, { useLayoutEffect, useState } from "react";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { Layout, Menu, Breadcrumb, Button, Dropdown, Avatar, Tag, Flex, Typography, Drawer, Grid } from "antd";
 import { MenuProps } from "antd";
@@ -59,6 +59,11 @@ export const AdminLayout: React.FC = () => {
   const screens = Grid.useBreakpoint();
   const isMobile = screens.lg === false;
   const { user, logout } = useAuth();
+  useLayoutEffect(() => {
+    if (user.role !== "ADMIN") return;
+    document.body.classList.add("admin-typography");
+    return () => document.body.classList.remove("admin-typography");
+  }, [user.role]);
   const { currentStore, storeOpenState } = useOrders();
   const navigate = useNavigate();
   const location = useLocation();
@@ -305,7 +310,7 @@ export const AdminLayout: React.FC = () => {
             <div style={{ display: "flex", flexDirection: "column" }}>
               <span
                 style={{
-                  fontFamily: "Fredoka, Quicksand, sans-serif",
+                  fontFamily: "var(--font-heading)",
                   fontWeight: 700,
                   fontSize: 22,
                   color: "#FFFAF3",
@@ -381,7 +386,7 @@ export const AdminLayout: React.FC = () => {
               {t("admin:currentRole")}{" "}</div>
             <div
               style={{
-                fontFamily: "Fredoka, Quicksand, sans-serif",
+                fontFamily: "var(--font-body)",
                 color: "#C9A227",
                 fontWeight: 600,
                 fontSize: 13,
@@ -528,7 +533,7 @@ export const AdminLayout: React.FC = () => {
                   size={34}
                   style={{
                     backgroundColor: "#8F1216",
-                    fontFamily: "Fredoka, Quicksand, sans-serif",
+                    fontFamily: "var(--font-body)",
                     fontWeight: 700,
                     color: "#FFFAF3",
                   }}

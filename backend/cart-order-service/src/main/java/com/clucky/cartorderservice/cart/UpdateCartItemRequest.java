@@ -10,6 +10,7 @@ public class UpdateCartItemRequest {
     private String note;
     private List<Long> optionIds;
     private List<Long> toppingIds;
+    private List<ComboSelectionDto> comboSelections;
 
     public UpdateCartItemRequest() {}
 
@@ -29,4 +30,7 @@ public class UpdateCartItemRequest {
 
     public List<Long> getToppingIds() { return toppingIds; }
     public void setToppingIds(List<Long> toppingIds) { this.toppingIds = toppingIds; }
+
+    public List<ComboSelectionDto> getComboSelections() { return comboSelections; }
+    public void setComboSelections(List<ComboSelectionDto> comboSelections) { this.comboSelections = comboSelections; }
 }

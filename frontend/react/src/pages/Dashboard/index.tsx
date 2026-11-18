@@ -131,7 +131,7 @@ export function OrdersTable({
       dataIndex: 'code',
       key: 'code',
       render: (value: string) => (
-        <Typography.Text strong style={{ color: '#16100D', fontFamily: 'Fredoka, Quicksand, sans-serif' }}>
+        <Typography.Text strong style={{ color: '#16100D', fontFamily: 'var(--font-body)' }}>
           {value}
         </Typography.Text>
       ),
@@ -807,7 +807,7 @@ export default function Dashboard({
                   </Typography.Text>
                   <Typography.Text
                     strong
-                    style={{ color: '#8F1216', fontFamily: 'Fredoka, Quicksand, sans-serif', fontSize: 18 }}
+                    style={{ color: '#8F1216', fontFamily: 'var(--font-heading)', fontSize: 18 }}
                   >
                     {money(periodTotalRevenue)}
                   </Typography.Text>
@@ -847,7 +847,7 @@ export default function Dashboard({
                     {t('business:dashboard.reconciledBadge')}
                   </Tag>
                 </Space>
-                <Typography.Text strong style={{ color: '#1E7A46', fontFamily: 'Fredoka, Quicksand, sans-serif' }}>
+                <Typography.Text strong style={{ color: '#1E7A46', fontFamily: 'var(--font-heading)' }}>
                   {money(periodReconciled)}
                 </Typography.Text>
               </Flex>
@@ -859,7 +859,7 @@ export default function Dashboard({
                     {t('business:dashboard.pendingBadge')}
                   </Tag>
                 </Space>
-                <Typography.Text strong style={{ color: '#D97706', fontFamily: 'Fredoka, Quicksand, sans-serif' }}>
+                <Typography.Text strong style={{ color: '#D97706', fontFamily: 'var(--font-heading)' }}>
                   {money(periodPending)}
                 </Typography.Text>
               </Flex>

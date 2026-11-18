@@ -89,7 +89,7 @@ export function AdminNotificationCenter() {
 
   const content = <div style={{ width: 'min(380px, calc(100vw - 48px))' }}>
     <Space style={{ marginBottom: 12 }}>
-      <Typography.Text strong>{t("admin:ui.adminNotifications")}</Typography.Text>
+      <Typography.Text strong style={{ fontFamily: 'var(--font-heading)' }}>{t("admin:ui.adminNotifications")}</Typography.Text>
       <Button size="small" disabled={!unread || loading} loading={saving} onClick={() => void markRead()}>{t("admin:ui.markAllAsRead")}</Button>
     </Space>
     {error ? <Alert type="error" showIcon title={t("admin:ui.unableToLoadOrUpdateNotifications")} description={error} /> : loading ? <Spin aria-label={t("admin:ui.loadingNotifications")} /> :

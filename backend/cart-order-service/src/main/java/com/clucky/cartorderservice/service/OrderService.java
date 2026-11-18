@@ -3,6 +3,7 @@ package com.clucky.cartorderservice.service;
 import com.clucky.cartorderservice.cart.CartDto;
 import com.clucky.cartorderservice.cart.CartItemDto;
 import com.clucky.cartorderservice.cart.CartService;
+import com.clucky.cartorderservice.cart.ComboSelectionDto;
 import com.clucky.cartorderservice.config.AccessGuard;
 import com.clucky.cartorderservice.config.CurrentActor;
 import com.clucky.cartorderservice.config.RedisConfig;
@@ -126,6 +127,7 @@ public class OrderService {
             dto.setQuantity(item.quantity() != null && item.quantity() > 0 ? item.quantity() : 1);
             dto.setOptionIds(item.resolveOptionIds());
             dto.setToppingIds(item.toppingIds() != null ? item.toppingIds() : List.of());
+            dto.setComboSelections(item.comboSelections());
             dto.setNote(item.note());
             dto.setStoreId(storeId);
             items.add(dto);
@@ -294,6 +296,8 @@ public class OrderService {
                     items
             );
         }
+
+        applyValidatedSnapshots(items, catalogValidation.items());
 
         BigDecimal subtotal = catalogValidation.subtotal();
 
@@ -632,19 +636,28 @@ public class OrderService {
                     item.setNote(it.getNote());
                     item.setLineTotal(unitPrice.add(extraPrice).multiply(BigDecimal.valueOf(it.getQuantity())));
 
-                    if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
-                        item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
-                    } else if (it.getOptionsSnapshot() != null) {
-                        item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionsSnapshot()));
-                    } else if (it.getOptionIds() != null && !it.getOptionIds().isEmpty()) {
-                        item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionIds()));
-                    }
-                    if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
-                        item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
-                    } else if (it.getToppingsSnapshot() != null) {
-                        item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingsSnapshot()));
-                    } else if (it.getToppingIds() != null && !it.getToppingIds().isEmpty()) {
-                        item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingIds()));
+                    if (it.getComboId() != null) {
+                        if (validated.comboOptionsSnapshot() != null && !validated.comboOptionsSnapshot().isEmpty()) {
+                            item.setOptionsSnapshot(objectMapper.valueToTree(validated.comboOptionsSnapshot()));
+                        }
+                        if (validated.comboToppingsSnapshot() != null && !validated.comboToppingsSnapshot().isEmpty()) {
+                            item.setToppingsSnapshot(objectMapper.valueToTree(validated.comboToppingsSnapshot()));
+                        }
+                    } else {
+                        if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
+                            item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
+                        } else if (it.getOptionsSnapshot() != null) {
+                            item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionsSnapshot()));
+                        } else if (it.getOptionIds() != null && !it.getOptionIds().isEmpty()) {
+                            item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionIds()));
+                        }
+                        if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
+                            item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
+                        } else if (it.getToppingsSnapshot() != null) {
+                            item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingsSnapshot()));
+                        } else if (it.getToppingIds() != null && !it.getToppingIds().isEmpty()) {
+                            item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingIds()));
+                        }
                     }
                     savedItems.add(orderItemRepository.save(item));
                 }
@@ -733,6 +746,7 @@ public class OrderService {
             itemDto.setQuantity(it.quantity() != null && it.quantity() > 0 ? it.quantity() : 1);
             itemDto.setOptionIds(it.resolveOptionIds());
             itemDto.setToppingIds(it.toppingIds() != null ? it.toppingIds() : List.of());
+            itemDto.setComboSelections(it.comboSelections());
             itemDto.setNote(it.note());
             itemDto.setStoreId(effectiveStoreId);
             items.add(itemDto);
@@ -917,11 +931,20 @@ public class OrderService {
                     item.setNote(it.getNote());
                     item.setLineTotal(effectiveUnitPrice.multiply(BigDecimal.valueOf(it.getQuantity())));
 
-                    if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
-                        item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
-                    }
-                    if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
-                        item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
+                    if (it.getComboId() != null) {
+                        if (validated.comboOptionsSnapshot() != null && !validated.comboOptionsSnapshot().isEmpty()) {
+                            item.setOptionsSnapshot(objectMapper.valueToTree(validated.comboOptionsSnapshot()));
+                        }
+                        if (validated.comboToppingsSnapshot() != null && !validated.comboToppingsSnapshot().isEmpty()) {
+                            item.setToppingsSnapshot(objectMapper.valueToTree(validated.comboToppingsSnapshot()));
+                        }
+                    } else {
+                        if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
+                            item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
+                        }
+                        if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
+                            item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
+                        }
                     }
                     savedItems.add(orderItemRepository.save(item));
                 }
@@ -1353,7 +1376,33 @@ public class OrderService {
                 continue;
             }
             List<Long> optionIds = new ArrayList<>();
-            if (it.getOptionsSnapshot() != null && it.getOptionsSnapshot().isArray()) {
+            List<ComboSelectionDto> comboSelections = new ArrayList<>();
+            if (it.getComboId() != null) {
+                Map<Long, ComboSelectionDto> selectionsByComboItemId = new LinkedHashMap<>();
+                if (it.getOptionsSnapshot() != null && it.getOptionsSnapshot().isArray()) {
+                    for (JsonNode snapshot : it.getOptionsSnapshot()) {
+                        long comboItemId = snapshot.path("comboItemId").asLong();
+                        long optionId = snapshot.path("id").asLong();
+                        if (comboItemId > 0 && optionId > 0 && !snapshot.path("fixed").asBoolean(false)) {
+                            selectionsByComboItemId.computeIfAbsent(comboItemId,
+                                    idValue -> new ComboSelectionDto(idValue, new ArrayList<>(), new ArrayList<>()))
+                                    .getOptionIds().add(optionId);
+                        }
+                    }
+                }
+                if (it.getToppingsSnapshot() != null && it.getToppingsSnapshot().isArray()) {
+                    for (JsonNode snapshot : it.getToppingsSnapshot()) {
+                        long comboItemId = snapshot.path("comboItemId").asLong();
+                        long toppingId = snapshot.path("id").asLong();
+                        if (comboItemId > 0 && toppingId > 0) {
+                            selectionsByComboItemId.computeIfAbsent(comboItemId,
+                                    idValue -> new ComboSelectionDto(idValue, new ArrayList<>(), new ArrayList<>()))
+                                    .getToppingIds().add(toppingId);
+                        }
+                    }
+                }
+                comboSelections.addAll(selectionsByComboItemId.values());
+            } else if (it.getOptionsSnapshot() != null && it.getOptionsSnapshot().isArray()) {
                 for (JsonNode n : it.getOptionsSnapshot()) {
                     long optId = n.isObject() ? n.path("id").asLong() : n.asLong();
                     if (optId > 0) {
@@ -1362,7 +1411,7 @@ public class OrderService {
                 }
             }
             List<Long> toppingIds = new ArrayList<>();
-            if (it.getToppingsSnapshot() != null && it.getToppingsSnapshot().isArray()) {
+            if (it.getComboId() == null && it.getToppingsSnapshot() != null && it.getToppingsSnapshot().isArray()) {
                 for (JsonNode n : it.getToppingsSnapshot()) {
                     long topId = n.isObject() ? n.path("id").asLong() : n.asLong();
                     if (topId > 0) {
@@ -1381,6 +1430,7 @@ public class OrderService {
                     it.getNote(),
                     order.getStoreId()
             );
+            cartItem.setComboSelections(comboSelections);
             cartItem.setOptionsSnapshot(it.getOptionsSnapshot());
             cartItem.setToppingsSnapshot(it.getToppingsSnapshot());
             cartService.addItem(cartKey, cartItem, CartService.CUSTOMER_CART_TTL);
@@ -1547,6 +1597,27 @@ public class OrderService {
         }
 
         return List.of();
+    }
+
+    private void applyValidatedSnapshots(List<CartItemDto> items,
+                                         List<CatalogClient.ValidatedCatalogItem> validatedItems) {
+        if (items == null || validatedItems == null || items.size() != validatedItems.size()) return;
+        for (int index = 0; index < items.size(); index++) {
+            CartItemDto item = items.get(index);
+            CatalogClient.ValidatedCatalogItem validated = validatedItems.get(index);
+            BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
+            item.setUnitPrice(validated.unitPrice().add(extraPrice));
+            item.setLineTotal(validated.lineTotal());
+            if (item.getComboId() != null) {
+                item.setOptionsSnapshot(validated.comboOptionsSnapshot() != null
+                        ? validated.comboOptionsSnapshot() : List.of());
+                item.setToppingsSnapshot(validated.comboToppingsSnapshot() != null
+                        ? validated.comboToppingsSnapshot() : List.of());
+            } else {
+                item.setOptionsSnapshot(validated.optionsSnapshot() != null ? validated.optionsSnapshot() : List.of());
+                item.setToppingsSnapshot(validated.toppingsSnapshot() != null ? validated.toppingsSnapshot() : List.of());
+            }
+        }
     }
 
     private String cancellationReason(Order order, String reason) {

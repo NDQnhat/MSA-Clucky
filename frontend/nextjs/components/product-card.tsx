@@ -25,7 +25,6 @@ export function ProductCard({ product, storeId }: { product: Product; storeId?: 
           src={product.imageUrl || product.image}
           alt={product.alt || product.name}
           loading="lazy"
-          usePlaceholder={false}
         />
 
         {isSoldOut && <span className="badge-sold-out">{t("menu.product.soldOut")}</span>}

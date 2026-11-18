@@ -73,7 +73,7 @@ export interface ComboItem {
   isActive: boolean;
   isAvailable?: boolean | null;
   isSoldOut?: boolean | null;
-  items: { productId: number; productName: string; quantity: number; optionId?: number }[];
+  items: { id?: number; productId: number; productName: string; quantity: number; optionId?: number | null }[];
 }
 
 export function comboAsProduct(combo: ComboItem): ProductItem {

@@ -21,7 +21,7 @@ export const AdminDrawer: React.FC<AdminDrawerProps> = ({
         <div>
           <div
             style={{
-              fontFamily: 'Fredoka, Quicksand, sans-serif',
+              fontFamily: 'var(--font-heading)',
               fontWeight: 700,
               fontSize: 22,
               color: '#16100D',

@@ -10,6 +10,14 @@ import java.util.List;
 public class ValidationDto {
     public record OptionSnapshot(Long id, String groupName, String name, BigDecimal extraPrice) {}
     public record ToppingSnapshot(Long id, String name, BigDecimal extraPrice) {}
+    public record ComboOptionSnapshot(Long comboItemId, Long productId, String productName, Long id,
+                                      String groupName, String name, BigDecimal extraPrice, BigDecimal unitExtraPrice,
+                                      Integer componentQuantity, boolean fixed) {}
+    public record ComboToppingSnapshot(Long comboItemId, Long productId, String productName, Long id,
+                                       String name, BigDecimal extraPrice, BigDecimal unitExtraPrice,
+                                       Integer componentQuantity) {}
+
+    public record ComboSelectionRequest(Long comboItemId, List<Long> optionIds, List<Long> toppingIds) {}
 
     public record ReserveStockRequest(
             @NotNull @Positive Long orderId,
@@ -29,6 +37,7 @@ public class ValidationDto {
         private Integer quantity = 1;
         private List<Long> optionIds = new ArrayList<>();
         private List<Long> toppingIds = new ArrayList<>();
+        private List<ComboSelectionRequest> comboSelections = new ArrayList<>();
         private Long expectedVersion;
 
         public Long getExpectedVersion() { return expectedVersion; }
@@ -48,6 +57,11 @@ public class ValidationDto {
 
         public List<Long> getToppingIds() { return toppingIds; }
         public void setToppingIds(List<Long> toppingIds) { this.toppingIds = toppingIds; }
+
+        public List<ComboSelectionRequest> getComboSelections() { return comboSelections; }
+        public void setComboSelections(List<ComboSelectionRequest> comboSelections) {
+            this.comboSelections = comboSelections != null ? comboSelections : new ArrayList<>();
+        }
     }
 
     public static class Request {
@@ -64,9 +78,13 @@ public class ValidationDto {
     public static class ValidatedItem {
         private final List<OptionSnapshot> optionsSnapshot = new ArrayList<>();
         private final List<ToppingSnapshot> toppingsSnapshot = new ArrayList<>();
+        private final List<ComboOptionSnapshot> comboOptionsSnapshot = new ArrayList<>();
+        private final List<ComboToppingSnapshot> comboToppingsSnapshot = new ArrayList<>();
 
         public List<OptionSnapshot> getOptionsSnapshot() { return optionsSnapshot; }
         public List<ToppingSnapshot> getToppingsSnapshot() { return toppingsSnapshot; }
+        public List<ComboOptionSnapshot> getComboOptionsSnapshot() { return comboOptionsSnapshot; }
+        public List<ComboToppingSnapshot> getComboToppingsSnapshot() { return comboToppingsSnapshot; }
         private Long productId;
         private Long comboId;
         private String name;

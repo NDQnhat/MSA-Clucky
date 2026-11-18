@@ -115,4 +115,3 @@ Kết quả:
 2. **Không vi phạm kiến trúc:** Không hardcode secret, không import trực tiếp backend service URLs, tuân thủ mô hình Gateway.
 3. **Phân tách trách nhiệm:** Quản lý đúng phạm vi Promotion + Notification, không can thiệp trái thẩm quyền sang domain khác.
 4. **Giữ backlog Phase 2:** Các hạng mục avatar/banner và proposal voucher giữ đúng trong backlog theo kế hoạch, không đánh đồng là đã hoàn tất.
-

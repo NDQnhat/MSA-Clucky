@@ -1,0 +1,107 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" modified="2026-11-18T15:30:33.849967+00:00" agent="Clucky README" version="24.7.17" type="device">
+  <diagram id="clucky-overview" name="Kiến trúc Clucky">
+    <mxGraphModel dx="1600" dy="1190" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1190" background="#F5EDE0" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="header" value="CLUCKY  /  KIẾN TRÚC HỆ THỐNG" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#16100D;strokeColor=#16100D;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=47;fontStyle=1;fontColor=#F5EDE0;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="1600" height="158" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Nền tảng đặt món và vận hành cửa hàng · Microservices" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;strokeColor=none;fillColor=none;fontFamily=Arial;fontStyle=0;fontSize=23;fontColor=#C9A227;" vertex="1" parent="1">
+          <mxGeometry x="120" y="103" width="800" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="frontend-label" value="01 / GIAO DIỆN NGƯỜI DÙNG" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;strokeColor=none;fillColor=none;fontFamily=Arial;fontStyle=1;fontSize=27;fontColor=#8F1216;" vertex="1" parent="1">
+          <mxGeometry x="75" y="164" width="710" height="37" as="geometry" />
+        </mxCell>
+        <mxCell id="customer" value="&lt;b&gt;TRANG KHÁCH HÀNG&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:22px;color:#6B6259'&gt;Next.js 15 · TypeScript&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="210" y="207" width="500" height="89" as="geometry" />
+        </mxCell>
+        <mxCell id="admin" value="&lt;b&gt;TRANG QUẢN TRỊ&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:22px;color:#6B6259'&gt;React 19 · Vite · TypeScript&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="890" y="207" width="500" height="89" as="geometry" />
+        </mxCell>
+        <mxCell id="gateway" value="&lt;b&gt;API GATEWAY&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:22px;color:#FBE5D6'&gt;Định tuyến · JWT / RBAC · Kiểm soát truy cập&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#8F1216;strokeColor=#8F1216;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=34;fontStyle=1;fontColor=#FFFCF7;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="518" y="345" width="564" height="82" as="geometry" />
+        </mxCell>
+        <mxCell id="services-label" value="02 / CHÍN DỊCH VỤ NGHIỆP VỤ" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;strokeColor=none;fillColor=none;fontFamily=Arial;fontStyle=1;fontSize=27;fontColor=#8F1216;" vertex="1" parent="1">
+          <mxGeometry x="75" y="450" width="850" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="services-frame" value="" style="rounded=1;arcSize=16;fillColor=none;strokeColor=#DED2C2;strokeWidth=2;dashed=1;container=0;" vertex="1" parent="1">
+          <mxGeometry x="48" y="484" width="1505" height="403" as="geometry" />
+        </mxCell>
+        <mxCell id="identity" value="&lt;b&gt;01  Identity&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Tài khoản · Xác thực · Phân quyền&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="67" y="515" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="catalog" value="&lt;b&gt;02  Catalog &amp; Store&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Món ăn · Combo · Chi nhánh&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="570" y="515" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="order" value="&lt;b&gt;03  Cart &amp; Order&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Giỏ hàng · Đơn hàng&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1073" y="515" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="payment" value="&lt;b&gt;04  Payment&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Thanh toán · Đối soát&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="67" y="631" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="promotion" value="&lt;b&gt;05  Promotion &amp; Loyalty&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Khuyến mãi · Voucher · Tích điểm&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="570" y="631" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="shipping" value="&lt;b&gt;06  Shipping&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Phí giao hàng · Vận đơn&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1073" y="631" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="notification" value="&lt;b&gt;07  Notification&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Thông báo · Email&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="67" y="747" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="report" value="&lt;b&gt;08  Review &amp; Report&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Đánh giá · Thống kê&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="570" y="747" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="audit" value="&lt;b&gt;09  Audit&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:20px;color:#6B6259'&gt;Nhật ký thao tác quản trị&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=27;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1073" y="747" width="459" height="93" as="geometry" />
+        </mxCell>
+        <mxCell id="infra-label" value="03 / HẠ TẦNG VÀ DỮ LIỆU" style="text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;strokeColor=none;fillColor=none;fontFamily=Arial;fontStyle=1;fontSize=27;fontColor=#8F1216;" vertex="1" parent="1">
+          <mxGeometry x="75" y="910" width="760" height="39" as="geometry" />
+        </mxCell>
+        <mxCell id="postgres" value="&lt;b&gt;PostgreSQL 16&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:18px;color:#6B6259'&gt;Dữ liệu theo schema&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=23;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="56" y="955" width="275" height="103" as="geometry" />
+        </mxCell>
+        <mxCell id="redis" value="&lt;b&gt;Redis 7&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:18px;color:#6B6259'&gt;Cache · Giỏ hàng&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=23;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="362" y="955" width="275" height="103" as="geometry" />
+        </mxCell>
+        <mxCell id="kafka" value="&lt;b&gt;Apache Kafka 3.9&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:18px;color:#6B6259'&gt;Sự kiện nghiệp vụ&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=23;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="668" y="955" width="275" height="103" as="geometry" />
+        </mxCell>
+        <mxCell id="config" value="&lt;b&gt;Config Server&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:18px;color:#6B6259'&gt;Cấu hình tập trung&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=23;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="974" y="955" width="275" height="103" as="geometry" />
+        </mxCell>
+        <mxCell id="eureka" value="&lt;b&gt;Eureka&lt;/b&gt;&lt;br&gt;&lt;font style='font-size:18px;color:#6B6259'&gt;Khám phá dịch vụ&lt;/font&gt;" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#FFFCF7;strokeColor=#DED2C2;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=23;fontStyle=1;fontColor=#302722;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="955" width="275" height="103" as="geometry" />
+        </mxCell>
+        <mxCell id="integrations" value="TÍCH HỢP NGOÀI (tùy cấu hình)     Firebase / Google · SePay · Mapbox · Cloudinary" style="rounded=1;arcSize=16;whiteSpace=wrap;html=1;fillColor=#16100D;strokeColor=#16100D;strokeWidth=2;shadow=1;fontFamily=Arial;fontSize=23;fontStyle=1;fontColor=#F5EDE0;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="56" y="1092" width="1488" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="c-gateway" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C9A227;strokeWidth=3;endArrow=block;endFill=1;" edge="1" parent="1" source="customer" target="gateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="a-gateway" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C9A227;strokeWidth=3;endArrow=block;endFill=1;" edge="1" parent="1" source="admin" target="gateway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="gateway-services" value="HTTP / REST" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C9A227;strokeWidth=3;endArrow=block;endFill=1;" edge="1" parent="1" source="gateway" target="services-frame">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="infra-0" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C9A227;strokeWidth=3;endArrow=block;endFill=1;dashed=1;dashPattern=6 5;" edge="1" parent="1" source="services-frame" target="postgres">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="infra-1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C9A227;strokeWidth=3;endArrow=block;endFill=1;dashed=1;dashPattern=6 5;" edge="1" parent="1" source="services-frame" target="redis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="infra-2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C9A227;strokeWidth=3;endArrow=block;endFill=1;dashed=1;dashPattern=6 5;" edge="1" parent="1" source="services-frame" target="kafka">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="infra-3" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C9A227;strokeWidth=3;endArrow=block;endFill=1;dashed=1;dashPattern=6 5;" edge="1" parent="1" source="services-frame" target="config">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="infra-4" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#C9A227;strokeWidth=3;endArrow=block;endFill=1;dashed=1;dashPattern=6 5;" edge="1" parent="1" source="services-frame" target="eureka">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

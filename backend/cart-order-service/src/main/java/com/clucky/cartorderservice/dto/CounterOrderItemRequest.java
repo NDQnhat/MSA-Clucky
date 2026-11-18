@@ -1,6 +1,7 @@
 package com.clucky.cartorderservice.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.clucky.cartorderservice.cart.ComboSelectionDto;
 import jakarta.validation.constraints.Min;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,16 +15,19 @@ public record CounterOrderItemRequest(
         List<Long> optionIds,
         List<Long> toppingIds,
         List<Object> options,
-        String note
+        String note,
+        List<ComboSelectionDto> comboSelections
 ) {
     public CounterOrderItemRequest(Long productId, Long comboId, Integer quantity, List<Long> optionIds, List<Long> toppingIds, List<Object> options, String note) {
-        this.productId = productId;
-        this.comboId = comboId;
-        this.quantity = quantity != null && quantity > 0 ? quantity : 1;
-        this.optionIds = optionIds != null ? optionIds : List.of();
-        this.toppingIds = toppingIds != null ? toppingIds : List.of();
-        this.options = options != null ? options : List.of();
-        this.note = note;
+        this(productId, comboId, quantity, optionIds, toppingIds, options, note, List.of());
+    }
+
+    public CounterOrderItemRequest {
+        quantity = quantity != null && quantity > 0 ? quantity : 1;
+        optionIds = optionIds != null ? optionIds : List.of();
+        toppingIds = toppingIds != null ? toppingIds : List.of();
+        options = options != null ? options : List.of();
+        comboSelections = comboSelections != null ? comboSelections : List.of();
     }
 
     public List<Long> resolveOptionIds() {
