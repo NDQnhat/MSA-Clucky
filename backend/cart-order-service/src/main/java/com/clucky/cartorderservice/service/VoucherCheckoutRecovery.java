@@ -30,7 +30,14 @@ public class VoucherCheckoutRecovery {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void cancelled(long orderId) {
-        jdbc.update("INSERT INTO order_service.voucher_release_work(order_id) VALUES (?) ON CONFLICT (order_id) DO UPDATE SET next_attempt_at=now()", orderId);
+        // Personal vouchers are stored by instance ID, not in voucher_code.
+        // Only enqueue orders that actually reserved a voucher.
+        jdbc.update("""
+                INSERT INTO order_service.voucher_release_work(order_id)
+                SELECT id FROM order_service.orders
+                WHERE id=? AND (voucher_code IS NOT NULL OR customer_voucher_instance_id IS NOT NULL)
+                ON CONFLICT (order_id) DO UPDATE SET next_attempt_at=now()
+                """, orderId);
     }
 
     @Scheduled(fixedDelay = 10000)
@@ -43,8 +50,17 @@ public class VoucherCheckoutRecovery {
                     var orders = jdbc.queryForList("SELECT status FROM order_service.orders WHERE id=? FOR UPDATE", orderId);
                     var work = jdbc.queryForList("SELECT order_id FROM order_service.voucher_release_work WHERE order_id=? FOR UPDATE SKIP LOCKED", orderId);
                     if (work.isEmpty()) return;
-                    if (orders.isEmpty() || "CANCELLED".equals(orders.getFirst().get("status"))) loyalty.releaseVoucher(orderId);
-                    jdbc.update("DELETE FROM order_service.voucher_release_work WHERE order_id=?", orderId);
+                    if (orders.isEmpty() || "CANCELLED".equals(orders.getFirst().get("status"))
+                            || "DELIVERY_FAILED".equals(orders.getFirst().get("status"))) {
+                        loyalty.releaseVoucher(orderId);
+                        jdbc.update("DELETE FROM order_service.voucher_release_work WHERE order_id=?", orderId);
+                    } else if ("COMPLETED".equals(orders.getFirst().get("status"))) {
+                        jdbc.update("DELETE FROM order_service.voucher_release_work WHERE order_id=?", orderId);
+                    } else {
+                        // Keep the recovery marker while the order is in flight. Otherwise a
+                        // cancellation after the initial five-minute sweep is never retried.
+                        jdbc.update("UPDATE order_service.voucher_release_work SET next_attempt_at=now()+interval '5 minutes' WHERE order_id=?", orderId);
+                    }
                 });
             } catch (RuntimeException failure) {
                 jdbc.update("UPDATE order_service.voucher_release_work SET next_attempt_at=now()+interval '1 minute' WHERE order_id=?", orderId);

@@ -145,6 +145,35 @@ class LoyaltyPostgresTest {
     }
 
     @Test
+    void approvedStoreProposalCannotBeBroadenedByAnAdminEdit() {
+        var proposalRequest = voucherRequest(3);
+        proposalRequest.setCode(null);
+        var proposal = vouchers.createStoreProposal(proposalRequest, 7L, "STORE_MANAGER", 2L);
+        var approved = vouchers.approveVoucher(proposal.getId(), 1L, "ADMIN");
+
+        var change = voucherRequest(3);
+        change.setCode(null);
+        change.setVersion(approved.getVersion());
+        change.setScope(com.clucky.promotionloyaltyservice.model.VoucherScope.STORE);
+        change.setStoreId(2L);
+        change.setApplicability(com.clucky.promotionloyaltyservice.model.VoucherApplicability.SELECTED);
+        change.setStoreIds(java.util.Set.of(2L));
+        change.setStatus(VoucherStatus.DISABLED);
+        var updated = vouchers.updateVoucher(proposal.getId(), change, 1L, "ADMIN", null);
+        assertEquals(com.clucky.promotionloyaltyservice.model.VoucherScope.STORE, updated.getScope());
+        assertEquals(2L, updated.getStoreId());
+        assertEquals(java.util.Set.of(2L), updated.getStoreIds());
+        assertEquals(VoucherStatus.DISABLED, updated.getStatus());
+
+        change.setVersion(updated.getVersion());
+        change.setApplicability(com.clucky.promotionloyaltyservice.model.VoucherApplicability.ALL);
+        change.setStoreIds(java.util.Set.of());
+        assertThrows(ConflictException.class, () ->
+                vouchers.updateVoucher(proposal.getId(), change, 1L, "ADMIN", null));
+        assertEquals(2L, vouchers.getVoucherById(proposal.getId()).getStoreId());
+    }
+
+    @Test
     void concurrentOrderRetriesHaveOneBalanceEffectPerOperation() throws Exception {
         long customer = ThreadLocalRandom.current().nextLong(1_000_000, Long.MAX_VALUE);
         long order = ThreadLocalRandom.current().nextLong(1_000_000, Long.MAX_VALUE - 1);
@@ -195,6 +224,26 @@ class LoyaltyPostgresTest {
         assertThrows(ConflictException.class, () -> reservations.reserve(winner.get(), customer, 1, voucher.getCode(), BigDecimal.valueOf(101), BigDecimal.TEN));
         assertThrows(ConflictException.class, () -> reservations.reserve(winner.get(), customer, 1, voucher.getCode(), BigDecimal.valueOf(100), BigDecimal.ONE));
         assertThrows(ConflictException.class, () -> reservations.reserve(winner.get(), customer, 1, "OTHER", BigDecimal.valueOf(100), BigDecimal.TEN));
+    }
+
+    @Test
+    void anonymousCounterLegacyVoucherReservesAndSettlesWithoutAnAccount() {
+        var voucher = createLegacyVoucher(voucherRequest(2));
+        long order = randomId();
+        assertNull(reservations.reserve(order, null, 1, voucher.getCode(), null,
+                BigDecimal.valueOf(100), BigDecimal.TEN));
+        assertNull(reservations.reserve(order, null, 1, voucher.getCode(), null,
+                BigDecimal.valueOf(100), BigDecimal.TEN));
+        assertEquals(1, vouchers.getVoucherById(voucher.getId()).getReservedCount());
+
+        reservations.settle(order, null, "COMPLETED", UUID.randomUUID().toString(), "test");
+        reservations.settle(order, null, "COMPLETED", UUID.randomUUID().toString(), "test");
+        assertEquals(0, vouchers.getVoucherById(voucher.getId()).getReservedCount());
+        assertEquals(1, vouchers.getVoucherById(voucher.getId()).getUsedCount());
+        assertEquals(1, count("SELECT count(*) FROM promotion_service.voucher_usages WHERE order_id=?", order));
+        assertNull(new JdbcTemplate(source).queryForObject(
+                "SELECT customer_id FROM promotion_service.voucher_usages WHERE order_id=?",
+                Long.class, order));
     }
 
     @Test

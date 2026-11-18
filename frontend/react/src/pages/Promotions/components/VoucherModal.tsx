@@ -18,7 +18,7 @@ import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { AdminModal } from '../../../components/ui/AdminModal';
 import { useAuth } from '../../../context/AuthContext';
-import type { AdminVoucher, VoucherPayload, VoucherType } from '../../../types/promotion';
+import type { AdminVoucher, VoucherPayload, VoucherStatus, VoucherType } from '../../../types/promotion';
 import type { Store } from '../../../lib/api';
 
 const { TextArea } = Input;
@@ -61,8 +61,9 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
             editingVoucher.startAt ? dayjs(editingVoucher.startAt) : null,
             editingVoucher.endAt ? dayjs(editingVoucher.endAt) : null,
           ],
-          applicability: editingVoucher.applicability ||
-            (editingVoucher.scope === 'STORE' ? 'SELECTED' : 'ALL'),
+          applicability: editingVoucher.campaignKind === 'LEGACY'
+            ? (editingVoucher.scope === 'STORE' ? 'SELECTED' : 'ALL')
+            : (editingVoucher.applicability || (editingVoucher.scope === 'STORE' ? 'SELECTED' : 'ALL')),
           storeIds: editingVoucher.storeIds?.length ? editingVoucher.storeIds.map(Number)
             : editingVoucher.storeId ? [Number(editingVoucher.storeId)] : [],
           status: editingVoucher.status || 'ACTIVE',
@@ -97,6 +98,17 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
     status?: string;
   }) => {
     const [startDay, endDay] = values.dateRange;
+    const selectedStoreIds = values.applicability === 'SELECTED' ? values.storeIds || [] : [];
+    const isLegacyEdit = editingVoucher?.campaignKind === 'LEGACY';
+    // Existing campaign scope/store ID must match the backend's stored terms for
+    // optimistic concurrency and reservations. PERSONAL campaigns created by Admin
+    // retain scope ALL even when applicability selects specific stores.
+    const scope = editingVoucher && !isLegacyEdit
+      ? editingVoucher.scope
+      : values.applicability === 'SELECTED' && (!isAdmin || isLegacyEdit) ? 'STORE' : 'ALL';
+    const storeId = editingVoucher && !isLegacyEdit
+      ? (editingVoucher.storeId == null ? null : Number(editingVoucher.storeId))
+      : scope === 'STORE' && selectedStoreIds.length === 1 ? selectedStoreIds[0] : null;
     const payload: VoucherPayload = {
       code: editingVoucher?.campaignKind === 'LEGACY' ? editingVoucher.code : null,
       title: values.title?.trim(),
@@ -109,11 +121,10 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
       startAt: startDay.toISOString(),
       endAt: endDay.toISOString(),
       applicability: values.applicability,
-      storeIds: values.applicability === 'SELECTED' ? values.storeIds || [] : [],
-      scope: values.applicability === 'SELECTED' ? 'STORE' : 'ALL',
-      storeId: values.applicability === 'SELECTED' && values.storeIds?.length === 1
-        ? values.storeIds[0] : null,
-      status: (values.status as any) || 'ACTIVE',
+      storeIds: selectedStoreIds,
+      scope,
+      storeId,
+      status: (values.status as VoucherStatus) || 'ACTIVE',
     };
 
     await onSubmit(payload);
@@ -150,6 +161,11 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
         form={form}
         layout="vertical"
         onFinish={handleFinish}
+        onFinishFailed={({ errorFields }) => {
+          if (errorFields.length > 0) {
+            form.scrollToField(errorFields[0].name, { block: 'center' });
+          }
+        }}
         initialValues={{
           type: 'PERCENT',
           applicability: 'ALL',
@@ -162,7 +178,7 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
             <Form.Item
               name="title"
               label={t('admin:voucherUi.campaignTitle')}
-              rules={[{ required: true, message: t('admin:voucherUi.campaignTitleRequired') },
+              rules={[{ required: true, whitespace: true, message: t('admin:voucherUi.campaignTitleRequired') },
                 { max: 255, message: t('admin:voucherUi.campaignTitleLimit') }]}
             >
               <Input placeholder={t('admin:voucherUi.campaignTitlePlaceholder')} />
@@ -378,11 +394,15 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
                 label={t('admin:voucherUi.selectedStores')}
                 rules={[
                   { required: true, type: 'array', min: 1, message: t('admin:voucherUi.chooseStoresRequired') },
+                  ...(editingVoucher?.campaignKind === 'LEGACY'
+                    ? [{ type: 'array' as const, max: 1, message: t('admin:voucherUi.legacySingleStore') }]
+                    : []),
                 ]}
                 extra={t('admin:voucherUi.selectedStoresHint')}
               >
                 <Select
                   mode="multiple"
+                  maxCount={editingVoucher?.campaignKind === 'LEGACY' ? 1 : undefined}
                   maxTagCount="responsive"
                   placeholder={t('admin:voucherUi.chooseStores')}
                   disabled={!isAdmin}

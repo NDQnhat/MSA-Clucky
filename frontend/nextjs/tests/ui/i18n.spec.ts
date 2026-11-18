@@ -130,14 +130,14 @@ for (const origin of [customer, admin]) {
   test(`safe API errors retranslate without clearing login fields (${origin})`, async ({ page }) => {
     await page.route("**/api/auth/login", route => route.fulfill({ status: 403, json: { code: "FORBIDDEN", message: "secret SQL diagnostic" } }));
     await page.goto(origin + "/login");
-    const email = page.getByRole("textbox", { name: origin === admin ? "Định danh nội bộ hoặc email Admin" : "Số điện thoại hoặc email", exact: true });
+    const email = page.getByRole("textbox", { name: origin === admin ? "Tên đăng nhập" : "Số điện thoại hoặc email", exact: true });
     await expect(email).toHaveCount(1);
     await email.fill("locale@example.com");
     await page.getByLabel("Mật khẩu", { exact: true }).filter({ visible: true }).fill("password123");
     await page.getByRole("button", { name: /Đăng nhập$/, exact: false }).first().click();
     await expect(page.locator("[data-sonner-toast] [data-description]").filter({ hasText: "Bạn không có quyền" })).toBeVisible();
     await switchLanguage(page, "en");
-    await expect(page.getByRole("textbox", { name: origin === admin ? "Internal login or Admin email" : "Phone number or email", exact: true })).toHaveValue("locale@example.com");
+    await expect(page.getByRole("textbox", { name: origin === admin ? "Username" : "Phone number or email", exact: true })).toHaveValue("locale@example.com");
     await expect(page.getByLabel("Password", { exact: true }).filter({ visible: true })).toHaveValue("password123");
     await expect(page.locator("[data-sonner-toast] [data-description]").filter({ hasText: "You do not have permission" })).toBeVisible();
     await expect(page.locator("body")).not.toContainText("secret SQL diagnostic");

@@ -17,6 +17,10 @@ export function voucherState(voucher: Pick<AdminVoucher, 'status' | 'effectiveSt
   };
 }
 
-export function voucherStoreName(voucher: Pick<AdminVoucher, 'storeId' | 'storeName'>, stores: { id: number; name: string }[]) {
-  return stores.find(store => Number(voucher.storeId) === store.id)?.name || voucher.storeName?.trim() || undefined;
+export function voucherStoreName(voucher: Pick<AdminVoucher, 'storeId' | 'storeIds' | 'storeName'>, stores: { id: number; name: string }[]) {
+  if (voucher.storeIds?.length) {
+    return voucher.storeIds.map(id => stores.find(store => store.id === Number(id))?.name || `#${id}`).join(', ');
+  }
+  return stores.find(store => voucher.storeId != null && Number(voucher.storeId) === store.id)?.name
+    || voucher.storeName?.trim() || undefined;
 }

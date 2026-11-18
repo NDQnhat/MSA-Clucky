@@ -450,18 +450,18 @@ test("leaving a pending branch recovery challenge cannot replace the login route
   });
   try {
     await page.goto(admin + "/forgot-password");
-    await page.getByRole("textbox", { name: "Định danh nội bộ hoặc email Admin" }).fill("clucky.staff.1");
-    await page.getByRole("button", { name: "Yêu cầu mã mới", exact: true }).click();
+    await page.getByRole("textbox", { name: "Tên đăng nhập", exact: true }).fill("clucky.staff.1");
+    await page.getByRole("button", { name: "Gửi mã", exact: true }).click();
     // Ant Design prepends a spoken "loading" icon to the button's accessible
     // name as soon as the async challenge request begins.
-    await expect(page.getByRole("button", { name: /Yêu cầu mã mới$/ })).toHaveClass(/ant-btn-loading/);
-    await page.getByRole("link", { name: "Về đăng nhập" }).click();
+    await expect(page.getByRole("button", { name: /Gửi mã$/ })).toHaveClass(/ant-btn-loading/);
+    await page.getByRole("link", { name: "Về đăng nhập", exact: true }).last().click();
     await expect(page).toHaveURL(admin + "/login");
     release();
     await page.waitForTimeout(1500);
     await expect(page).toHaveURL(admin + "/login");
     await expect(overlay(page)).toHaveCount(0);
-    await expect(page.getByRole("textbox", { name: "Mã challenge (từ email)" })).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "Mã challenge", exact: true })).toHaveCount(0);
   } finally { release(); }
 });
 

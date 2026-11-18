@@ -845,9 +845,7 @@ public class OrderService {
         LOG.info("event=order_cancelled orderId={} orderCode={} by=CUSTOMER", order.getId(), order.getOrderCode());
 
         // P1.1: Release voucher and loyalty points if applied
-        if (order.getVoucherCode() != null && !order.getVoucherCode().isBlank()) {
-            voucherRecovery.cancelled(order.getId());
-        }
+        voucherRecovery.cancelled(order.getId());
 
         // Publish order.cancelled Kafka event via Transactional Outbox
         orderEventPublisher.publishOrderCancelled(order, items, history.getReason());
@@ -885,9 +883,7 @@ public class OrderService {
         LOG.info("event=order_rejected orderId={} orderCode={} by={}", order.getId(), order.getOrderCode(), actor.role());
 
         // P1.1: Release voucher and loyalty points if applied
-        if (order.getVoucherCode() != null && !order.getVoucherCode().isBlank()) {
-            voucherRecovery.cancelled(order.getId());
-        }
+        voucherRecovery.cancelled(order.getId());
 
         // Publish order.cancelled Kafka event via Transactional Outbox
         orderEventPublisher.publishOrderCancelled(order, items, history.getReason());
@@ -982,9 +978,7 @@ public class OrderService {
         if (OrderStatus.COMPLETED.name().equals(target)) {
             orderEventPublisher.publishOrderCompleted(order, items);
         } else if (OrderStatus.CANCELLED.name().equals(target)) {
-            if (order.getVoucherCode() != null && !order.getVoucherCode().isBlank()) {
-                voucherRecovery.cancelled(order.getId());
-            }
+            voucherRecovery.cancelled(order.getId());
             orderEventPublisher.publishOrderCancelled(order, items, history.getReason());
         } else {
             orderEventPublisher.publishOrderStatusChanged(order, items, current);
@@ -1046,9 +1040,7 @@ public class OrderService {
                 order.getId(), order.getOrderCode(), currentStatus);
 
         // P1.1: Compensate voucher and loyalty points if applied
-        if (order.getVoucherCode() != null && !order.getVoucherCode().isBlank()) {
-            voucherRecovery.cancelled(order.getId());
-        }
+        voucherRecovery.cancelled(order.getId());
 
         // Publish order.cancelled compensation event via Transactional Outbox
         orderEventPublisher.publishOrderCancelled(order, items, history.getReason(), "PAYMENT_EXPIRED".equals(reason));

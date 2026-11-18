@@ -171,7 +171,7 @@ public class VoucherService {
         return list.stream()
             .filter(v -> storeId == null || (v.getCampaignKind() == VoucherCampaignKind.PERSONAL
                     ? v.getApplicability() == VoucherApplicability.ALL || v.getStoreIds().contains(storeId)
-                    : Objects.equals(v.getStoreId(), storeId)))
+                    : v.getScope() == VoucherScope.ALL || Objects.equals(v.getStoreId(), storeId)))
             .map(v -> VoucherResponse.fromEntity(v, now))
             .toList();
     }
@@ -528,8 +528,21 @@ public class VoucherService {
         entity.setCode(dto.getCode());
         if (entity.getCampaignKind() == VoucherCampaignKind.PERSONAL) {
             VoucherApplicability applicability = dto.getApplicability() == null ? VoucherApplicability.ALL : dto.getApplicability();
-            entity.setApplicability(applicability);
-            entity.setStoreIds(applicability == VoucherApplicability.ALL ? Set.of() : dto.getStoreIds());
+            // Store Manager proposals are permanently scoped to the manager's
+            // verified branch, including after Admin approval/update/toggle.
+            // Never widen a proposal into an ALL-stores campaign by rewriting
+            // its legacy scope/storeId metadata during an Admin save.
+            if (entity.getScope() == VoucherScope.STORE && entity.getStoreId() != null) {
+                if (applicability != VoucherApplicability.SELECTED
+                        || !Set.of(entity.getStoreId()).equals(dto.getStoreIds())) {
+                    throw new ConflictException("Store proposal must remain restricted to its original branch");
+                }
+                entity.setApplicability(VoucherApplicability.SELECTED);
+                entity.setStoreIds(Set.of(entity.getStoreId()));
+            } else {
+                entity.setApplicability(applicability);
+                entity.setStoreIds(applicability == VoucherApplicability.ALL ? Set.of() : dto.getStoreIds());
+            }
         }
         entity.setTitle(dto.getTitle());
         entity.setDescription(dto.getDescription());
@@ -540,10 +553,15 @@ public class VoucherService {
         entity.setTotalLimit(dto.getTotalLimit());
         entity.setStartAt(dto.getStartAt());
         entity.setEndAt(dto.getEndAt());
-        entity.setScope(entity.getCampaignKind() == VoucherCampaignKind.PERSONAL ? VoucherScope.ALL
-                : dto.getScope() != null ? dto.getScope() : VoucherScope.ALL);
-        entity.setStoreId(entity.getCampaignKind() == VoucherCampaignKind.LEGACY
-                && entity.getScope() == VoucherScope.STORE ? dto.getStoreId() : null);
+        if (entity.getCampaignKind() == VoucherCampaignKind.LEGACY) {
+            entity.setScope(dto.getScope() != null ? dto.getScope() : VoucherScope.ALL);
+            entity.setStoreId(entity.getScope() == VoucherScope.STORE ? dto.getStoreId() : null);
+        } else if (entity.getScope() != VoucherScope.STORE || entity.getStoreId() == null) {
+            // Admin-created PERSONAL campaigns use applicability + storeIds;
+            // retain this canonical shape (even when SELECTED is one store).
+            entity.setScope(VoucherScope.ALL);
+            entity.setStoreId(null);
+        }
         if (dto.getStatus() != null) {
             entity.setStatus(dto.getStatus());
         }

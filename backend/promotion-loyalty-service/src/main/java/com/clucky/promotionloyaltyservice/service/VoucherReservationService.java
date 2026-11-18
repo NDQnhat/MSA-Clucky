@@ -48,14 +48,19 @@ public class VoucherReservationService {
             if (personal == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
             return personal.reserve(orderId, customerId, storeId, code, voucherInstanceId, orderAmount, discountAmount);
         }
-        if (customerId == null) throw new ApiException(ErrorCode.VALIDATION_ERROR);
-        reserve(orderId, customerId.longValue(), storeId, code, orderAmount, discountAmount);
+        reserveLegacy(orderId, customerId, storeId, code, orderAmount, discountAmount);
         return null;
     }
 
     @Transactional
     public void reserve(long orderId, long customerId, long storeId, String code, BigDecimal orderAmount, BigDecimal discountAmount) {
-        if (orderId <= 0 || customerId <= 0 || storeId <= 0 || code == null || !code.matches("[A-Za-z0-9_-]{1,80}")
+        reserveLegacy(orderId, customerId, storeId, code, orderAmount, discountAmount);
+    }
+
+    private void reserveLegacy(long orderId, Long customerId, long storeId, String code,
+            BigDecimal orderAmount, BigDecimal discountAmount) {
+        if (orderId <= 0 || customerId != null && customerId <= 0 || storeId <= 0
+                || code == null || !code.matches("[A-Za-z0-9_-]{1,80}")
                 || orderAmount == null || discountAmount == null || orderAmount.signum() < 0 || discountAmount.signum() < 0
                 || discountAmount.compareTo(orderAmount) > 0 || orderAmount.stripTrailingZeros().scale() > 0
                 || discountAmount.stripTrailingZeros().scale() > 0) throw new ApiException(ErrorCode.VALIDATION_ERROR);
@@ -64,7 +69,7 @@ public class VoucherReservationService {
         var rows = jdbc.queryForList("SELECT * FROM promotion_service.voucher_reservations WHERE order_id=? FOR UPDATE", orderId);
         if (!rows.isEmpty()) {
             var row = rows.getFirst();
-            if ("RELEASED".equals(row.get("state")) || number(row, "customer_id") != customerId
+            if ("RELEASED".equals(row.get("state")) || !Objects.equals(row.get("customer_id"), customerId)
                     || number(row, "store_id") != storeId || !normalized.equals(row.get("code"))
                     || orderAmount.compareTo((BigDecimal) row.get("order_amount")) != 0
                     || discountAmount.compareTo((BigDecimal) row.get("discount_amount")) != 0)
@@ -139,7 +144,7 @@ public class VoucherReservationService {
         if ("COMPLETED".equals(state)) {
             voucher.setUsedCount(Math.addExact(voucher.getUsedCount(), 1));
             jdbc.update("INSERT INTO promotion_service.voucher_usages(voucher_id,customer_id,order_id) VALUES (?,?,?)",
-                    voucher.getId(), number(row, "customer_id"), number(row, "order_id"));
+                    voucher.getId(), row.get("customer_id"), number(row, "order_id"));
         }
         jdbc.update("UPDATE promotion_service.voucher_reservations SET state=?,event_id=?,correlation_id=?,updated_at=now() WHERE order_id=?",
                 state, eventId, correlationId, number(row, "order_id"));

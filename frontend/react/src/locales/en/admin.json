@@ -34,6 +34,8 @@
     "expiredProposal": "This proposal has expired and cannot be approved.",
     "approvalHelp": "Branch proposals: select Pending approval, open the details, then select Approve proposal.",
     "managerHelp": "You can only propose vouchers for your branch. A voucher must be approved by an admin and within its validity period before use.",
+    "managerStoreRequired": "No branch assigned",
+    "managerStoreRequiredHint": "Ask an admin to assign you to a branch before submitting voucher proposals.",
     "pendingQueue": "Pending approval", "propose": "Propose a voucher", "sendProposal": "Submit proposal", "proposed": "Proposal submitted for admin approval",
     "approve": "Approve proposal", "approved": "Approved. The voucher still follows its validity dates and usage limits.",
     "confirmApprove": "Approve voucher {{code}}?", "approveHint": "The proposed terms, validity dates and branch scope remain unchanged.",
@@ -55,6 +57,7 @@
     "selectedStores": "Selected branches",
     "chooseStores": "Choose one or more branches",
     "chooseStoresRequired": "Select at least one branch",
+    "legacySingleStore": "Legacy shared-code vouchers support only one branch",
     "selectedStoresHint": "Personal codes can only be used at selected branches.",
     "allStoresHint": "Available at every Clucky branch.",
     "campaignColumn": "Campaign",
@@ -67,6 +70,8 @@
     "campaignActivated": "Campaign reactivated.",
     "campaignDisabled": "Campaign disabled.",
     "deleteCampaignHint": "Campaigns that issued vouchers are disabled to preserve usage history.",
+    "deleteRequested": "Voucher deletion processed. Vouchers with usage history may be disabled instead.",
+    "inactiveFilter": "Expired / Disabled",
     "globalProgress": "Global campaign usage"
   },
   "audit": {
