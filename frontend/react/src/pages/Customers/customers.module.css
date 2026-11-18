@@ -1,14 +1,14 @@
 .page { display: grid; gap: 24px; min-width: 0; color: #16100d; font-family: "Quicksand", sans-serif; }
 .heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .eyebrow { font-size: 10px; font-weight: 800; letter-spacing: .14em; color: #8f1216; }
-.heading h1 { font: 600 clamp(28px, 3vw, 36px)/1.2 "Fredoka", sans-serif; margin: 8px 0; }
+.heading h1 { font: 700 clamp(28px, 3vw, 36px)/1.2 "Baloo 2", sans-serif; margin: 8px 0; }
 .heading p { font-size: 13px; line-height: 1.7; color: #6b6259; margin: 0; max-width: 660px; }
 .heading > :global(.ant-btn) { flex-shrink: 0; border-radius: 12px; height: 40px; }
 .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .metric { display: flex; gap: 15px; align-items: center; padding: 20px; background: #fff; border: 1px solid #e8e2d9; border-radius: 16px; }
 .metric > div { display: grid; gap: 6px; }
 .metric > div > span { color: #6b6259; font-size: 12px; }
-.metric strong { font: 600 28px/1.15 "Fredoka", sans-serif; }
+.metric strong { font: 700 28px/1.15 "Baloo 2", sans-serif; }
 .metricIcon { width: 44px; height: 44px; display: grid; place-items: center; flex-shrink: 0; border-radius: 13px; background: #f8eaea; color: #8f1216; font-size: 21px; }
 .metric[data-tone="green"] .metricIcon { color: #1e7a46; background: #edf6ef; }
 .metric[data-tone="gold"] .metricIcon { color: #936c13; background: #fbf3df; }
@@ -28,6 +28,8 @@
 .person > div, .contact { display: grid; gap: 5px; }
 .person small, .contact small { color: #6b6259; font-size: 11px; }
 .contact :global(.anticon) { margin-right: 4px; color: #928373; }
+.contactRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.contactRow :global(.ant-btn) { flex: 0 0 auto; width: 28px; height: 28px; padding: 0; color: #8f1216; }
 .avatar { background: #f5ede0; color: #8f1216; flex-shrink: 0; }
 .nameButton { border: 0; background: none; padding: 0; font: inherit; font-weight: 800; text-align: left; color: #16100d; cursor: pointer; }
 .nameButton:hover { color: #8f1216; }
@@ -37,7 +39,7 @@
 .profile { border: 1px solid #e8e2d9; border-radius: 16px; padding: 22px; background: #fcfaf6; margin-bottom: 28px; }
 .profileHeading { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
 .profileHeading > div { flex: 1; min-width: 0; }
-.profileHeading h2 { font: 600 23px/1.3 "Fredoka", sans-serif; margin: 0 0 5px; overflow-wrap: anywhere; }
+.profileHeading h2 { font: 700 23px/1.3 "Baloo 2", sans-serif; margin: 0 0 5px; overflow-wrap: anywhere; }
 .profileHeading > div > span { color: #6b6259; font-size: 12px; }
 .profileFooter { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding-top: 16px; border-top: 1px solid #e8e2d9; }
 .profileFooter small { max-width: 360px; color: #6b6259; line-height: 1.6; }

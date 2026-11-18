@@ -1,0 +1,30 @@
+.page { min-height: 100dvh; padding: 0 32px 28px; background: #f5ede0; color: #16100d; font-family: "Quicksand", sans-serif; }
+.header { width: min(1040px, 100%); min-height: 92px; margin: 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: #8f1216; text-decoration: none; font: 700 24px/1 "Baloo 2", sans-serif; letter-spacing: .04em; }
+.brand img { object-fit: contain; }
+.brand small { display: block; margin-top: 4px; color: #75675e; font: 700 7px/1 "Quicksand", sans-serif; letter-spacing: .18em; }
+.backLink { display: inline-flex; align-items: center; gap: 6px; color: #6b6259; font-size: 12px; font-weight: 700; text-decoration: none; }
+.backLink:hover { color: #8f1216; }
+.card { width: min(820px, 100%); margin: 20px auto 0; padding: 34px; border: 1px solid #e5dbce; border-radius: 24px; background: #fffaf3; box-shadow: 0 18px 50px rgba(73,54,43,.08); }
+.cardHeader { padding-bottom: 24px; border-bottom: 1px solid #e8e2d9; }
+.eyebrow { display: inline-flex; align-items: center; gap: 7px; color: #8f1216; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.cardHeader h1 { margin: 10px 0 4px; color: #211813; font: 700 34px/1.15 "Baloo 2", sans-serif; letter-spacing: -.02em; }
+.cardHeader p { max-width: 660px; margin: 0; color: #75675e; font-size: 13px; line-height: 1.65; }
+.card :global(.ant-alert) { margin-top: 18px; border-radius: 12px; }
+.section { padding: 26px 0 24px; }
+.sectionTitle { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+.sectionTitle > svg { flex: 0 0 auto; margin-top: 3px; color: #8f1216; }
+.sectionTitle h2, .requestHeader h2 { margin: 0; color: #211813; font: 700 19px/1.25 "Baloo 2", sans-serif; }
+.sectionTitle span, .requestHeader span { display: block; margin-top: 4px; color: #75675e; font-size: 11px; line-height: 1.55; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
+.card :global(.ant-form-item) { margin-bottom: 16px; }
+.card :global(.ant-form-item-label > label) { font-size: 12px; font-weight: 700; }
+.card :global(.ant-input), .card :global(.ant-input-affix-wrapper), .card :global(.ant-select-selector) { min-height: 44px; border-radius: 10px !important; border-color: #ded3c5; background: #fffefa; }
+.card :global(.ant-btn-primary) { height: 46px; border-radius: 11px; font-weight: 700; box-shadow: 0 6px 16px rgba(143,18,22,.12); }
+.requestSection { padding-top: 24px; border-top: 1px solid #e8e2d9; }
+.requestHeader { margin-bottom: 16px; }
+.requestGrid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(150px, .6fr); gap: 14px; }
+.requestActions { display: flex; justify-content: flex-end; }
+.requestActions :global(.ant-btn) { min-width: 150px; border-radius: 10px; font-weight: 700; }
+.footer { width: min(820px, 100%); margin: 18px auto 0; display: flex; justify-content: flex-end; gap: 8px; color: #968b81; font-size: 10px; }
+@media (max-width: 700px) { .page { padding: 0 16px 22px; } .header { min-height: 78px; } .card { margin-top: 10px; padding: 24px 20px; border-radius: 18px; } .grid, .requestGrid { grid-template-columns: 1fr; } .cardHeader h1 { font-size: 30px; } .requestActions { justify-content: stretch; } .requestActions :global(.ant-btn) { width: 100%; } }

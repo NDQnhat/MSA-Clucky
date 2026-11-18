@@ -48,7 +48,9 @@ class EmailTemplateRendererTest {
                 assertFalse(rendered.get("html").contains("Mở ứng dụng"), key);
                 assertTrue(rendered.get("body").contains("Không chia sẻ mã"), key);
             } else {
-                assertTrue(rendered.get("html").contains("<td align=\"center\" bgcolor=\"#8F1216\""), key);
+                // The transactional CTA is right-aligned in the current
+                // approved mail layout; retain the color and clickable link checks.
+                assertTrue(rendered.get("html").contains("<td align=\"right\" bgcolor=\"#8F1216\""), key);
                 assertTrue(rendered.get("html").contains("href=\"https://clucky.example/orders/42\""), key);
                 assertTrue(rendered.get("body").contains("https://clucky.example/orders/42"), key);
                 assertFalse(rendered.get("html").contains("href=\"http://localhost"), key);

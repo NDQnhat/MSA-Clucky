@@ -92,7 +92,7 @@ export const PromotionsPage: React.FC = () => {
 
       if (request === voucherRequest.current) {
         setVouchers(data);
-        setSelectedVoucher(current => current ? data.find(voucher => voucher.id === current.id) ?? current : null);
+        setSelectedVoucher(current => current ? data.find(voucher => voucher.id === current.id) ?? null : null);
       }
     } catch (error) {
       if (request !== voucherRequest.current) return;
@@ -163,7 +163,9 @@ export const PromotionsPage: React.FC = () => {
       // 4. Status filter
       if (statusFilter !== 'ALL') {
         const effStatus = v.effectiveStatus || v.status;
-        if (effStatus !== statusFilter) {
+        if (statusFilter === 'INACTIVE'
+          ? !['EXPIRED', 'EXHAUSTED', 'DISABLED'].includes(effStatus)
+          : effStatus !== statusFilter) {
           return false;
         }
       }
@@ -198,6 +200,7 @@ export const PromotionsPage: React.FC = () => {
 
   // Open create modal
   const handleOpenCreate = () => {
+    if (!isAdmin && !user.storeId) return;
     setEditingVoucher(null);
     setModalOpen(true);
   };
@@ -357,7 +360,7 @@ export const PromotionsPage: React.FC = () => {
 
       await fetchVouchers();
       setDrawerOpen(false);
-      message.success(t('loyalty:saved'));
+      message.success(t('admin:voucherUi.deleteRequested'));
     } catch (err) {
       message.error(getErrorMessage(err));
     } finally {
@@ -659,6 +662,7 @@ export const PromotionsPage: React.FC = () => {
               boxShadow: '0 4px 14px rgba(143, 18, 22, 0.2)',
             }}
             onClick={handleOpenCreate}
+            disabled={actionLoading || (!isAdmin && !user.storeId)}
           >
             {isAdmin ? 'Tạo Voucher mới' : t('admin:voucherUi.propose')}
           </Button>
@@ -666,6 +670,9 @@ export const PromotionsPage: React.FC = () => {
         </Space>
       </div>
 
+      {!isAdmin && !user.storeId && <Alert type="warning" showIcon
+        title={t('admin:voucherUi.managerStoreRequired')}
+        description={t('admin:voucherUi.managerStoreRequiredHint')} />}
       {storeError && <Alert type="warning" showIcon title={t('admin:voucherUi.storeUnavailable')} description={storeError}
         action={<Button onClick={fetchStores}>{t('common:retry')}</Button>} />}
 
@@ -738,11 +745,11 @@ export const PromotionsPage: React.FC = () => {
                   </div>
 
                   <div
-                    className={`promotions-kpi-card ${statusFilter === 'EXPIRED' ? 'active' : ''}`}
-                    onClick={() => setStatusFilter('EXPIRED')}
+                    className={`promotions-kpi-card ${statusFilter === 'INACTIVE' ? 'active' : ''}`}
+                    onClick={() => setStatusFilter('INACTIVE')}
                   >
                     <div>
-                      <div className="kpi-label">Hết hạn / Tắt</div>
+                      <div className="kpi-label">{t('admin:voucherUi.inactiveFilter')}</div>
                       <div className="kpi-value" style={{ color: '#6B6259' }}>{kpiStats.inactive}</div>
                     </div>
                     <div className="kpi-icon" style={{ background: '#F5EDE0', color: '#78716C' }}>
@@ -802,6 +809,7 @@ export const PromotionsPage: React.FC = () => {
                             { value: 'ACTIVE', label: <Space size={6}><CheckCircleOutlined />Đang chạy</Space> },
                             { value: 'UPCOMING', label: <Space size={6}><CalendarOutlined />Sắp diễn ra</Space> },
                             { value: 'EXPIRED', label: <Space size={6}><ClockCircleOutlined />Đã hết hạn</Space> },
+                            { value: 'INACTIVE', label: <Space size={6}><StopOutlined />{t('admin:voucherUi.inactiveFilter')}</Space> },
                             { value: 'EXHAUSTED', label: <Space size={6}><StopOutlined />{t('admin:voucherUi.states.EXHAUSTED')}</Space> },
                             { value: 'DISABLED', label: <Space size={6}><StopOutlined />{t('admin:voucherUi.states.DISABLED')}</Space> },
                           ]}

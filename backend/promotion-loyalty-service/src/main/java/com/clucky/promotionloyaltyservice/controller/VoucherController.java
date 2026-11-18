@@ -128,6 +128,8 @@ public class VoucherController {
         if (actor.role() == Role.STORE_MANAGER
                 && (actor.storeId() == null || !(actor.storeId().equals(voucher.getStoreId())
                     || voucher.getStoreIds() != null && voucher.getStoreIds().contains(actor.storeId())
+                    || voucher.getCampaignKind() == VoucherCampaignKind.LEGACY
+                        && voucher.getScope() == VoucherScope.ALL
                     || voucher.getCampaignKind() == VoucherCampaignKind.PERSONAL
                         && voucher.getApplicability() == VoucherApplicability.ALL))) {
             throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);

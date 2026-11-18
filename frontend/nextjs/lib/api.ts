@@ -132,6 +132,23 @@ export interface AddressPayload {
   isDefault: boolean;
 }
 
+export interface GuestPointsClaim {
+  phonePoints: number;
+  emailPoints: number;
+  currentPoints: number;
+  totalPoints: number;
+  pending: boolean;
+}
+
+export const guestPointsApi = {
+  preview: () => request<GuestPointsClaim>("/api/loyalty/claims/me"),
+  confirm: () => request<GuestPointsClaim & { pointsTransferred: number }>("/api/loyalty/claims/me/confirm", {
+    method: "POST",
+    body: JSON.stringify({ confirmed: true }),
+  }),
+};
+
+
 export const profileApi = {
   get: () => request<ProfileResponse>("/api/users/me"),
   update: (body: { fullName: string }) =>

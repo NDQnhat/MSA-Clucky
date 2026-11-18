@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Alert, App, Avatar, Button, Descriptions, Drawer, Form, Input, Modal, Select, Space, Spin, Table, Tag, Typography } from 'antd';
+import { Alert, App, Avatar, Button, Descriptions, Drawer, Form, Input, Modal, Select, Space, Spin, Table, Tag, Tooltip, Typography } from 'antd';
 import { CheckCircleOutlined, EyeOutlined, LockOutlined, MailOutlined, PhoneOutlined, ReloadOutlined, SafetyCertificateOutlined, TeamOutlined, UnlockOutlined, UserOutlined } from '@ant-design/icons';
 import { useAuth } from '../../context/AuthContext';
 import { useLocaleTools } from '../../i18n/hooks';
 import { getErrorMessage, type BackendOrder, type PageResponse } from '../../lib/api';
-import { adminCustomersApi, type AdminCustomer, type CustomerStatus } from '../../lib/admin-customers';
+import { adminCustomersApi, type AdminCustomer, type AdminCustomerContact, type CustomerStatus } from '../../lib/admin-customers';
 import { StatusTag } from '../Dashboard';
 import { orderDate, paymentMethodLabel } from '../Orders/presentation';
 import styles from './customers.module.css';
@@ -28,6 +28,7 @@ function CustomerList() {
   const [revision, setRevision] = useState(0);
   const [target, setTarget] = useState<AdminCustomer | null>(null);
   const [history, setHistory] = useState<AdminCustomer | null>(null);
+  const [contactTarget, setContactTarget] = useState<AdminCustomer | null>(null);
   const refresh = () => setRevision(current => current + 1);
 
   useEffect(() => {
@@ -80,8 +81,9 @@ function CustomerList() {
             <Avatar size={40} icon={<UserOutlined />} className={styles.avatar} />
             <div><button className={styles.nameButton} onClick={() => setHistory(customer)}>{customer.fullName}</button><small>#{customer.id}</small></div>
           </div> },
-          { title: t("admin:ui.emailMasked"), dataIndex: 'maskedEmail', render: (_, customer) => <div className={styles.contact}>
-            <span><MailOutlined /> {customer.maskedEmail || '—'}</span><small><PhoneOutlined /> {customer.maskedPhone || '—'}</small>
+          { title: t("admin:customerDirectory.contact"), dataIndex: 'maskedEmail', render: (_, customer) => <div className={styles.contact}>
+            <div className={styles.contactRow}><span><MailOutlined /> {customer.maskedEmail || '—'}</span><Tooltip title={t("admin:customerDirectory.viewEmail")}><Button type="text" size="small" icon={<EyeOutlined />} aria-label={t("admin:customerDirectory.viewEmail")} onClick={() => setContactTarget(customer)} /></Tooltip></div>
+            <div className={styles.contactRow}><small><PhoneOutlined /> {customer.maskedPhone || '—'}</small><Tooltip title={t("admin:customerDirectory.viewPhone")}><Button type="text" size="small" icon={<EyeOutlined />} aria-label={t("admin:customerDirectory.viewPhone")} onClick={() => setContactTarget(customer)} /></Tooltip></div>
           </div> },
           { title: t("admin:ui.registrationDate"), dataIndex: 'createdAt', render: value => orderDate(value, locale) },
           { title: t("accounts:status"), dataIndex: 'status', render: (status: string) => <Tag color={status === 'LOCKED' ? 'error' : 'success'} icon={status === 'LOCKED' ? <LockOutlined /> : <CheckCircleOutlined />}>{status === 'LOCKED' ? t("business:users.locked") : t("admin:ui.active216")}</Tag> },
@@ -98,7 +100,33 @@ function CustomerList() {
       setTarget(null); setHistory(current => current?.id === updated.id ? updated : current); refresh(); void message.success(t("admin:ui.customerStatusUpdated"));
     }} />}
     {history && <CustomerHistory key={history.id} customer={history} onClose={() => setHistory(null)} onManage={() => setTarget(history)} />}
+    {contactTarget && <CustomerContactModal customer={contactTarget} onClose={() => setContactTarget(null)} />}
   </div>;
+}
+
+function CustomerContactModal({ customer, onClose }: { customer: AdminCustomer; onClose: () => void }) {
+  const { t } = useTranslation();
+  const [contact, setContact] = useState<AdminCustomerContact | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true); setError(''); setContact(null);
+    adminCustomersApi.contact(customer.id, controller.signal)
+      .then(value => { if (!controller.signal.aborted) setContact(value); })
+      .catch(failure => { if (!controller.signal.aborted) setError(getErrorMessage(failure)); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [customer.id]);
+
+  return <Modal open title={t("admin:customerDirectory.contactTitle")} footer={null} onCancel={onClose} destroyOnHidden>
+    <Typography.Paragraph type="secondary">{customer.fullName}</Typography.Paragraph>
+    {error ? <Alert type="error" showIcon message={error} /> : loading ? <Spin /> : <Descriptions column={1} bordered size="small" items={[
+      { key: 'email', label: t("admin:customerDirectory.email"), children: contact?.email || '—' },
+      { key: 'phone', label: t("admin:customerDirectory.phone"), children: contact?.phone || '—' },
+    ]} />}
+  </Modal>;
 }
 
 function CustomerStatusModal({ customer, onClose, onSaved }: { customer: AdminCustomer; onClose: () => void; onSaved: (customer: AdminCustomer) => void }) {

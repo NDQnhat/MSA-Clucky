@@ -6,8 +6,14 @@ import { useTranslation } from 'react-i18next';
 import { api, getErrorMessage } from '../../../lib/api';
 import { useLocaleTools } from '../../../i18n/hooks';
 
-type Policy = { version: number; spendPerPoint: number; pointValue: number; silverThreshold: number; goldThreshold: number; silverDiscount: number; goldDiscount: number };
-const fields = ['spendPerPoint', 'pointValue', 'silverThreshold', 'goldThreshold', 'silverDiscount', 'goldDiscount'] as const;
+type Policy = {
+  version: number; spendPerPoint: number; pointValue: number;
+  silverThreshold: number; goldThreshold: number; silverDiscount: number; goldDiscount: number;
+  maxEarnPerOrder: number; maxEarnPerDay: number; maxPointBalance: number;
+};
+const fields = ['spendPerPoint', 'pointValue', 'silverThreshold', 'goldThreshold', 'silverDiscount', 'goldDiscount',
+  'maxEarnPerOrder', 'maxEarnPerDay', 'maxPointBalance'] as const;
+const limitFields = ['maxEarnPerOrder', 'maxEarnPerDay', 'maxPointBalance'] as const;
 
 export function LoyaltySettings() {
   const { t } = useTranslation('loyalty');
@@ -34,7 +40,7 @@ export function LoyaltySettings() {
     if (!policy || saving) return;
     setSaving(true); setError('');
     try {
-      const { data } = await api.put<Policy>('/api/loyalty/config', { ...values, version: policy.version });
+      const { data } = await api.put<Policy>('/api/loyalty/config', { ...policy, ...values, version: policy.version });
       setPolicy(data); form.setFieldsValue(data); message.success(t('saved'));
     } catch (failure) { setError(getErrorMessage(failure)); }
     finally { setSaving(false); }
@@ -99,6 +105,17 @@ export function LoyaltySettings() {
           </Form.Item>
         </Card>)}
       </div>
+      <Card className="loyalty-limits" title={t('limitsTitle')}>
+        <Typography.Paragraph type="secondary">{t('limitsHelp')}</Typography.Paragraph>
+        <div className="loyalty-limits-grid">
+          {limitFields.map(field => <Form.Item key={field} name={field} label={t(field)} rules={[
+            { required: true, message: t('required') },
+            { type: 'integer', min: 0, max: Number.MAX_SAFE_INTEGER, message: t('nonNegativePoints') },
+          ]}>
+            <InputNumber min={0} max={Number.MAX_SAFE_INTEGER} precision={0} suffix={t('pointsUnit')} />
+          </Form.Item>)}
+        </div>
+      </Card>
       <Alert className="loyalty-rules" type="info" showIcon message={t('rulesTitle')} description={t('rules')} />
       <div className="loyalty-savebar">
         <div role="status"><Typography.Text strong>{dirty ? t('unsaved') : t('upToDate')}</Typography.Text><br /><Typography.Text type="secondary">{t('saveHint')}</Typography.Text></div>

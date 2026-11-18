@@ -11,9 +11,16 @@ export interface AdminCustomer {
   createdAt: string;
 }
 
+export interface AdminCustomerContact {
+  email: string | null;
+  phone: string | null;
+}
+
 export const adminCustomersApi = {
   list: (params: { keyword?: string; status?: CustomerStatus; page: number; size: number }, signal?: AbortSignal) =>
     api.get<PageResponse<AdminCustomer>>('/api/users/customers', { params, signal }).then(response => response.data),
+  contact: (customerId: number, signal?: AbortSignal) =>
+    api.get<AdminCustomerContact>(`/api/users/customers/${customerId}/contact`, { signal }).then(response => response.data),
   setLocked: (customer: AdminCustomer, locked: boolean, reason: string) =>
     api.put<AdminCustomer>(`/api/users/customers/${customer.id}/${locked ? 'lock' : 'unlock'}`, {
       reason: reason.trim(), expectedStatus: customer.status,

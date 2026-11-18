@@ -73,10 +73,10 @@ public class EmailTemplateRenderer {
             text.append("\n\nMã xác minh: ").append(otp).append('\n').append(expiry);
             details.append("""
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAF7F2;border:1px solid #EFE7DB;border-radius:12px;">
-                    <tr><td align="center" style="padding:22px 16px 8px;color:#827366;font-size:11px;font-weight:700;letter-spacing:1.8px;line-height:18px;">MÃ XÁC THỰC</td></tr>
-                    <tr><td align="center" style="padding:0 8px 12px 14px;"><div class="otp" style="color:#8F1216;font-family:Arial,sans-serif;font-size:38px;font-weight:700;letter-spacing:6px;line-height:48px;">
+                    <tr><td align="right" style="padding:22px 16px 8px;color:#827366;font-size:11px;font-weight:700;letter-spacing:1.8px;line-height:18px;">MÃ XÁC THỰC</td></tr>
+                    <tr><td align="right" style="padding:0 8px 12px 14px;"><div class="otp" style="color:#8F1216;font-family:Arial,sans-serif;font-size:38px;font-weight:700;letter-spacing:6px;line-height:48px;text-align:right;">
                     """).append(escape(otp)).append("</div></td></tr>")
-                    .append("<tr><td align=\"center\" style=\"padding:0 16px 22px;color:#827366;font-size:12px;line-height:20px;\">")
+                    .append("<tr><td align=\"right\" style=\"padding:0 16px 22px;color:#827366;font-size:12px;line-height:20px;\">")
                     .append(escape(expiry)).append("</td></tr></table>");
             if (branch) {
                 for (String field : new String[]{"login", "role", "accountId", "challengeId"}) {
@@ -134,10 +134,10 @@ public class EmailTemplateRenderer {
             String url = customerUrl + path;
             text.append("\n\n").append(label).append(": ").append(url);
             action = """
-                    <tr><td align="center" style="padding:30px 24px 0;">
-                    <table role="presentation" align="center" cellpadding="0" cellspacing="0"><tr>
-                    <td align="center" bgcolor="#8F1216" style="border-radius:10px;">
-                    """ + "<a href=\"" + escape(url) + "\" style=\"display:inline-block;padding:16px 32px;border:1px solid #8F1216;border-radius:10px;color:#FFFFFF;font-size:14px;font-weight:700;line-height:20px;text-align:center;text-decoration:none;\">"
+                    <tr><td align="right" style="padding:30px 24px 0;">
+                    <table role="presentation" align="right" cellpadding="0" cellspacing="0"><tr>
+                    <td align="right" bgcolor="#8F1216" style="border-radius:10px;">
+                    """ + "<a href=\"" + escape(url) + "\" style=\"display:inline-block;padding:14px 24px;border:1px solid #8F1216;border-radius:10px;color:#FFFFFF;font-size:14px;font-weight:700;line-height:20px;text-align:right;text-decoration:none;\">"
                     + escape(label) + "</a></td></tr></table></td></tr>";
         }
         String notice = security

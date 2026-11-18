@@ -39,7 +39,7 @@ export function getErrorMessage(error: unknown, locale: Locale = getBrowserLocal
   return translate("errors.INTERNAL_ERROR");
 }
 
-export function formatMoney(value: number, locale: Locale): string {
+export function formatMoney(value: number | bigint, locale: Locale): string {
   return new Intl.NumberFormat(intlLocales[locale], { style: "currency", currency: "VND", maximumFractionDigits: 0 }).format(value);
 }
 

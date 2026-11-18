@@ -88,7 +88,9 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.PUT, "/api/auth/internal/branch-accounts/{storeId}").permitAll();
                     auth.requestMatchers(HttpMethod.GET, "/api/auth/internal/branch-accounts/{storeId}").permitAll();
                     auth.requestMatchers(HttpMethod.GET, "/api/auth/internal/customers/{customerId}/notification-contact").permitAll();
-                    auth.requestMatchers(HttpMethod.POST, "/internal/identity/verified-email/resolve")
+                    auth.requestMatchers(HttpMethod.POST,
+                                    "/internal/identity/verified-email/resolve",
+                                    "/internal/identity/loyalty-contacts/resolve")
                             .access((authentication, context) -> new AuthorizationDecision(
                                     authentication.get() instanceof JwtAuthenticationToken token
                                     && "INTERNAL_SERVICE".equals(token.getToken().getClaimAsString("role"))

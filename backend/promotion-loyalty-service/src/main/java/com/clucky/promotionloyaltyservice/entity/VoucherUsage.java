@@ -14,7 +14,7 @@ public class VoucherUsage {
     @Column(name = "voucher_id", nullable = false)
     private Long voucherId;
 
-    @Column(name = "customer_id", nullable = false)
+    @Column(name = "customer_id")
     private Long customerId;
 
     @Column(name = "order_id", nullable = false)

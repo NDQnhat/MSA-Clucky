@@ -122,9 +122,17 @@ test('UI uses registered bilingual keys; Vietnamese literals are reviewed domain
           const value = ts.isJsxText(node) ? node.text.replace(/\s+/g, ' ').trim() : node.text;
           if (vietnamese.test(value) && !allowed[file]?.includes(value)) failures.push(`${file}: untranslated UI literal: ${value}`);
           if (/^(common|auth|home|menu|admin|orders|business|errors)[.:][\w.]+$/.test(value)) {
+            const translationNamespace = ts.isStringLiteral(node)
+              && ts.isCallExpression(node.parent)
+              && node.parent.arguments[0] === node
+              && ts.isIdentifier(node.parent.expression)
+              && node.parent.expression.text === 'useTranslations';
             for (const locale of ['vi', 'en']) {
               const translated = value.replace(':', '.').split('.').reduce((current, key) => current?.[key], resources[locale]);
-              if (typeof translated !== 'string' || !translated.trim()) failures.push(`${file}: missing ${locale} translation ${value}`);
+              const valid = translationNamespace
+                ? translated && typeof translated === 'object' && Object.keys(translated).length > 0
+                : typeof translated === 'string' && translated.trim();
+              if (!valid) failures.push(`${file}: missing ${locale} translation ${value}`);
             }
           }
         }

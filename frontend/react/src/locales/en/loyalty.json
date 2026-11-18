@@ -12,6 +12,8 @@
   "thresholdOrder": "Gold must require more points than Silver", "discountOrder": "Gold must not offer a lower discount than Silver",
   "title": "Clucky Club settings", "description": "Shared policy for membership and checkout. Only admins can update it. Existing orders retain their locked policy version.",
   "spendPerPoint": "Amount paid per earned point (VND)", "pointValue": "Redemption value per point (VND)", "silverThreshold": "Lifetime points for Silver", "goldThreshold": "Lifetime points for Gold", "silverDiscount": "Silver discount (%)", "goldDiscount": "Gold discount (%)",
+  "limitsTitle": "Earning limits", "limitsHelp": "Set 0 for unlimited. Limits apply to new points when orders are completed and do not remove existing points.",
+  "maxEarnPerOrder": "Maximum points per order", "maxEarnPerDay": "Maximum points per day", "maxPointBalance": "Maximum point balance", "nonNegativePoints": "Enter a non-negative whole number of points",
   "rules": "Gold threshold must exceed Silver; Gold discount must not be lower. Apply vouchers, then tier discounts, then points. Exclude shipping. Earn on order completion and round down; redemption does not reduce tier progress.",
   "required": "Please enter a value", "save": "Save policy", "saved": "Policy saved", "reload": "Reload settings", "version": "Version {{version}}"
 }

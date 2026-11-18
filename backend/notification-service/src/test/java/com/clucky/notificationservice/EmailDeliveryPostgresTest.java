@@ -104,9 +104,13 @@ class EmailDeliveryPostgresTest {
         var kafka = mock(KafkaTemplate.class);
         when(kafka.send(any(ProducerRecord.class))).thenReturn(CompletableFuture.failedFuture(new IllegalStateException("broker down")));
         var publisher = new EmailFailurePublisher(jdbc, kafka, new ObjectMapper(), EmailDeliverySafetyTest.settings(), manager, metrics);
+        // This integration test shares the disposable CI database with other
+        // tests and re-runs. Ensure both sends select this delivery's outbox
+        // record rather than an unrelated pending row from a previous test.
+        jdbc.update("UPDATE notification_service.email_failure_outbox SET next_attempt_at='2000-01-01' WHERE delivery_id=?", id);
         publisher.publishNext();
         assertNull(jdbc.queryForMap("SELECT * FROM notification_service.email_failure_outbox WHERE delivery_id=?", id).get("published_at"));
-        jdbc.update("UPDATE notification_service.email_failure_outbox SET next_attempt_at=now() WHERE delivery_id=?", id);
+        jdbc.update("UPDATE notification_service.email_failure_outbox SET next_attempt_at='2000-01-01' WHERE delivery_id=?", id);
         when(kafka.send(any(ProducerRecord.class))).thenReturn(CompletableFuture.completedFuture(null));
         publisher.publishNext();
         var records = ArgumentCaptor.forClass(ProducerRecord.class);

@@ -576,6 +576,33 @@
   color: #8f1216;
 }
 
+.calcNote {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #75675e;
+}
+
+.earnLimits {
+  margin-top: 16px;
+  padding: 16px 18px;
+  background: #fffaf3;
+  border: 1px solid #ebd9c8;
+  border-radius: 12px;
+  color: #62564e;
+  font-size: 13px;
+}
+
+.earnLimits strong {
+  color: #16100d;
+}
+
+.earnLimits ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  line-height: 1.8;
+}
+
 /* -------------------------------------------------------------
  * POINT TRANSACTIONS HISTORY
  * ----------------------------------------------------------- */

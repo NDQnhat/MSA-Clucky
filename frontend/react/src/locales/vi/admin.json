@@ -12,7 +12,13 @@
     "subtitle": "Tra cứu hồ sơ, theo dõi lịch sử mua và quản lý quyền truy cập của khách hàng.",
     "details": "Xem hồ sơ",
     "summary": "Hồ sơ & lịch sử",
-    "result": "{{count}} kết quả"
+    "result": "{{count}} kết quả",
+    "viewEmail": "Xem email",
+    "viewPhone": "Xem số điện thoại",
+    "contactTitle": "Liên hệ khách hàng",
+    "contact": "Liên hệ",
+    "email": "Email",
+    "phone": "Số điện thoại"
   },
   "voucherUi": {
     "reviewTab": "Duyệt voucher", "proposalsTab": "Đề xuất chi nhánh", "pendingCount": "{{count}} voucher đang chờ duyệt",
@@ -28,6 +34,8 @@
     "expiredProposal": "Đề xuất đã hết thời gian hiệu lực, không thể phê duyệt.",
     "approvalHelp": "Đề xuất chi nhánh: chọn Chờ duyệt, mở chi tiết và bấm Phê duyệt đề xuất.",
     "managerHelp": "Bạn chỉ gửi đề xuất cho chi nhánh của mình. Voucher chỉ có thể sử dụng sau khi Admin phê duyệt và còn trong thời gian hiệu lực.",
+    "managerStoreRequired": "Chưa được phân công chi nhánh",
+    "managerStoreRequiredHint": "Bạn cần được quản trị viên gán chi nhánh trước khi gửi đề xuất voucher.",
     "pendingQueue": "Chờ duyệt", "propose": "Đề xuất voucher", "sendProposal": "Gửi đề xuất", "proposed": "Đã gửi đề xuất, chờ Admin phê duyệt",
     "approve": "Phê duyệt đề xuất", "approved": "Đã phê duyệt. Voucher áp dụng theo thời gian hiệu lực và giới hạn lượt dùng.",
     "confirmApprove": "Phê duyệt voucher {{code}}?", "approveHint": "Giữ nguyên điều kiện, thời gian và phạm vi chi nhánh của đề xuất.",
@@ -49,6 +57,7 @@
     "selectedStores": "Chọn chi nhánh",
     "chooseStores": "Chọn một hoặc nhiều chi nhánh",
     "chooseStoresRequired": "Vui lòng chọn ít nhất một chi nhánh",
+    "legacySingleStore": "Voucher sử dụng mã chung chỉ hỗ trợ một chi nhánh",
     "selectedStoresHint": "Mã cá nhân chỉ dùng được tại các chi nhánh được chọn.",
     "allStoresHint": "Áp dụng tại tất cả chi nhánh Clucky.",
     "campaignColumn": "Chương trình",
@@ -61,6 +70,8 @@
     "campaignActivated": "Đã kích hoạt lại chương trình.",
     "campaignDisabled": "Đã tạm vô hiệu hóa chương trình.",
     "deleteCampaignHint": "Chương trình đã phát voucher sẽ được vô hiệu hóa để giữ lịch sử.",
+    "deleteRequested": "Đã xử lý yêu cầu xóa voucher. Voucher có lịch sử sử dụng có thể được vô hiệu hóa.",
+    "inactiveFilter": "Hết hạn / Tắt",
     "globalProgress": "Lượt sử dụng toàn hệ thống"
   },
   "audit": {

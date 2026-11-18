@@ -14,6 +14,8 @@ public final class AdminCustomerData {
     public record Customer(Long id, String fullName, String maskedEmail, String maskedPhone,
             String status, Instant createdAt) {}
 
+    public record CustomerContact(String email, String phone) {}
+
     public record CustomerPage(List<Customer> content, int page, int size, long totalElements, int totalPages) {}
 
     public record StatusChange(@NotBlank @Size(min = 3, max = 500) String reason,

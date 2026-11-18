@@ -11,7 +11,7 @@ export function useLocaleTools() {
   return {
     locale,
     errorMessage,
-    money: (value: number) => formatMoney(value, locale),
+    money: (value: number | bigint) => formatMoney(value, locale),
     number: (value: number, options?: Intl.NumberFormatOptions) => formatNumber(value, locale, options),
     date: (value: string | number | Date, options?: Intl.DateTimeFormatOptions) => formatDate(value, locale, options),
   };

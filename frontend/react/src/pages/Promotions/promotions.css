@@ -28,6 +28,8 @@
 .loyalty-banner p { margin: 0; max-width: 780px; color: #ddd1c2; line-height: 1.6; }
 .loyalty-version.ant-tag { margin-left: auto; align-self: flex-start; white-space: nowrap; background: #302719; border-color: #c9a227; color: #f0d887; }
 .loyalty-rates, .loyalty-tiers { display: grid; gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.loyalty-limits { margin-top: 20px; }
+.loyalty-limits-grid { display: grid; gap: 18px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .loyalty-tiers { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .loyalty-settings .ant-card { background: #fffaf3; border-color: #e8e2d9; border-radius: 18px; overflow: hidden; }
 .loyalty-settings .ant-input-number { width: 100%; }
@@ -51,7 +53,7 @@
   .loyalty-version.ant-tag { margin-left: 0; }
 }
 @media (max-width: 640px) {
-  .loyalty-rates, .loyalty-tiers { grid-template-columns: minmax(0, 1fr); }
+  .loyalty-rates, .loyalty-tiers, .loyalty-limits-grid { grid-template-columns: minmax(0, 1fr); }
   .loyalty-banner { padding: 20px; gap: 14px; }
   .loyalty-banner-icon { width: 48px; height: 48px; font-size: 24px; }
   .loyalty-equation { gap: 10px; font-size: 14px; }
