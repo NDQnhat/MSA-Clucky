@@ -255,6 +255,10 @@
 .track { height: 6px; border-radius: 999px; background: #f0e4d6; margin-top: 8px; overflow: hidden; }
 .track div { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #c9a227, #a97b18); }
 .actions { display: flex; flex: 0 0 auto; justify-content: flex-end; }
+.legacyOffer { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 7px; max-width: 260px; }
+.legacyCode { padding: 7px 9px; border-radius: 8px; background: #f7eee4; color: #6e1518; font: 700 12px monospace; overflow-wrap: anywhere; }
+.legacyOffer .secondaryButton { min-height: 36px; padding: 7px 10px; }
+.legacyHint { color: #786357; font-size: 11px; line-height: 1.35; text-align: right; }
 .primary, .signInButton, .secondaryButton, .copyButton {
   display: inline-flex;
   align-items: center;

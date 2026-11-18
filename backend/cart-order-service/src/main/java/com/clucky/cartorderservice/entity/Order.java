@@ -85,6 +85,12 @@ public class Order {
     @Column(name = "payment_status", nullable = false, length = 20)
     private String paymentStatus = "PENDING";
 
+    @Column(name = "counter_payment_started", nullable = false)
+    private boolean counterPaymentStarted;
+
+    public boolean isCounterPaymentStarted() { return counterPaymentStarted; }
+    public void setCounterPaymentStarted(boolean started) { counterPaymentStarted = started; }
+
     private String collectionMethod;
     private BigDecimal collectedCash;
     private BigDecimal declaredTransfer;

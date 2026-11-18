@@ -107,6 +107,9 @@ public class ProductDto {
         private long version;
         public long getVersion() { return version; }
         public void setVersion(long version) { this.version = version; }
+        private Long inventoryVersion;
+        public Long getInventoryVersion() { return inventoryVersion; }
+        public void setInventoryVersion(Long inventoryVersion) { this.inventoryVersion = inventoryVersion; }
         private Long id;
         private String slug;
         private String name;

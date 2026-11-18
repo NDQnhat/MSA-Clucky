@@ -92,7 +92,7 @@ export function mapBackendCart(cart: BackendCartDto, previous: CartItem[] = []):
       toppings: toppings.length > 0 ? toppings : saved?.toppings,
       optionsSnapshot: item.optionsSnapshot ?? saved?.optionsSnapshot,
       toppingsSnapshot: item.toppingsSnapshot ?? saved?.toppingsSnapshot,
-      slug: saved?.slug ?? String(item.productId ?? item.comboId),
+      slug: saved?.slug ?? (item.comboId != null ? `combo-${item.comboId}` : String(item.productId)),
       name: item.itemName,
       category: saved?.category ?? "",
       basePrice: saved?.basePrice ?? Number(item.unitPrice),

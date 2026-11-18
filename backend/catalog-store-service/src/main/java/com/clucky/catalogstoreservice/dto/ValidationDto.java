@@ -1,5 +1,8 @@
 package com.clucky.catalogstoreservice.dto;
 
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -8,12 +11,28 @@ public class ValidationDto {
     public record OptionSnapshot(Long id, String groupName, String name, BigDecimal extraPrice) {}
     public record ToppingSnapshot(Long id, String name, BigDecimal extraPrice) {}
 
+    public record ReserveStockRequest(
+            @NotNull @Positive Long orderId,
+            @NotNull @Positive Long storeId,
+            @NotEmpty java.util.Map<@NotNull @Positive Long, @NotNull @Positive Integer> stockQuantities,
+            java.util.Map<Long, Long> expectedVersions
+    ) {}
+
+    public record ReleaseStockRequest(
+            @NotNull @Positive Long orderId,
+            @NotNull @Positive Long storeId
+    ) {}
+
     public static class ValidateItemRequest {
         private Long productId;
         private Long comboId;
         private Integer quantity = 1;
         private List<Long> optionIds = new ArrayList<>();
         private List<Long> toppingIds = new ArrayList<>();
+        private Long expectedVersion;
+
+        public Long getExpectedVersion() { return expectedVersion; }
+        public void setExpectedVersion(Long expectedVersion) { this.expectedVersion = expectedVersion; }
 
         public Long getProductId() { return productId; }
         public void setProductId(Long productId) { this.productId = productId; }
@@ -57,6 +76,10 @@ public class ValidationDto {
         private BigDecimal lineTotal;
         private boolean available = true;
         private String reason;
+        private Long inventoryVersion;
+
+        public Long getInventoryVersion() { return inventoryVersion; }
+        public void setInventoryVersion(Long inventoryVersion) { this.inventoryVersion = inventoryVersion; }
 
         public Long getProductId() { return productId; }
         public void setProductId(Long productId) { this.productId = productId; }

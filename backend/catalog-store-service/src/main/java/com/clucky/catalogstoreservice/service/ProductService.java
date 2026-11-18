@@ -114,6 +114,9 @@ public class ProductService {
             if (storeId != null) {
                 StoreProduct sp = storeProductMap.get(p.getId());
                 StoreInventory si = storeInventoryMap.get(p.getId());
+                if (si != null) {
+                    resp.setInventoryVersion(si.getVersion());
+                }
                 if (sp != null) {
                     if (sp.getStorePrice() != null) {
                         resp.setBasePrice(sp.getStorePrice());

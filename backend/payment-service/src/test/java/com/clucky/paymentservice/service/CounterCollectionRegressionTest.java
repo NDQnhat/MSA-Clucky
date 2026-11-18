@@ -43,6 +43,24 @@ class CounterCollectionRegressionTest {
     }
 
     @Test
+    void cashCollectionClaimsOrderBeforePersistingPayment() {
+        var jdbc = mock(JdbcTemplate.class);
+        var flow = mock(PaymentFlow.class);
+        var service = new PaymentOperations(jdbc, new ObjectMapper().findAndRegisterModules(), flow);
+        var actor = new CurrentActor(5L, Role.STAFF, 2L);
+        var amount = new BigDecimal("100000");
+        var order = new PaymentFlow.Context(10L, "ORDER-10", null, 2L, amount, "CONFIRMED",
+                "CASH", "PENDING", null, Instant.parse("2026-11-10T00:00:00Z"), "COUNTER", "PICKUP");
+
+        service.createCounterCollection(10L, order, actor, amount, BigDecimal.ZERO,
+                amount, BigDecimal.ZERO, "Cash collection", UUID.randomUUID());
+
+        var sequence = inOrder(flow, jdbc);
+        sequence.verify(flow).claimCounterPayment(10L, order);
+        sequence.verify(jdbc).update(startsWith("INSERT INTO payment_service.collections"), any(Object[].class));
+    }
+
+    @Test
     void anonymousCounterDecisionsAcceptBothMissingAndNullCustomer() {
         for (boolean explicitNull : List.of(false, true)) {
             var jdbc = mock(JdbcTemplate.class);

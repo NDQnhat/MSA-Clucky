@@ -59,7 +59,8 @@ public class LoyaltyOrderController {
         String loyaltyState = "DELIVERY_FAILED".equals(order.getStatus()) || virtualCodCompletion
                 ? "CANCELLED" : order.getStatus();
         if (uncollectedCompletion && !virtualCodCompletion) loyaltyState = "CONFIRMED";
-        if (refundId == null) return new OrderState(id, order.getCustomerId(), loyaltyState);
+        if (refundId == null) return new OrderState(id, order.getCustomerId(), loyaltyState, null, null, null,
+                order.getPaymentStatus(), order.getTotalAmount(), order.getOrderSource());
         if (refunds == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         var refund = refunds.findById(refundId)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));

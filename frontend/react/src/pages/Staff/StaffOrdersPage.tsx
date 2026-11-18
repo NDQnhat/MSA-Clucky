@@ -190,6 +190,7 @@ export function StaffOrdersPage() {
   // 2. Data Layer: Khởi tạo danh sách đơn hàng (trống ban đầu, load từ backend API)
   const [orders, setOrders] = useState<StaffOrder[]>([]);
   const [trackingById, setTrackingById] = useState<Record<string, ShipmentSimulationTracking>>({});
+  const completedTrackingReadRef = useRef(new Map<string, number>());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState(businessDate);
@@ -258,37 +259,82 @@ export function StaffOrdersPage() {
   // Shipping Service owns the attempt state. Keep failed shipments visible even
   // while the corresponding Order remains SHIPPING pending manager resolution.
   const trackedOrderIds = useMemo(() => orders
-    .filter(order => order.orderType === 'DELIVERY' && ['READY', 'SHIPPING', 'DELIVERY_FAILED'].includes(order.status))
+    .filter(order => order.orderType === 'DELIVERY' && ['READY', 'SHIPPING', 'DELIVERY_FAILED', 'COMPLETED'].includes(order.status))
+    .map(order => order.id).sort().join(','), [orders]);
+  const completedOrderIds = useMemo(() => orders
+    .filter(order => order.orderType === 'DELIVERY' && order.status === 'COMPLETED')
     .map(order => order.id).sort().join(','), [orders]);
 
   useEffect(() => {
     if (!trackedOrderIds) { setTrackingById({}); return; }
     const controller = new AbortController();
     const ids = trackedOrderIds.split(',');
+    const trackedIds = new Set(ids);
+    const completedIds = new Set(completedOrderIds ? completedOrderIds.split(',') : []);
+    for (const id of completedTrackingReadRef.current.keys()) {
+      if (!trackedIds.has(id)) completedTrackingReadRef.current.delete(id);
+    }
+    setTrackingById(previous => {
+      if (Object.keys(previous).every(id => trackedIds.has(id))) return previous;
+      return Object.fromEntries(Object.entries(previous).filter(([id]) => trackedIds.has(id)));
+    });
     let fetching = false;
     const load = async () => {
       if (fetching) return;
+      // Completed delivery details are terminal. Read once per order; retry
+      // failures after a minute instead of polling every historical delivery.
+      const now = Date.now();
+      const idsToRead = ids.filter(id => {
+        if (!completedIds.has(id)) return true;
+        const previousRead = completedTrackingReadRef.current.get(id);
+        return previousRead === undefined || (Number.isFinite(previousRead) && now - previousRead >= 60_000);
+      });
+      if (!idsToRead.length) return;
       fetching = true;
       try {
-        const results = await Promise.all(ids.map(async id => {
+        const results = await Promise.all(idsToRead.map(async id => {
           try { return [id, await shipmentSimulationApi.tracking(id, controller.signal)] as const; }
           catch { return null; }
         }));
-        if (!controller.signal.aborted) setTrackingById(previous => {
-          const next = { ...previous };
-          for (const id of Object.keys(next)) if (!ids.includes(id)) delete next[id];
-          for (const result of results) if (result) next[result[0]] = result[1];
-          return next;
-        });
+        if (!controller.signal.aborted) {
+          results.forEach((result, index) => {
+            const id = idsToRead[index];
+            if (completedIds.has(id)) completedTrackingReadRef.current.set(id, result ? Infinity : now);
+          });
+          setTrackingById(previous => {
+            const next = { ...previous };
+            for (const id of Object.keys(next)) if (!trackedIds.has(id)) delete next[id];
+            for (const result of results) if (result) next[result[0]] = result[1];
+            return next;
+          });
+        }
       } finally { fetching = false; }
     };
     void load();
     const interval = window.setInterval(() => { if (!document.hidden) void load(); }, 2500);
     return () => { controller.abort(); window.clearInterval(interval); };
-  }, [trackedOrderIds]);
+  }, [trackedOrderIds, completedOrderIds]);
 
   // 3. Tab công việc hiện tại (Mặc định vào tab 'CONFIRMED' - Mới xác nhận)
   const [activeTab, setActiveTab] = useState<WorkQueueKey>("CONFIRMED");
+  const awaitingAutoCashCollectionIdsRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    let collectionSettled = false;
+    for (const pendingId of awaitingAutoCashCollectionIdsRef.current) {
+      const latest = orders.find(order => order.id === pendingId);
+      if (!latest) continue;
+      if (['COLLECTED', 'PAID'].includes(latest.paymentStatus)) {
+        awaitingAutoCashCollectionIdsRef.current.delete(pendingId);
+        collectionSettled = true;
+      } else if (['CANCELLED', 'DELIVERY_FAILED'].includes(latest.status)) {
+        awaitingAutoCashCollectionIdsRef.current.delete(pendingId);
+      }
+    }
+    if (collectionSettled) {
+      setActiveTab(current => current === 'PENDING_PAYMENT' ? 'CONFIRMED' : current);
+    }
+  }, [orders]);
 
   // 4. Tìm kiếm & Sắp xếp
   const [searchQuery, setSearchQuery] = useState("");
@@ -389,8 +435,11 @@ export function StaffOrdersPage() {
   }, [storeOpenState.isOpen]);
 
   // Xử lý tạo đơn quầy mới từ CounterOrderModal
-  const handleCounterOrderSuccess = async (created?: BackendOrder) => {
+  const handleCounterOrderSuccess = async (created?: BackendOrder, result?: { cashCollectionNeedsSync: boolean }) => {
     const today = businessDate();
+    if (result?.cashCollectionNeedsSync && created?.id) {
+      awaitingAutoCashCollectionIdsRef.current.add(String(created.id));
+    }
     if (created?.id) {
       const mapped = fromBackendOrderToStaffOrder(
         created,
@@ -407,7 +456,8 @@ export function StaffOrdersPage() {
     if (selectedDate !== today) {
       setSelectedDate(today);
     }
-    setActiveTab("CONFIRMED");
+    setActiveTab(created?.paymentStatus === 'PENDING' && created?.orderSource === 'COUNTER'
+      ? 'PENDING_PAYMENT' : 'CONFIRMED');
     await fetchOrders(false);
   };
 
@@ -686,13 +736,30 @@ export function StaffOrdersPage() {
     return collectionAccepted;
   };
 
-  const handleSepayConfirmed = useCallback(async () => {
+  const handleSepayConfirmed = useCallback(async (confirmedOrder: BackendOrder) => {
     // Called ONLY after SePay reports PAID and Order Service confirms the
     // corresponding order state. Never infer success from displaying a QR.
     await fetchOrders(true);
     setPaymentModalOrder(null);
+    setReceiptModalOrder(fromBackendOrderToStaffOrder(
+      confirmedOrder, imageMapRef.current ?? new Map(), storesRef.current,
+      paymentModalOrder?.queueNumber,
+    ));
+    setReceiptInitialMode('RECEIPT');
     message.success(t('business:counterPayment.sepayConfirmed'));
-  }, [fetchOrders, t]);
+  }, [fetchOrders, paymentModalOrder?.queueNumber, t]);
+
+  const handleChangeCounterPaymentMethod = async (method: 'CASH' | 'BANK_TRANSFER' | 'SPLIT') => {
+    if (!paymentModalOrder) return;
+    const originalOrder = paymentModalOrder;
+    const updated = await ordersApi.changeCounterPaymentMethod(
+      originalOrder.id, method, originalOrder.version,
+    );
+    const mapped = fromBackendOrderToStaffOrder(updated, imageMapRef.current ?? new Map(),
+      storesRef.current, originalOrder.queueNumber);
+    setPaymentModalOrder(current => current?.id === originalOrder.id ? mapped : current);
+    setOrders((previous) => previous.map((order) => order.id === mapped.id ? mapped : order));
+  };
 
   // Mở in lại hóa đơn
   const handleReprintOrder = (order: StaffOrder) => {
@@ -719,11 +786,16 @@ export function StaffOrdersPage() {
   // 11. Đếm số lượng đơn trên từng tab
   const queueCounts = useMemo(() => {
     return {
-      PENDING_PAYMENT: orders.filter((o) => o.status === "PENDING_PAYMENT")
+      PENDING_PAYMENT: orders.filter((o) => o.status === "PENDING_PAYMENT"
+        || (o.orderSource === 'COUNTER' && o.paymentStatus === 'PENDING'
+          && ['CONFIRMED', 'PREPARING', 'READY'].includes(o.status)))
         .length,
-      CONFIRMED: orders.filter((o) => o.status === "CONFIRMED").length,
-      PREPARING: orders.filter((o) => o.status === "PREPARING").length,
-      READY: orders.filter((o) => o.status === "READY").length,
+      CONFIRMED: orders.filter((o) => o.status === "CONFIRMED"
+        && !(o.orderSource === 'COUNTER' && o.paymentStatus === 'PENDING')).length,
+      PREPARING: orders.filter((o) => o.status === "PREPARING"
+        && !(o.orderSource === 'COUNTER' && o.paymentStatus === 'PENDING')).length,
+      READY: orders.filter((o) => o.status === "READY"
+        && !(o.orderSource === 'COUNTER' && o.paymentStatus === 'PENDING')).length,
       SHIPPING: orders.filter((o) => o.status === 'SHIPPING' && trackingById[o.id]?.status !== 'FAILED').length,
       NEEDS_RESOLUTION: orders.filter(o => o.orderType === 'DELIVERY' && o.status === 'SHIPPING' && trackingById[o.id]?.status === 'FAILED' && trackingById[o.id]?.resolution !== 'CLOSED_UNDELIVERABLE').length,
       DELIVERY_FAILED: orders.filter(o => o.status === 'DELIVERY_FAILED' || (o.status === 'SHIPPING' && trackingById[o.id]?.status === 'FAILED' && trackingById[o.id]?.resolution === 'CLOSED_UNDELIVERABLE')).length,
@@ -742,7 +814,13 @@ export function StaffOrdersPage() {
           if (order.status !== 'DELIVERY_FAILED' && (!failedShipment || trackingById[order.id]?.resolution !== 'CLOSED_UNDELIVERABLE')) return false;
         } else if (activeTab === 'SHIPPING') {
           if (order.status !== 'SHIPPING' || failedShipment) return false;
-        } else if (order.status !== activeTab) return false;
+        } else if (activeTab === 'PENDING_PAYMENT') {
+          if (order.status !== 'PENDING_PAYMENT' && !(order.orderSource === 'COUNTER'
+              && order.paymentStatus === 'PENDING'
+              && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status))) return false;
+        } else if (order.status !== activeTab || (order.orderSource === 'COUNTER'
+            && order.paymentStatus === 'PENDING'
+            && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status))) return false;
 
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase().trim();
@@ -835,7 +913,7 @@ export function StaffOrdersPage() {
       paymentMethod:
         found.paymentMethod === "CASH" || found.paymentMethod === "COD"
           ? "COD"
-          : "BANK_TRANSFER",
+          : found.paymentMethod === "SPLIT" ? "SPLIT" : "BANK_TRANSFER",
       paymentStatus: found.paymentStatus,
       items: found.items.map((it) => ({
         id: it.id,
@@ -1223,6 +1301,7 @@ export function StaffOrdersPage() {
       {/* Drawer Chi Tiết Đơn Hàng */}
       <OrderDetailDrawer
         order={selectedOrderForDrawer}
+        tracking={selectedOrderId ? trackingById[selectedOrderId] : undefined}
         open={Boolean(selectedOrderId)}
         onClose={closeOrderDetails}
         onStatusChange={handleStatusChange}
@@ -1264,6 +1343,7 @@ export function StaffOrdersPage() {
         onClose={() => setPaymentModalOrder(null)}
         onConfirmPayment={handleConfirmPayment}
         onTransferConfirmed={handleSepayConfirmed}
+        onChangeMethod={handleChangeCounterPaymentMethod}
       />
 
       {/* Phase 2: Modal Xem & In Hóa Đơn K80 / Phiếu Bếp KOT */}

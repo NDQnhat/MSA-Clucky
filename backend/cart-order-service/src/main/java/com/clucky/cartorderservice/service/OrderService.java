@@ -62,7 +62,10 @@ public class OrderService {
     private final StringRedisTemplate redisTemplate;
     private final VoucherCheckoutRecovery voucherRecovery;
     private final CustomerProfileClient customerProfiles;
+    private final PaymentClient paymentClient;
     private final JdbcTemplate jdbc;
+    private final org.springframework.transaction.support.TransactionTemplate transactionTemplate;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
     private final Random random = new SecureRandom();
 
     /** Server and POS use the same identity for a counter draft; points are excluded. */
@@ -82,7 +85,7 @@ public class OrderService {
                 line.put("optionIds", item.resolveOptionIds().stream().sorted().toList());
                 line.put("toppingIds", item.toppingIds() == null ? List.of() : item.toppingIds().stream().sorted().toList());
                 return line;
-            }).toList());
+            }).sorted(java.util.Comparator.comparing(Map::toString)).toList());
             return HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                     .digest(objectMapper.writeValueAsBytes(normalized)));
         } catch (java.security.NoSuchAlgorithmException | com.fasterxml.jackson.core.JsonProcessingException failure) {
@@ -107,6 +110,8 @@ public class OrderService {
             return requested;
         }
         if (actor.storeId() == null || actor.storeId() <= 0) throw new AccessDeniedException("Store missing");
+        if (requested != null && !requested.equals(actor.storeId()))
+            throw new AccessDeniedException("Store mismatch");
         return actor.storeId();
     }
 
@@ -176,7 +181,29 @@ public class OrderService {
     ) {
         this(orderRepository, orderItemRepository, orderStatusHistoryRepository, cartService,
                 accessGuard, objectMapper, orderEventPublisher, catalogClient, promotionClient,
-                shippingClient, loyaltyClient, null, voucherRecovery, customerProfiles, null);
+                shippingClient, loyaltyClient, null, voucherRecovery, customerProfiles, null, null, null);
+    }
+
+    public OrderService(
+            OrderRepository orderRepository,
+            OrderItemRepository orderItemRepository,
+            OrderStatusHistoryRepository orderStatusHistoryRepository,
+            CartService cartService,
+            AccessGuard accessGuard,
+            ObjectMapper objectMapper,
+            OrderEventPublisher orderEventPublisher,
+            CatalogClient catalogClient,
+            PromotionClient promotionClient,
+            ShippingClient shippingClient,
+            LoyaltyClient loyaltyClient,
+            StringRedisTemplate redisTemplate,
+            VoucherCheckoutRecovery voucherRecovery,
+            CustomerProfileClient customerProfiles,
+            JdbcTemplate jdbc
+    ) {
+        this(orderRepository, orderItemRepository, orderStatusHistoryRepository, cartService,
+                accessGuard, objectMapper, orderEventPublisher, catalogClient, promotionClient,
+                shippingClient, loyaltyClient, redisTemplate, voucherRecovery, customerProfiles, jdbc, null, null);
     }
 
     @Autowired
@@ -195,7 +222,9 @@ public class OrderService {
             StringRedisTemplate redisTemplate,
             VoucherCheckoutRecovery voucherRecovery,
             CustomerProfileClient customerProfiles,
-            JdbcTemplate jdbc
+            JdbcTemplate jdbc,
+            PaymentClient paymentClient,
+            org.springframework.transaction.PlatformTransactionManager transactionManager
     ) {
         this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
@@ -212,6 +241,20 @@ public class OrderService {
         this.voucherRecovery = voucherRecovery;
         this.customerProfiles = customerProfiles;
         this.jdbc = jdbc;
+        this.paymentClient = paymentClient;
+        this.transactionManager = transactionManager;
+        this.transactionTemplate = transactionManager != null
+                ? new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                : new org.springframework.transaction.support.TransactionTemplate(new org.springframework.transaction.support.AbstractPlatformTransactionManager() {
+                    @Override
+                    protected Object doGetTransaction() { return new Object(); }
+                    @Override
+                    protected void doBegin(Object transaction, org.springframework.transaction.TransactionDefinition definition) {}
+                    @Override
+                    protected void doCommit(org.springframework.transaction.support.DefaultTransactionStatus status) {}
+                    @Override
+                    protected void doRollback(org.springframework.transaction.support.DefaultTransactionStatus status) {}
+                });
     }
 
     public OrderPreviewResponse previewOrder(OrderPreviewRequest request, HttpServletRequest httpRequest) {
@@ -312,12 +355,10 @@ public class OrderService {
         );
     }
 
-    @Transactional(timeout = 60)
     public OrderResponse createOrder(CreateOrderRequest request) {
         return createOrder(request, null);
     }
 
-    @Transactional(timeout = 60)
     public OrderResponse createOrder(CreateOrderRequest request, String idempotencyKey) {
         accessGuard.requireCustomer();
         if (request.voucherCode() != null && !request.voucherCode().isBlank()) {
@@ -326,46 +367,25 @@ public class OrderService {
         }
         Long customerId = CurrentActor.require().userId();
 
-        // Claim the client attempt before any pricing or cross-service reservations.
-        // PostgreSQL's unique key serializes overlapping retries until the first
-        // transaction commits; replay returns the original order snapshot.
+        // Look up completed attempts before pricing again. The claim itself is
+        // committed atomically with the draft in phase 1, below.
+        final String operationKey = idempotencyKey == null ? null : idempotencyKey.trim();
+        String requestHash = null;
         if (idempotencyKey != null) {
             if (idempotencyKey.isBlank() || idempotencyKey.indexOf('\0') >= 0
                     || idempotencyKey.trim().length() > 128 || jdbc == null) {
                 throw new ApiException(ErrorCode.VALIDATION_ERROR, "Idempotency-Key không hợp lệ");
             }
-            String fingerprint;
             try {
-                fingerprint = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                requestHash = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
                         .digest(objectMapper.writeValueAsBytes(request)));
             } catch (java.security.NoSuchAlgorithmException | com.fasterxml.jackson.core.JsonProcessingException failure) {
                 throw new IllegalStateException("Cannot hash checkout draft", failure);
             }
-            String key = idempotencyKey.trim();
-            int inserted = jdbc.update("""
-                    INSERT INTO order_service.web_order_operations (customer_id,idempotency_key,payload_hash)
-                    VALUES (?,?,?) ON CONFLICT DO NOTHING
-                    """, customerId, key, fingerprint);
-            if (inserted == 0) {
-                var previous = jdbc.queryForList("""
-                        SELECT payload_hash,order_id FROM order_service.web_order_operations
-                        WHERE customer_id=? AND idempotency_key=?
-                        """, customerId, key);
-                if (previous.isEmpty() || !fingerprint.equals(previous.getFirst().get("payload_hash"))) {
-                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Khóa gửi đơn đã dùng cho nội dung khác");
-                }
-                Object existingId = previous.getFirst().get("order_id");
-                if (existingId == null) {
-                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
-                }
-                Order existing = orderRepository.findById(((Number) existingId).longValue())
-                        .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-                if (!customerId.equals(existing.getCustomerId())) throw new ApiException(ErrorCode.FORBIDDEN);
-                return DomainMapper.toResponse(existing,
-                        orderItemRepository.findByOrderIdOrderByIdAsc(existing.getId()),
-                        orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(existing.getId()));
-            }
+            OrderResponse previous = replayWebOrder(customerId, operationKey, requestHash);
+            if (previous != null) return previous;
         }
+        final String payloadHash = requestHash;
 
         String userCartKey = RedisConfig.key("cart", customerId.toString());
         List<CartItemDto> items = (request.items() != null && !request.items().isEmpty())
@@ -469,133 +489,205 @@ public class OrderService {
                 ? OrderStatus.CONFIRMED.name()
                 : OrderStatus.PENDING_PAYMENT.name();
 
-        Order order = new Order();
-        order.setOrderCode(generateOrderCode());
-        order.setCustomerId(customerId);
-        String customerEmail = customerProfiles.currentCustomerEmail(customerId);
-        order.setCustomerEmail(customerEmail);
-        order.setCustomerEmailVerified(customerEmail != null);
-        order.setStoreId(request.storeId());
-        order.setQueueNumber(generateDailyQueueNumber(request.storeId()));
-        order.setType(type);
-        order.setStatus(initialStatus);
-        order.setSubtotal(subtotal);
-        order.setDiscountAmount(discountAmount);
-        order.setPointsUsed(pointsUsed);
-        order.setPointsAmount(pointsAmount);
-        order.setShippingFee(shippingFee);
-        order.setTotalAmount(totalAmount);
-        order.setPaymentMethod(paymentMethod);
-        if (totalAmount.signum() == 0) {
-            // A fully discounted order has nothing to collect. Keep it
-            // eligible for the same paid-order loyalty/voucher settlement,
-            // without issuing a zero-value transfer or cash collection.
-            order.setPaymentStatus("COLLECTED");
-            order.setCollectionMethod("NO_PAYMENT");
-            order.setCollectedCash(BigDecimal.ZERO);
-            order.setDeclaredTransfer(BigDecimal.ZERO);
-        }
-        // Personal credentials never enter Order persistence or outbound events.
-        order.setVoucherCode(voucherCalc.valid() && request.voucherCode() != null
-                && voucherCalc.voucherInstanceId() == null ? request.voucherCode().trim() : null);
-        order.setReceiverName(request.receiverName().trim());
-        order.setReceiverPhone(request.receiverPhone().trim());
-        order.setDeliveryAddress(request.deliveryAddress() == null ? null : request.deliveryAddress().trim());
-        order.setLatitude("DELIVERY".equals(type) ? request.latitude() : null);
-        order.setLongitude("DELIVERY".equals(type) ? request.longitude() : null);
-        order.setNote(request.note());
-        order.setScheduledAt(request.scheduledAt());
-        order = orderRepository.save(order);
+        final BigDecimal finalDiscountAmount = discountAmount;
+        final BigDecimal finalPointsAmount = pointsAmount;
+        final BigDecimal finalTotalAmount = totalAmount;
+        final List<CartItemDto> finalItems = items;
+        final String effectivePaymentMethod = paymentMethod;
 
-        voucherRecovery.lock(order.getId());
-        if (order.getVoucherCode() != null || request.voucherInstanceId() != null) {
-            voucherRecovery.track(order.getId());
-            loyaltyClient.reserveVoucher(order.getId(), customerId, order.getStoreId(),
-                    order.getVoucherCode(), request.voucherInstanceId(), subtotal, voucherCalc.discountAmount());
-        }
-        if (voucherCalc.valid()) {
-            jdbc.update("""
-                    UPDATE order_service.orders SET
-                      customer_voucher_instance_id=?, voucher_campaign_id=?,
-                      voucher_policy_version=?, voucher_discount_amount=?
-                    WHERE id=?
-                    """, request.voucherInstanceId(), voucherCalc.campaignId(),
-                    voucherCalc.campaignVersion(), voucherCalc.discountAmount(), order.getId());
-        }
-        LoyaltyClient.Quote reserved = loyaltyClient.reserveWithReceipt(
-                order.getId(), customerId,
-                subtotal.subtract(voucherCalc.discountAmount()).max(BigDecimal.ZERO), loyaltyCalc);
-        jdbc.update("""
-                UPDATE order_service.orders
-                SET loyalty_wallet_id=?,loyalty_subject_type='CUSTOMER',loyalty_policy_version=?,
-                    loyalty_auth_method='ACCOUNT',points_to_earn=?
-                WHERE id=?
-                """, reserved.walletId(), reserved.policyVersion(), reserved.pointsToEarn(), order.getId());
-
-        List<OrderItem> savedItems = new ArrayList<>();
-        for (int i = 0; i < items.size(); i++) {
-            CartItemDto it = items.get(i);
-            CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
-            BigDecimal unitPrice = validated.unitPrice();
-            BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
-            String itemName = validated.name();
-
-            OrderItem item = new OrderItem();
-            item.setOrderId(order.getId());
-            item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
-            item.setProductId(it.getProductId());
-            item.setComboId(it.getComboId());
-            item.setItemName(itemName);
-            item.setUnitPrice(unitPrice.add(extraPrice));
-            item.setQuantity(it.getQuantity());
-            item.setNote(it.getNote());
-            item.setLineTotal(unitPrice.add(extraPrice).multiply(BigDecimal.valueOf(it.getQuantity())));
-
-            if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
-                item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
-            } else if (it.getOptionsSnapshot() != null) {
-                item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionsSnapshot()));
-            } else if (it.getOptionIds() != null && !it.getOptionIds().isEmpty()) {
-                item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionIds()));
+        // Phase 1: Persist Order Draft with status PENDING_STOCK
+        java.util.concurrent.atomic.AtomicReference<OrderResponse> replayedOrder = new java.util.concurrent.atomic.AtomicReference<>();
+        Order draftOrder = transactionTemplate.execute(status -> {
+            if (operationKey != null) {
+                int inserted = jdbc.update("""
+                        INSERT INTO order_service.web_order_operations (customer_id,idempotency_key,payload_hash)
+                        VALUES (?,?,?) ON CONFLICT DO NOTHING
+                        """, customerId, operationKey, payloadHash);
+                if (inserted == 0) {
+                    OrderResponse replay = replayWebOrder(customerId, operationKey, payloadHash);
+                    if (replay == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
+                    replayedOrder.set(replay);
+                    return null;
+                }
             }
-            if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
-                item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
-            } else if (it.getToppingsSnapshot() != null) {
-                item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingsSnapshot()));
-            } else if (it.getToppingIds() != null && !it.getToppingIds().isEmpty()) {
-                item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingIds()));
+            Order order = new Order();
+            order.setOrderCode(generateOrderCode());
+            order.setCustomerId(customerId);
+            String customerEmail = customerProfiles.currentCustomerEmail(customerId);
+            order.setCustomerEmail(customerEmail);
+            order.setCustomerEmailVerified(customerEmail != null);
+            order.setStoreId(request.storeId());
+            order.setQueueNumber(generateDailyQueueNumber(request.storeId()));
+            order.setType(type);
+            order.setStatus(OrderStatus.PENDING_STOCK.name());
+            order.setSubtotal(subtotal);
+            order.setDiscountAmount(finalDiscountAmount);
+            order.setPointsUsed(pointsUsed);
+            order.setPointsAmount(finalPointsAmount);
+            order.setShippingFee(shippingFee);
+            order.setTotalAmount(finalTotalAmount);
+            order.setPaymentMethod(effectivePaymentMethod);
+            if (finalTotalAmount.signum() == 0) {
+                // A fully discounted order has nothing to collect. Keep it
+                // eligible for the same paid-order loyalty/voucher settlement,
+                // without issuing a zero-value transfer or cash collection.
+                order.setPaymentStatus("COLLECTED");
+                order.setCollectionMethod("NO_PAYMENT");
+                order.setCollectedCash(BigDecimal.ZERO);
+                order.setDeclaredTransfer(BigDecimal.ZERO);
             }
-            savedItems.add(orderItemRepository.save(item));
+            // Personal credentials never enter Order persistence or outbound events.
+            order.setVoucherCode(voucherCalc.valid() && request.voucherCode() != null
+                    && voucherCalc.voucherInstanceId() == null ? request.voucherCode().trim() : null);
+            order.setReceiverName(request.receiverName().trim());
+            order.setReceiverPhone(request.receiverPhone().trim());
+            order.setDeliveryAddress(request.deliveryAddress() == null ? null : request.deliveryAddress().trim());
+            order.setLatitude("DELIVERY".equals(type) ? request.latitude() : null);
+            order.setLongitude("DELIVERY".equals(type) ? request.longitude() : null);
+            order.setNote(request.note());
+            order.setScheduledAt(request.scheduledAt());
+            order = orderRepository.save(order);
+
+            if (operationKey != null) {
+                jdbc.update("UPDATE order_service.web_order_operations SET order_id=? WHERE customer_id=? AND idempotency_key=?",
+                        order.getId(), customerId, operationKey);
+            }
+            return order;
+        });
+        if (draftOrder == null) return replayedOrder.get();
+
+        // Phase 2: Synchronous Stock Reservation (outside DB transaction)
+        Map<Long, Integer> stockMap = new HashMap<>();
+        if (catalogValidation.stockQuantities() != null) {
+            catalogValidation.stockQuantities().forEach((k, v) -> stockMap.put(k, v != null ? v.intValue() : 1));
+        }
+        Map<Long, Long> expectedVersions = new HashMap<>();
+        for (CartItemDto it : finalItems) {
+            if (it.getProductId() != null && it.getExpectedVersion() != null) {
+                expectedVersions.put(it.getProductId(), it.getExpectedVersion());
+            }
+        }
+        try {
+            catalogClient.reserveStock(draftOrder.getId(), draftOrder.getStoreId(), stockMap, expectedVersions);
+        } catch (RuntimeException ex) {
+            LOG.warn("event=order_stock_reservation_failed orderId={} reason={}", draftOrder.getId(), ex.getMessage());
+            markOrderCancelledWithCompensation(draftOrder.getId(), draftOrder.getStoreId(), "Stock reservation rejected: " + ex.getMessage(), true);
+            throw ex;
         }
 
-        OrderStatusHistory history = new OrderStatusHistory();
-        history.setOrderId(order.getId());
-        history.setFromStatus(null);
-        history.setToStatus(initialStatus);
-        history.setChangedBy(customerId);
-        history.setChangedRole("CUSTOMER");
-        history.setReason("Order created with payment method: " + paymentMethod);
-        history.setCreatedAt(Instant.now());
-        orderStatusHistoryRepository.save(history);
+        // Phase 3: Finalize order in database transaction with guaranteed compensation on failure
+        try {
+            return transactionTemplate.execute(status -> {
+                // Voucher recovery acquires the advisory lock before the order row.
+                // Keep the same order to avoid a DB deadlock with voucher recovery.
+                voucherRecovery.lock(draftOrder.getId());
+                Order order = orderRepository.lockById(draftOrder.getId())
+                        .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+                if (!OrderStatus.PENDING_STOCK.name().equals(order.getStatus())) {
+                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã kết thúc giữ hàng");
+                }
 
-        // Clear user cart in Redis only when order is successfully created
-        cartService.clearCart(userCartKey);
+                if (order.getVoucherCode() != null || request.voucherInstanceId() != null) {
+                    voucherRecovery.track(order.getId());
+                    loyaltyClient.reserveVoucher(order.getId(), customerId, order.getStoreId(),
+                            order.getVoucherCode(), request.voucherInstanceId(), subtotal, voucherCalc.discountAmount());
+                }
+                if (voucherCalc.valid() && jdbc != null) {
+                    jdbc.update("""
+                            UPDATE order_service.orders SET
+                              customer_voucher_instance_id=?, voucher_campaign_id=?,
+                              voucher_policy_version=?, voucher_discount_amount=?
+                            WHERE id=?
+                            """, request.voucherInstanceId(), voucherCalc.campaignId(),
+                            voucherCalc.campaignVersion(), voucherCalc.discountAmount(), order.getId());
+                }
+                LoyaltyClient.Quote reserved = loyaltyClient.reserveWithReceipt(
+                        order.getId(), customerId,
+                        subtotal.subtract(voucherCalc.discountAmount()).max(BigDecimal.ZERO), loyaltyCalc);
+                if (jdbc != null) {
+                    jdbc.update("""
+                            UPDATE order_service.orders
+                            SET loyalty_wallet_id=?,loyalty_subject_type='CUSTOMER',loyalty_policy_version=?,
+                                loyalty_auth_method='ACCOUNT',points_to_earn=?
+                            WHERE id=?
+                            """, reserved.walletId(), reserved.policyVersion(), reserved.pointsToEarn(), order.getId());
+                }
 
-        LOG.info("event=order_created orderId={} orderCode={} customerId={} storeId={} total={} paymentMethod={}",
-                order.getId(), order.getOrderCode(), customerId, order.getStoreId(), order.getTotalAmount(), paymentMethod);
+                List<OrderItem> savedItems = new ArrayList<>();
+                for (int i = 0; i < finalItems.size(); i++) {
+                    CartItemDto it = finalItems.get(i);
+                    CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
+                    BigDecimal unitPrice = validated.unitPrice();
+                    BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
+                    String itemName = validated.name();
 
-        // Transactional Outbox: Saves outbox event in the same DB transaction
-        orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
+                    OrderItem item = new OrderItem();
+                    item.setOrderId(order.getId());
+                    item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
+                    item.setProductId(it.getProductId());
+                    item.setComboId(it.getComboId());
+                    item.setItemName(itemName);
+                    item.setUnitPrice(unitPrice.add(extraPrice));
+                    item.setQuantity(it.getQuantity());
+                    item.setNote(it.getNote());
+                    item.setLineTotal(unitPrice.add(extraPrice).multiply(BigDecimal.valueOf(it.getQuantity())));
 
-        if (idempotencyKey != null) {
-            jdbc.update("UPDATE order_service.web_order_operations SET order_id=? WHERE customer_id=? AND idempotency_key=?",
-                    order.getId(), customerId, idempotencyKey.trim());
+                    if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
+                        item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
+                    } else if (it.getOptionsSnapshot() != null) {
+                        item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionsSnapshot()));
+                    } else if (it.getOptionIds() != null && !it.getOptionIds().isEmpty()) {
+                        item.setOptionsSnapshot(objectMapper.valueToTree(it.getOptionIds()));
+                    }
+                    if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
+                        item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
+                    } else if (it.getToppingsSnapshot() != null) {
+                        item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingsSnapshot()));
+                    } else if (it.getToppingIds() != null && !it.getToppingIds().isEmpty()) {
+                        item.setToppingsSnapshot(objectMapper.valueToTree(it.getToppingIds()));
+                    }
+                    savedItems.add(orderItemRepository.save(item));
+                }
+
+                order.setStatus(initialStatus);
+                order = orderRepository.save(order);
+
+                OrderStatusHistory history = new OrderStatusHistory();
+                history.setOrderId(order.getId());
+                history.setFromStatus(OrderStatus.PENDING_STOCK.name());
+                history.setToStatus(initialStatus);
+                history.setChangedBy(customerId);
+                history.setChangedRole("CUSTOMER");
+                history.setReason("Order created with payment method: " + effectivePaymentMethod);
+                history.setCreatedAt(Instant.now());
+                orderStatusHistoryRepository.save(history);
+
+                // Clear user cart in Redis only when order is successfully created
+                cartService.clearCart(userCartKey);
+
+                LOG.info("event=order_created orderId={} orderCode={} customerId={} storeId={} total={} paymentMethod={}",
+                        order.getId(), order.getOrderCode(), customerId, order.getStoreId(), order.getTotalAmount(), effectivePaymentMethod);
+
+                // Transactional Outbox: Saves outbox event in the same DB transaction
+                orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
+
+                return DomainMapper.toResponse(order, savedItems, List.of(history));
+            });
+        } catch (Exception failure) {
+            LOG.warn("event=order_creation_failed_releasing_stock orderId={} storeId={} reason={}",
+                    draftOrder.getId(), draftOrder.getStoreId(), failure.getMessage());
+            try {
+                catalogClient.releaseStock(draftOrder.getId(), draftOrder.getStoreId());
+            } catch (Exception releaseEx) {
+                LOG.error("event=sync_release_stock_failed orderId={} storeId={} err={}",
+                        draftOrder.getId(), draftOrder.getStoreId(), releaseEx.getMessage());
+            }
+            markOrderCancelledWithCompensation(draftOrder.getId(), draftOrder.getStoreId(), failure.getMessage(), true);
+            if (failure instanceof RuntimeException re) throw re;
+            throw new IllegalStateException("Failed to finalize order", failure);
         }
-
-        return DomainMapper.toResponse(order, savedItems, List.of(history));
     }
 
-    @Transactional(timeout = 60)
     public OrderResponse createCounterOrder(CreateCounterOrderRequest request, String idempotencyKey) {
         accessGuard.requireCounterStaff();
         CurrentActor actor = CurrentActor.require();
@@ -625,17 +717,9 @@ public class OrderService {
         }
 
         if (jdbc == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
-        int inserted = jdbc.update("INSERT INTO order_service.counter_order_operations(idempotency_key,store_id,payload_hash) VALUES (?,?,?) ON CONFLICT DO NOTHING",
-                idempotencyKey.trim(), effectiveStoreId, payloadHash);
-        if (inserted == 0) {
-            var existing = jdbc.queryForList("SELECT payload_hash,order_id FROM order_service.counter_order_operations WHERE store_id=? AND idempotency_key=?", effectiveStoreId, idempotencyKey.trim());
-            if (existing.isEmpty() || !Objects.equals(payloadHash, existing.getFirst().get("payload_hash"))) throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
-            Object orderId = existing.getFirst().get("order_id");
-            if (orderId == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Request đang được xử lý, vui lòng thử lại");
-            Order existingOrder = orderRepository.findById(((Number) orderId).longValue()).orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-            if (!effectiveStoreId.equals(existingOrder.getStoreId())) throw new ApiException(ErrorCode.FORBIDDEN);
-            return DomainMapper.toResponse(existingOrder, orderItemRepository.findByOrderIdOrderByIdAsc(existingOrder.getId()), orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(existingOrder.getId()));
-        }
+        final String operationKey = idempotencyKey.trim();
+        OrderResponse previous = replayCounterOrder(effectiveStoreId, operationKey, payloadHash);
+        if (previous != null) return previous;
 
         if (request.items() == null || request.items().isEmpty()) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Danh sách món không được để trống");
@@ -706,114 +790,272 @@ public class OrderService {
                 ? request.paymentMethod().trim().toUpperCase() : "CASH";
         if (amountToCollect.signum() == 0) paymentMethod = "CASH";
 
-        Order order = new Order();
-        order.setOrderCode(generateOrderCode());
-        order.setCustomerId(null);
-        order.setStoreId(effectiveStoreId);
-        order.setOrderSource("COUNTER");
-        order.setDiningOption(diningOption);
-        order.setQueueNumber(queueNumber);
-        order.setType("PICKUP");
-        order.setStatus("CONFIRMED");
-        order.setPaymentStatus(amountToCollect.signum() == 0 ? "COLLECTED" : "PENDING");
-        if (amountToCollect.signum() == 0) {
-            order.setCollectionMethod("NO_PAYMENT");
-            order.setCollectedCash(BigDecimal.ZERO);
-            order.setDeclaredTransfer(BigDecimal.ZERO);
-        }
-        order.setPaymentMethod(paymentMethod);
-        order.setSubtotal(subtotal);
-        order.setDiscountAmount(counterVoucher.discountAmount().add(tierDiscount));
-        order.setPointsUsed(counterLoyalty == null ? 0 : counterLoyalty.pointsUsed());
-        order.setPointsAmount(redeemedAmount);
-        order.setShippingFee(BigDecimal.ZERO);
-        order.setTotalAmount(amountToCollect);
-        order.setReceiverName("Khách tại quầy #" + String.format("%03d", queueNumber));
-        order.setReceiverPhone("Tại quầy");
-        order.setDeliveryAddress("Tại quầy");
-        order.setNote(request.note());
-        order.setVersion(0L);
+        final String effectivePaymentMethod = paymentMethod;
 
+        // Phase 1: Persist Counter Order Draft with status PENDING_STOCK
+        java.util.concurrent.atomic.AtomicReference<OrderResponse> replayedOrder = new java.util.concurrent.atomic.AtomicReference<>();
+        Order draftOrder = transactionTemplate.execute(status -> {
+            int inserted = jdbc.update("INSERT INTO order_service.counter_order_operations(idempotency_key,store_id,payload_hash) VALUES (?,?,?) ON CONFLICT DO NOTHING",
+                    operationKey, effectiveStoreId, payloadHash);
+            if (inserted == 0) {
+                OrderResponse replay = replayCounterOrder(effectiveStoreId, operationKey, payloadHash);
+                if (replay == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
+                replayedOrder.set(replay);
+                return null;
+            }
+            Order order = new Order();
+            order.setOrderCode(generateOrderCode());
+            order.setCustomerId(null);
+            order.setStoreId(effectiveStoreId);
+            order.setOrderSource("COUNTER");
+            order.setDiningOption(diningOption);
+            order.setQueueNumber(queueNumber);
+            order.setType("PICKUP");
+            order.setStatus(OrderStatus.PENDING_STOCK.name());
+            order.setPaymentStatus(amountToCollect.signum() == 0 ? "COLLECTED" : "PENDING");
+            if (amountToCollect.signum() == 0) {
+                order.setCollectionMethod("NO_PAYMENT");
+                order.setCollectedCash(BigDecimal.ZERO);
+                order.setDeclaredTransfer(BigDecimal.ZERO);
+            }
+            order.setPaymentMethod(effectivePaymentMethod);
+            order.setSubtotal(subtotal);
+            order.setDiscountAmount(counterVoucher.discountAmount().add(tierDiscount));
+            order.setPointsUsed(counterLoyalty == null ? 0 : counterLoyalty.pointsUsed());
+            order.setPointsAmount(redeemedAmount);
+            order.setShippingFee(BigDecimal.ZERO);
+            order.setTotalAmount(amountToCollect);
+            order.setReceiverName("Khách tại quầy #" + String.format("%03d", queueNumber));
+            order.setReceiverPhone("Tại quầy");
+            order.setDeliveryAddress("Tại quầy");
+            order.setNote(request.note());
+            order.setVersion(0L);
+
+            order = orderRepository.save(order);
+
+            jdbc.update("UPDATE order_service.counter_order_operations SET order_id=? WHERE store_id=? AND idempotency_key=?",
+                    order.getId(), effectiveStoreId, operationKey);
+            return order;
+        });
+        if (draftOrder == null) return replayedOrder.get();
+
+        // Phase 2: Synchronous Stock Reservation for Counter Order (outside DB transaction)
+        Map<Long, Integer> counterStockMap = new HashMap<>();
+        if (catalogValidation.stockQuantities() != null) {
+            catalogValidation.stockQuantities().forEach((k, v) -> counterStockMap.put(k, v != null ? v.intValue() : 1));
+        }
+        try {
+            catalogClient.reserveStock(draftOrder.getId(), effectiveStoreId, counterStockMap, Map.of());
+        } catch (RuntimeException ex) {
+            LOG.warn("event=counter_order_stock_reservation_failed orderId={} reason={}", draftOrder.getId(), ex.getMessage());
+            markOrderCancelledWithCompensation(draftOrder.getId(), effectiveStoreId, "Stock reservation rejected: " + ex.getMessage(), true);
+            throw ex;
+        }
+
+        // Phase 3: Finalize Counter Order in database transaction with compensation
+        try {
+            return transactionTemplate.execute(status -> {
+                voucherRecovery.lock(draftOrder.getId());
+                Order order = orderRepository.lockById(draftOrder.getId())
+                        .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+                if (!OrderStatus.PENDING_STOCK.name().equals(order.getStatus())) {
+                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã kết thúc giữ hàng");
+                }
+
+                if (jdbc != null) {
+                    jdbc.update("""
+                            UPDATE order_service.orders SET
+                                loyalty_policy_version=?, loyalty_auth_method=?, points_to_earn=?,
+                                customer_voucher_instance_id=?, voucher_campaign_id=?,
+                                voucher_policy_version=?, voucher_discount_amount=?, loyalty_subject_type=?,
+                                loyalty_scan_proof_id=?
+                            WHERE id=?
+                            """, counterLoyalty == null ? null : counterLoyalty.policyVersion(),
+                            counterLoyalty == null ? null : counterLoyalty.redeemAllowed() ? "QR_SCAN" : "CONTACT",
+                            counterLoyalty == null ? 0 : counterLoyalty.pointsToEarn(),
+                            counterVoucher.voucherInstanceId(), counterVoucher.campaignId(),
+                            counterVoucher.campaignVersion(), counterVoucher.discountAmount(),
+                            request.loyaltySubject() == null ? null : "COUNTER",
+                            hashedScanProof(request.loyaltyScanProof()), order.getId());
+                }
+
+                // The Order owns the price. Promotion independently verifies/locks the
+                // voucher and points using this order ID and the server-calculated quote.
+                if (wantsVoucher) {
+                    voucherRecovery.track(order.getId());
+                    loyaltyClient.reserveVoucher(order.getId(), null, effectiveStoreId,
+                            request.voucherCode(), request.voucherInstanceId(), subtotal, counterVoucher.discountAmount());
+                }
+                if (counterLoyalty != null) {
+                    LoyaltyClient.CounterQuote reserved = loyaltyClient.counterReserve(
+                            order.getId(), request.loyaltySubject(), request.loyaltyScanProof(),
+                            merchandiseAfterVoucher, counterLoyalty, actor.userId(), effectiveStoreId, draftHash);
+                    if (reserved.walletId() == null || reserved.walletId() <= 0)
+                        throw new ApiException(ErrorCode.UPSTREAM_ERROR, "Loyalty wallet was not reserved");
+                    if (jdbc != null) {
+                        jdbc.update("UPDATE order_service.orders SET loyalty_wallet_id=? WHERE id=?",
+                                reserved.walletId(), order.getId());
+                    }
+                }
+
+                List<OrderItem> savedItems = new ArrayList<>();
+                for (int i = 0; i < items.size(); i++) {
+                    CartItemDto it = items.get(i);
+                    CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
+                    BigDecimal unitPrice = validated.unitPrice();
+                    BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
+                    BigDecimal effectiveUnitPrice = unitPrice.add(extraPrice);
+
+                    OrderItem item = new OrderItem();
+                    item.setOrderId(order.getId());
+                    item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
+                    item.setProductId(it.getProductId());
+                    item.setComboId(it.getComboId());
+                    item.setItemName(validated.name());
+                    item.setUnitPrice(effectiveUnitPrice);
+                    item.setQuantity(it.getQuantity());
+                    item.setNote(it.getNote());
+                    item.setLineTotal(effectiveUnitPrice.multiply(BigDecimal.valueOf(it.getQuantity())));
+
+                    if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
+                        item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
+                    }
+                    if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
+                        item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
+                    }
+                    savedItems.add(orderItemRepository.save(item));
+                }
+
+                order.setStatus("CONFIRMED");
+                order = orderRepository.save(order);
+
+                OrderStatusHistory history = new OrderStatusHistory();
+                history.setOrderId(order.getId());
+                history.setFromStatus(OrderStatus.PENDING_STOCK.name());
+                history.setToStatus("CONFIRMED");
+                history.setChangedBy(actor.userId());
+                history.setChangedRole(actor.role() != null ? actor.role().name() : "STAFF");
+                history.setReason("Tạo đơn quầy #" + queueNumber);
+                history.setCreatedAt(Instant.now());
+                orderStatusHistoryRepository.save(history);
+
+                // Transactional Outbox
+                orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
+
+                LOG.info("event=counter_order_created orderId={} orderCode={} queueNumber={} storeId={} total={}",
+                        order.getId(), order.getOrderCode(), queueNumber, effectiveStoreId, order.getTotalAmount());
+
+                return DomainMapper.toResponse(order, savedItems, List.of(history));
+            });
+        } catch (Exception failure) {
+            LOG.warn("event=counter_order_creation_failed_releasing_stock orderId={} storeId={} reason={}",
+                    draftOrder.getId(), effectiveStoreId, failure.getMessage());
+            try {
+                catalogClient.releaseStock(draftOrder.getId(), effectiveStoreId);
+            } catch (Exception releaseEx) {
+                LOG.error("event=sync_release_stock_failed orderId={} storeId={} err={}",
+                        draftOrder.getId(), effectiveStoreId, releaseEx.getMessage());
+            }
+            markOrderCancelledWithCompensation(draftOrder.getId(), effectiveStoreId, failure.getMessage(), true);
+            if (failure instanceof RuntimeException re) throw re;
+            throw new IllegalStateException("Failed to finalize counter order", failure);
+        }
+    }
+
+    private OrderResponse replayWebOrder(Long customerId, String key, String fingerprint) {
+        var rows = jdbc.queryForList("""
+                SELECT payload_hash,order_id FROM order_service.web_order_operations
+                WHERE customer_id=? AND idempotency_key=?
+                """, customerId, key);
+        if (rows.isEmpty()) return null;
+        if (!fingerprint.equals(rows.getFirst().get("payload_hash"))) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Khóa gửi đơn đã dùng cho nội dung khác");
+        }
+        Object id = rows.getFirst().get("order_id");
+        if (id == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
+        Order order = orderRepository.findById(((Number) id).longValue())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!customerId.equals(order.getCustomerId())) throw new ApiException(ErrorCode.FORBIDDEN);
+        return replayFinishedOrder(order);
+    }
+
+    private OrderResponse replayCounterOrder(Long storeId, String key, String fingerprint) {
+        var rows = jdbc.queryForList("""
+                SELECT payload_hash,order_id FROM order_service.counter_order_operations
+                WHERE store_id=? AND idempotency_key=?
+                """, storeId, key);
+        if (rows.isEmpty()) return null;
+        if (!fingerprint.equals(rows.getFirst().get("payload_hash"))) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Khóa gửi đơn đã dùng cho nội dung khác");
+        }
+        Object id = rows.getFirst().get("order_id");
+        if (id == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
+        Order order = orderRepository.findById(((Number) id).longValue())
+                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+        if (!storeId.equals(order.getStoreId())) throw new ApiException(ErrorCode.FORBIDDEN);
+        return replayFinishedOrder(order);
+    }
+
+    private OrderResponse replayFinishedOrder(Order order) {
+        // The draft is committed before its stock/loyalty reservation. A concurrent
+        // retry must never report that draft as a successfully placed order.
+        if (OrderStatus.PENDING_STOCK.name().equals(order.getStatus())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đang xử lý, vui lòng thử lại");
+        }
+        return DomainMapper.toResponse(order,
+                orderItemRepository.findByOrderIdOrderByIdAsc(order.getId()),
+                orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(order.getId()));
+    }
+
+    public void markOrderCancelledWithCompensation(Long orderId, Long storeId, String reason, boolean publishOutbox) {
+        if (orderId == null) return;
+        org.springframework.transaction.support.TransactionTemplate requiresNewTemplate = transactionManager != null
+                ? new org.springframework.transaction.support.TransactionTemplate(transactionManager)
+                : transactionTemplate;
+        requiresNewTemplate.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        requiresNewTemplate.execute(status -> {
+            Order order = orderRepository.lockById(orderId).orElse(null);
+            if (order != null && OrderStatus.PENDING_STOCK.name().equals(order.getStatus())) {
+                cancelPendingStockDraft(order, "Hủy do lỗi tạo đơn: " + (reason != null ? reason : ""), publishOutbox);
+            }
+            return null;
+        });
+    }
+
+    @Transactional
+    public boolean cancelStalePendingStock(Long orderId, Duration minAge) {
+        Order order = orderRepository.lockById(orderId).orElse(null);
+        if (order == null || !OrderStatus.PENDING_STOCK.name().equals(order.getStatus())
+                || order.getCreatedAt() == null || order.getCreatedAt().isAfter(Instant.now().minus(minAge))) {
+            return false;
+        }
+        cancelPendingStockDraft(order, "Quá thời gian giữ hàng chờ hoàn tất đơn", true);
+        return true;
+    }
+
+    private void cancelPendingStockDraft(Order order, String reason, boolean publishOutbox) {
+        order.setStatus(OrderStatus.CANCELLED.name());
         order = orderRepository.save(order);
-        jdbc.update("UPDATE order_service.counter_order_operations SET order_id=? WHERE store_id=? AND idempotency_key=?", order.getId(), effectiveStoreId, idempotencyKey.trim());
-        jdbc.update("""
-                UPDATE order_service.orders SET
-                    loyalty_policy_version=?, loyalty_auth_method=?, points_to_earn=?,
-                    customer_voucher_instance_id=?, voucher_campaign_id=?,
-                    voucher_policy_version=?, voucher_discount_amount=?, loyalty_subject_type=?,
-                    loyalty_scan_proof_id=?
-                WHERE id=?
-                """, counterLoyalty == null ? null : counterLoyalty.policyVersion(),
-                counterLoyalty == null ? null : counterLoyalty.redeemAllowed() ? "QR_SCAN" : "CONTACT",
-                counterLoyalty == null ? 0 : counterLoyalty.pointsToEarn(),
-                counterVoucher.voucherInstanceId(), counterVoucher.campaignId(),
-                counterVoucher.campaignVersion(), counterVoucher.discountAmount(),
-                request.loyaltySubject() == null ? null : "COUNTER",
-                hashedScanProof(request.loyaltyScanProof()), order.getId());
-
-        // The Order owns the price. Promotion independently verifies/locks the
-        // voucher and points using this order ID and the server-calculated quote.
-        voucherRecovery.lock(order.getId());
-        if (wantsVoucher) {
-            voucherRecovery.track(order.getId());
-            loyaltyClient.reserveVoucher(order.getId(), null, effectiveStoreId,
-                    request.voucherCode(), request.voucherInstanceId(), subtotal, counterVoucher.discountAmount());
-        }
-        if (counterLoyalty != null) {
-            LoyaltyClient.CounterQuote reserved = loyaltyClient.counterReserve(
-                    order.getId(), request.loyaltySubject(), request.loyaltyScanProof(),
-                    merchandiseAfterVoucher, counterLoyalty, actor.userId(), effectiveStoreId, draftHash);
-            if (reserved.walletId() == null || reserved.walletId() <= 0)
-                throw new ApiException(ErrorCode.UPSTREAM_ERROR, "Loyalty wallet was not reserved");
-            jdbc.update("UPDATE order_service.orders SET loyalty_wallet_id=? WHERE id=?",
-                    reserved.walletId(), order.getId());
-        }
-
-        List<OrderItem> savedItems = new ArrayList<>();
-        for (int i = 0; i < items.size(); i++) {
-            CartItemDto it = items.get(i);
-            CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
-            BigDecimal unitPrice = validated.unitPrice();
-            BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
-            BigDecimal effectiveUnitPrice = unitPrice.add(extraPrice);
-
-            OrderItem item = new OrderItem();
-            item.setOrderId(order.getId());
-            item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
-            item.setProductId(it.getProductId());
-            item.setComboId(it.getComboId());
-            item.setItemName(validated.name());
-            item.setUnitPrice(effectiveUnitPrice);
-            item.setQuantity(it.getQuantity());
-            item.setNote(it.getNote());
-            item.setLineTotal(effectiveUnitPrice.multiply(BigDecimal.valueOf(it.getQuantity())));
-
-            if (validated.optionsSnapshot() != null && !validated.optionsSnapshot().isEmpty()) {
-                item.setOptionsSnapshot(objectMapper.valueToTree(validated.optionsSnapshot()));
-            }
-            if (validated.toppingsSnapshot() != null && !validated.toppingsSnapshot().isEmpty()) {
-                item.setToppingsSnapshot(objectMapper.valueToTree(validated.toppingsSnapshot()));
-            }
-            savedItems.add(orderItemRepository.save(item));
-        }
 
         OrderStatusHistory history = new OrderStatusHistory();
         history.setOrderId(order.getId());
-        history.setFromStatus(null);
-        history.setToStatus("CONFIRMED");
-        history.setChangedBy(actor.userId());
-        history.setChangedRole(actor.role() != null ? actor.role().name() : "STAFF");
-        history.setReason("Tạo đơn quầy #" + queueNumber);
+        history.setFromStatus(OrderStatus.PENDING_STOCK.name());
+        history.setToStatus(OrderStatus.CANCELLED.name());
+        history.setChangedRole("SYSTEM");
+        history.setReason(reason);
         history.setCreatedAt(Instant.now());
         orderStatusHistoryRepository.save(history);
 
-        // Transactional Outbox
-        orderEventPublisher.publishOrderCreated(order, savedItems, catalogValidation.stockQuantities());
-
-        LOG.info("event=counter_order_created orderId={} orderCode={} queueNumber={} storeId={} total={}",
-                order.getId(), order.getOrderCode(), queueNumber, effectiveStoreId, order.getTotalAmount());
-
-        return DomainMapper.toResponse(order, savedItems, List.of(history));
+        // A failed draft is retryable with the same key. Both deletes and
+        // cancellation/outbox commit together while holding the order row lock.
+        if (jdbc != null) {
+            jdbc.update("DELETE FROM order_service.web_order_operations WHERE order_id=?", order.getId());
+            jdbc.update("DELETE FROM order_service.counter_order_operations WHERE order_id=?", order.getId());
+        }
+        voucherRecovery.cancelled(order.getId());
+        if (publishOutbox) {
+            orderEventPublisher.publishOrderCancelled(order, List.of(), reason);
+        }
     }
 
     @Transactional
@@ -889,6 +1131,44 @@ public class OrderService {
         orderEventPublisher.publishOrderCancelled(order, items, history.getReason());
 
         return DomainMapper.toResponse(order, items, histories);
+    }
+
+    public OrderResponse changeCounterPaymentMethod(Long id, ChangeCounterPaymentMethodRequest request) {
+        CurrentActor actor = CurrentActor.require();
+        if (!Set.of(Role.STAFF, Role.STORE_MANAGER, Role.ADMIN).contains(actor.role()))
+            throw new ApiException(ErrorCode.FORBIDDEN);
+        String method = request.paymentMethod().trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("CASH", "BANK_TRANSFER", "SPLIT").contains(method))
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, "Phương thức thanh toán không hợp lệ");
+        if (jdbc == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        // Check legacy payment activity BEFORE locking the Order. A pending POS
+        // payment can hold payment-service locks while it calls the Order claim API.
+        // No network call may run while we hold the Order row lock.
+        var stores = jdbc.queryForList("SELECT store_id FROM order_service.orders WHERE id=?", Long.class, id);
+        if (stores.isEmpty()) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
+        accessGuard.requireStore(stores.getFirst());
+        if (paymentClient == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        boolean existingPaymentActivity = paymentClient.hasCounterActivity(id);
+
+        return transactionTemplate.execute(status -> {
+            Order order = orderRepository.lockById(id)
+                    .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+            accessGuard.requireStore(order.getStoreId());
+            if (!"COUNTER".equals(order.getOrderSource()) || !"PENDING".equals(order.getPaymentStatus())
+                    || !Set.of("CONFIRMED", "PREPARING", "READY").contains(order.getStatus())
+                    || order.getTotalAmount().signum() <= 0)
+                throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn quầy không còn chờ thanh toán");
+            if (request.version() != null && !Objects.equals(request.version(), order.getVersion()))
+                throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã thay đổi, vui lòng tải lại");
+            if (!method.equals(order.getPaymentMethod())) {
+                if (order.isCounterPaymentStarted() || existingPaymentActivity)
+                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã có phiên QR hoặc thao tác thu tiền, không thể đổi phương thức");
+                order.setPaymentMethod(method);
+                order = orderRepository.saveAndFlush(order);
+            }
+            return DomainMapper.toResponse(order, orderItemRepository.findByOrderIdOrderByIdAsc(id),
+                    orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(id));
+        });
     }
 
     @Transactional

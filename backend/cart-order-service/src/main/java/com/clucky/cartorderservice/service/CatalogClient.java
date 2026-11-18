@@ -109,9 +109,11 @@ public class CatalogClient {
                 if (response.stockQuantities() == null || response.stockQuantities().isEmpty()
                         || response.stockQuantities().entrySet().stream().anyMatch(entry -> entry.getKey() == null || entry.getKey() <= 0
                             || entry.getValue() == null || entry.getValue() <= 0 || entry.getValue() > Integer.MAX_VALUE)) {
+                    LOG.error("Catalog validation missing stock demand for storeId={}", storeId);
                     throw new ApiException(ErrorCode.UPSTREAM_ERROR);
                 }
                 if (response.subtotal() == null || response.items() == null || response.items().size() != items.size()) {
+                    LOG.error("Catalog validation missing subtotal or item rows for storeId={}", storeId);
                     throw new ApiException(ErrorCode.UPSTREAM_ERROR);
                 }
                 for (int index = 0; index < items.size(); index++) {
@@ -119,8 +121,8 @@ public class CatalogClient {
                     CartItemDto requested = items.get(index);
                     if (!validated.available() || validated.unitPrice() == null || validated.name() == null
                             || !Objects.equals(validated.productId(), requested.getProductId())
-                            || !Objects.equals(validated.comboId(), requested.getComboId())
-                            || validated.optionsSnapshot() == null || validated.toppingsSnapshot() == null) {
+                            || !Objects.equals(validated.comboId(), requested.getComboId())) {
+                        LOG.error("Catalog validation item mismatch for storeId={} row={}", storeId, index);
                         throw new ApiException(ErrorCode.UPSTREAM_ERROR);
                     }
                 }
@@ -132,5 +134,71 @@ public class CatalogClient {
             LOG.warn("Failed to reach catalog service at {}: {}", catalogServiceUrl, ex.getMessage());
             throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Không thể kết nối đến dịch vụ Catalog để xác minh giá và tồn kho");
         }
+    }
+
+    public record ReserveStockRequest(
+            Long orderId,
+            Long storeId,
+            java.util.Map<Long, Integer> stockQuantities,
+            java.util.Map<Long, Long> expectedVersions
+    ) {}
+
+    public record ReleaseStockRequest(
+            Long orderId,
+            Long storeId
+    ) {}
+
+    public void reserveStock(Long orderId, Long storeId, java.util.Map<Long, Integer> stockQuantities, java.util.Map<Long, Long> expectedVersions) {
+        if (orderId == null || storeId == null || stockQuantities == null || stockQuantities.isEmpty()) return;
+        String serviceToken = credential.token();
+        if (serviceToken == null || serviceToken.isBlank()) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        try {
+            restClient.post()
+                    .uri(catalogServiceUrl + "/api/catalog/internal/reserve-stock")
+                    .headers(headers -> headers.setBearerAuth(serviceToken))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new ReserveStockRequest(orderId, storeId, stockQuantities, expectedVersions != null ? expectedVersions : java.util.Map.of()))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (org.springframework.web.client.HttpClientErrorException.Conflict conflict) {
+            LOG.warn("event=stock_reservation_conflict orderId={} storeId={}", orderId, storeId);
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Số lượng tồn kho của một hoặc nhiều món ăn đã thay đổi, vui lòng tải lại giỏ hàng");
+        } catch (org.springframework.web.client.HttpClientErrorException.BadRequest badRequest) {
+            LOG.warn("event=stock_reservation_insufficient orderId={} storeId={}", orderId, storeId);
+            throw new ApiException(ErrorCode.INSUFFICIENT_INVENTORY, "Một hoặc nhiều món không đủ số lượng tồn kho tại chi nhánh");
+        } catch (ApiException e) {
+            throw e;
+        } catch (Exception ex) {
+            LOG.error("Failed to reserve stock with catalog service: {}", ex.getMessage());
+            throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE, "Không thể kết nối đến dịch vụ tồn kho để giữ hàng");
+        }
+    }
+
+    public void releaseStock(Long orderId, Long storeId) {
+        if (orderId == null || storeId == null) return;
+        String serviceToken = credential.token();
+        if (serviceToken == null || serviceToken.isBlank()) return;
+
+        int maxRetries = 3;
+        for (int attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                restClient.post()
+                        .uri(catalogServiceUrl + "/api/catalog/internal/release-stock")
+                        .headers(headers -> headers.setBearerAuth(serviceToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(new ReleaseStockRequest(orderId, storeId))
+                        .retrieve()
+                        .toBodilessEntity();
+                LOG.info("event=stock_released orderId={} storeId={} attempt={}", orderId, storeId, attempt);
+                return;
+            } catch (Exception ex) {
+                LOG.warn("event=stock_release_failed orderId={} storeId={} attempt={}/{} error={}",
+                        orderId, storeId, attempt, maxRetries, ex.getMessage());
+                if (attempt < maxRetries) {
+                    try { Thread.sleep(100L * attempt); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                }
+            }
+        }
+        LOG.error("CRITICAL: Failed to release stock after {} attempts for orderId={} storeId={}", maxRetries, orderId, storeId);
     }
 }

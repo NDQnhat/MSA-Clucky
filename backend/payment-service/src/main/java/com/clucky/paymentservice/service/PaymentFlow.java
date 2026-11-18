@@ -26,6 +26,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
@@ -66,13 +67,15 @@ public class PaymentFlow {
     private final RestClient client;
     private final ObjectMapper mapper;
     private final EventMapper events;
+    private final OrderCredential orderCredential;
     private final boolean configured;
     @Value("${payment.sepay.counter-enabled:false}")
     private boolean counterEnabled;
 
     public PaymentFlow(JdbcTemplate jdbc, DiscoveryClient discovery, RestClient.Builder builder, ObjectMapper mapper,
-            EventMapper events, @Value("${payment.sepay.api-key:}") String key) {
+            EventMapper events, OrderCredential orderCredential, @Value("${payment.sepay.api-key:}") String key) {
         this.jdbc = jdbc; this.discovery = discovery; this.mapper = mapper; this.events = events;
+        this.orderCredential = orderCredential;
         String normalizedKey = key.toLowerCase(java.util.Locale.ROOT);
         this.configured = !key.isBlank() && !normalizedKey.contains("replace-")
                 && !normalizedKey.contains("placeholder") && !normalizedKey.contains("change-me");
@@ -229,6 +232,9 @@ public class PaymentFlow {
             throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn POS đã thay đổi trong khi tạo QR");
         }
         Bank bank = banks.getFirst();
+        // The Order DB claim serializes payment initiation with cashier method
+        // changes, including when the two services use separate databases.
+        claimCounterPayment(orderId, latest);
         for (int attempt = 0; attempt < 5; attempt++) {
             List<Payment> inserted = jdbc.query("INSERT INTO payment_service.payments("
                     + "order_id,order_code,method,amount,status,expires_at,customer_id,store_id,transfer_content,"
@@ -318,6 +324,33 @@ public class PaymentFlow {
         } catch (RestClientResponseException failure) {
             throw new ApiException(failure.getStatusCode().is4xxClientError() ? ErrorCode.fromStatus(failure.getStatusCode().value()) : ErrorCode.DEPENDENCY_UNAVAILABLE);
         } catch (RestClientException failure) { throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE); }
+    }
+
+    private record CounterPaymentClaimRequest(Long storeId, String orderCode, String paymentMethod,
+            BigDecimal totalAmount) {}
+
+    /** Must be called before committing any POS payment/collection to payment-service. */
+    public void claimCounterPayment(long orderId, Context order) {
+        if (!"COUNTER".equals(order.orderSource())) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
+        }
+        var instances = discovery.getInstances("cart-order-service");
+        if (instances.isEmpty()) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        try {
+            client.post().uri(instances.getFirst().getUri().resolve(
+                            "/api/orders/" + orderId + "/counter-payment-claim"))
+                    .headers(headers -> headers.setBearerAuth(orderCredential.token()))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new CounterPaymentClaimRequest(order.storeId(), order.orderCode(),
+                            order.paymentMethod(), order.amount()))
+                    .retrieve().toBodilessEntity();
+        } catch (RestClientResponseException failure) {
+            throw new ApiException(failure.getStatusCode().is4xxClientError()
+                    ? ErrorCode.fromStatus(failure.getStatusCode().value())
+                    : ErrorCode.DEPENDENCY_UNAVAILABLE);
+        } catch (RestClientException failure) {
+            throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        }
     }
 
     @Transactional

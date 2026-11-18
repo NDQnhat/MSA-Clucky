@@ -24,7 +24,7 @@ public class OrderCredential {
         Instant now = Instant.now();
         JwtClaimsSet claims = JwtClaimsSet.builder().issuer(settings.issuer()).audience(List.of(settings.audience()))
                 .subject(Long.toString(Long.MAX_VALUE)).issuedAt(now).expiresAt(now.plusSeconds(60))
-                .claim("role", "INTERNAL_SERVICE").claim("typ", "access")
+                .claim("role", "INTERNAL_SERVICE").claim("service", "payment-service").claim("typ", "access")
                 .claim("sid", "payment-order:" + UUID.randomUUID()).build();
         return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims)).getTokenValue();
     }

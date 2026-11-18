@@ -29,6 +29,7 @@ public class CartItemDto {
     private String note;
     private Long storeId;
     private BigDecimal lineTotal;
+    private Long expectedVersion;
 
     public CartItemDto() {}
 
@@ -130,4 +131,7 @@ public class CartItemDto {
     public void setLineTotal(BigDecimal lineTotal) {
         this.lineTotal = lineTotal;
     }
+
+    public Long getExpectedVersion() { return expectedVersion; }
+    public void setExpectedVersion(Long expectedVersion) { this.expectedVersion = expectedVersion; }
 }

@@ -85,10 +85,19 @@ public class SecurityConfig {
                     auth.requestMatchers(HttpMethod.POST, "/api/cart/merge").authenticated();
                     auth.requestMatchers("/api/cart", "/api/cart/**").permitAll();
                     auth.requestMatchers(HttpMethod.POST, "/api/orders/preview").permitAll();
+                    auth.requestMatchers(HttpMethod.POST, "/api/orders/*/counter-payment-claim").access((authentication, context) ->
+                            new AuthorizationDecision(authentication.get() instanceof JwtAuthenticationToken token
+                                    && "INTERNAL_SERVICE".equals(token.getToken().getClaimAsString("role"))
+                                    && "payment-service".equals(token.getToken().getClaimAsString("service"))));
                     auth.requestMatchers(HttpMethod.GET, "/internal/loyalty/orders/*").access((authentication, context) ->
                             new AuthorizationDecision(authentication.get() instanceof JwtAuthenticationToken token
                                     && "INTERNAL_SERVICE".equals(token.getToken().getClaimAsString("role"))
                                     && "promotion-loyalty-service".equals(token.getToken().getClaimAsString("service"))));
+                    auth.requestMatchers(HttpMethod.GET, "/internal/orders/*/status").access((authentication, context) ->
+                            new AuthorizationDecision(authentication.get() instanceof JwtAuthenticationToken token
+                                    && "INTERNAL_SERVICE".equals(token.getToken().getClaimAsString("role"))
+                                    && ("catalog-store-service".equals(token.getToken().getClaimAsString("service"))
+                                        || "cart-order-service".equals(token.getToken().getClaimAsString("service")))));
                     auth.requestMatchers("/internal/**", "/api/payments/webhook/**").denyAll();
                     auth.anyRequest().authenticated();
                 })

@@ -1,6 +1,7 @@
 package com.clucky.cartorderservice.service;
 
 import com.clucky.cartorderservice.config.AccessGuard;
+import com.clucky.cartorderservice.dto.CounterPaymentClaimRequest;
 import com.clucky.cartorderservice.dto.DomainEvent;
 import com.clucky.cartorderservice.entity.Order;
 import com.clucky.cartorderservice.entity.OrderStatusHistory;
@@ -56,6 +57,24 @@ class OrderPaymentServiceTest {
         verify(access, times(3)).requireOwner(1L);
         order.setTotalAmount(BigDecimal.ZERO);
         assertThrows(ApiException.class, () -> service.open(10L));
+    }
+
+    @Test
+    void counterPaymentClaimIsDurableIdempotentAndRejectsChangedOrderSnapshot() {
+        order.setCustomerId(null);
+        order.setOrderSource("COUNTER");
+        order.setPaymentMethod("CASH");
+        order.setStatus("CONFIRMED");
+        var request = new CounterPaymentClaimRequest(2L, "ORD-10", "CASH", new BigDecimal("100000"));
+
+        service.claimCounterPayment(10L, request);
+        assertTrue(order.isCounterPaymentStarted());
+        service.claimCounterPayment(10L, request);
+        verify(orders, times(1)).saveAndFlush(order);
+
+        assertThrows(ApiException.class, () -> service.claimCounterPayment(10L,
+                new CounterPaymentClaimRequest(2L, "ORD-10", "BANK_TRANSFER", new BigDecimal("100000"))));
+        assertTrue(order.isCounterPaymentStarted());
     }
 
     @Test
