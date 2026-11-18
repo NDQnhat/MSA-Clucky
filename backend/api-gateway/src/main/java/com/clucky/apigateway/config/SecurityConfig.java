@@ -61,8 +61,10 @@ public class SecurityConfig {
                         .pathMatchers(HttpMethod.GET, "/api/loyalty/policy").permitAll()
                         .pathMatchers("/actuator/health", "/actuator/health/**").permitAll()
                         .pathMatchers(HttpMethod.GET, "/api/locations/search", "/api/locations/reverse", "/api/stores", "/api/stores/{id}",
-                                "/api/catalog/categories", "/api/catalog/products", "/api/catalog/products/{id}",
-                                "/api/catalog/combos", "/api/promotions/banners", "/api/promotions/vouchers/available",
+                                "/api/catalog/categories", "/api/catalog/categories/{id}",
+                                "/api/catalog/products", "/api/catalog/products/{id}",
+                                "/api/catalog/combos", "/api/catalog/combos/{id}",
+                                "/api/promotions/banners", "/api/promotions/vouchers/available",
                                 "/api/reviews/products/{id}").permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/resend-otp", "/api/auth/verify-otp",
                                 "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/forgot-password",
