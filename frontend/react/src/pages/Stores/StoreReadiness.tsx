@@ -45,7 +45,7 @@ export function StoreReadiness({ store, onUpdated, disabled = false }: { store: 
           {status && ['PENDING', 'PROVISIONED', 'READY'].includes(status.readiness) && <Steps size="small" current={status.readiness === 'PENDING' ? 0 : status.readiness === 'PROVISIONED' ? 1 : 2} status={status.readiness === 'READY' ? 'finish' : 'process'} items={[{ title: t("admin:ui.provisionAccounts") }, { title: t("accounts:activation") }, { title: t("business:orderprogress.ready") }]} />}
           <p className="stores-note">{status?.readiness === 'UNPROVISIONED' ? t("admin:ui.thisBranchHasNoManagerOrStaffAccounts") : t("admin:ui.theBranchCanOnlyAcceptOrdersWhenIts")}</p>
           {status?.readiness === 'PROVISIONED' && <Alert type="info" showIcon message={t("accounts:branchActivationGuide")} description={t("accounts:branchResendGuide")} />}
-          <Link className="stores-account-link" to="/admin/users">{t("admin:ui.manageAccountActivationRecoveryAndLocking")} <RightOutlined /></Link>
+          <Link className="stores-account-link" to={`/admin/users?storeId=${store.id}`}>{t("admin:ui.manageAccountActivationRecoveryAndLocking")} <RightOutlined /></Link>
           {status?.error && <Alert type="warning" showIcon title={status.error} />}
           {error && <Alert type="error" showIcon title={error} action={<Button disabled={loading || retrying} onClick={() => setAttempt(value => value + 1)}>{t("business:dashboard.retry")}</Button>} />}
           {status && ['PENDING', 'PROVISIONED'].includes(status.readiness) && <Button type="primary" loading={retrying} disabled={loading} onClick={() => void retry()}>{t("admin:ui.retryProvisioningSynchronizeAccounts")}</Button>}

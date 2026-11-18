@@ -1,19 +1,25 @@
 import { useRef, useState } from "react";
-import { Alert, Button, Form, Input, Select } from "antd";
-import { Link } from "react-router-dom";
+import { Alert, Button, Form, Input, Radio } from "antd";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { api, getErrorMessage } from "../../lib/api";
-import { ArrowLeft, KeyRound, MailCheck } from "lucide-react";
+import { useAuthState } from "../../context/AuthContext";
+import { roleHome } from "../../lib/role-home";
+import { ArrowLeft, KeyRound, MailCheck, RefreshCw } from "lucide-react";
 import styles from "./branch-access.module.css";
 
 export function BranchAccessPage() {
   const { t } = useTranslation("accounts");
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const { user } = useAuthState();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const operationLock = useRef(false);
   const [form] = Form.useForm();
   const [requestForm] = Form.useForm();
+  const purpose = Form.useWatch("purpose", requestForm) ?? "ACTIVATE";
   async function request(values: { login: string; purpose: string }) {
     if (operationLock.current) return;
     operationLock.current = true;
@@ -21,7 +27,7 @@ export function BranchAccessPage() {
     try {
       const response = await api.post<{ challengeId: string }>("/api/auth/branch/challenge", values);
       form.setFieldsValue({ challengeId: response.data.challengeId, otp: undefined, password: undefined, confirmPassword: undefined });
-      setNotice("sent");
+      setNotice("requestQueued");
     } catch (failure) { setError(getErrorMessage(failure)); }
     finally { operationLock.current = false; setBusy(false); }
   }
@@ -35,7 +41,8 @@ export function BranchAccessPage() {
         otp: values.otp,
         password: values.password,
       });
-      form.resetFields(); setNotice("done");
+      form.resetFields();
+      navigate("/login", { replace: true, state: { branchPasswordUpdated: true } });
     } catch (failure) { setError(getErrorMessage(failure)); }
     finally { operationLock.current = false; setBusy(false); }
   }
@@ -55,6 +62,24 @@ export function BranchAccessPage() {
       </div>
       {error && <Alert type="error" message={error} showIcon />}
       {notice && <Alert type="success" message={t(notice)} showIcon />}
+      {user && <Alert type="info" showIcon message={t("alreadySignedIn", { login: user.email || user.fullName })}
+        action={<Link to={roleHome(user.role)}>{t("backToDashboard")}</Link>} />}
+      <div className={styles.requestSection}>
+        <div className={styles.sectionTitle}><RefreshCw size={18} aria-hidden="true" /><div><h2>{t("requestAgain")}</h2><span>{t("requestAgainHelp")}</span></div></div>
+        <Form form={requestForm} layout="vertical" onFinish={request}
+          initialValues={{ login: params.get("login") ?? "", purpose: params.get("purpose") === "RESET" ? "RESET" : "ACTIVATE" }}
+          disabled={busy} requiredMark={false}>
+          <Form.Item name="purpose" label={t("purpose")} rules={[{ required: true }]}>
+            <Radio.Group className={styles.purposeOptions} optionType="button" buttonStyle="solid"
+              options={[{ value: "ACTIVATE", label: t("firstActivation") }, { value: "RESET", label: t("reset") }]} />
+          </Form.Item>
+          <p className={styles.purposeHelp}>{t(purpose === "RESET" ? "resetHelp" : "activationHelp")}</p>
+          <Form.Item name="login" label={t("login")} rules={[{ required: true, max: 255 }]}>
+            <Input autoComplete="username" placeholder="manager.1 / staff.1" />
+          </Form.Item>
+          <div className={styles.requestActions}><Button icon={<RefreshCw size={16} />} htmlType="submit" loading={busy}>{t("sendOrResend")}</Button></div>
+        </Form>
+      </div>
       <div className={styles.section}>
         <div className={styles.sectionTitle}><MailCheck size={18} aria-hidden="true" /><div><h2>{t("fromEmail")}</h2><span>{t("fromEmailHelp")}</span></div></div>
         <Form form={form} layout="vertical" onFinish={finish} disabled={busy} requiredMark={false}>
@@ -69,18 +94,6 @@ export function BranchAccessPage() {
             </Form.Item>
           </div>
           <Button htmlType="submit" type="primary" loading={busy} block>{t("finishActivation")}</Button>
-        </Form>
-      </div>
-      <div className={styles.requestSection}>
-        <div className={styles.requestHeader}><h2>{t("requestAgain")}</h2><span>{t("requestAgainHelp")}</span></div>
-        <Form form={requestForm} layout="vertical" onFinish={request} initialValues={{ purpose: "RESET" }} disabled={busy} requiredMark={false}>
-          <div className={styles.requestGrid}>
-            <Form.Item name="login" label={t("login")} rules={[{ required: true, max: 255 }]}><Input autoComplete="username" placeholder="manager.1 / staff.1" /></Form.Item>
-            <Form.Item name="purpose" label={t("purpose")} rules={[{ required: true }]}><Select options={[
-              { value: "ACTIVATE", label: t("activation") }, { value: "RESET", label: t("reset") },
-            ]} /></Form.Item>
-          </div>
-          <div className={styles.requestActions}><Button htmlType="submit" loading={busy}>{t("request")}</Button></div>
         </Form>
       </div>
     </section>

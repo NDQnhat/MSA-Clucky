@@ -18,6 +18,7 @@ import {
   MailOutlined,
   AuditOutlined,
   UserOutlined,
+  KeyOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -240,6 +241,12 @@ export const AdminLayout: React.FC = () => {
       ),
     },
     { type: "divider" },
+    ...(user.role === 'STORE_MANAGER' || user.role === 'STAFF' ? [{
+      key: 'change-password',
+      label: t('accounts:changePassword'),
+      icon: <KeyOutlined />,
+      onClick: () => navigate('/admin/change-password'),
+    }] : []),
     {
       key: "logout",
       label: t("common:signOut"),

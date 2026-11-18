@@ -95,7 +95,7 @@ export function AdminStores({ stores, loading, busy, onCreate, onEdit, onLocatio
         expandedRowRender: store => <div id={`store-details-${store.id}`} className="stores-detail-grid">
         <div><h4><EnvironmentOutlined /> {t("admin:ui.fullAddress")}</h4><p>{store.address}</p><span>{[store.district, store.city].filter(Boolean).join(' · ')}</span></div>
         <div><h4><CompassOutlined /> {t("admin:ui.deliveryCoverage")}</h4><p>{store.deliveryArea || t("admin:ui.noDeliveryAreaDescriptionYet")}</p><span>{missingLocation(store) || store.deliveryRadiusKm == null ? t("admin:ui.coordinatesAndARadiusAreRequiredToAccept") : t("admin:ui.configuredRadiusKm", { value1: store.deliveryRadiusKm })}</span><Button size="small" type="link" disabled={blocked} onClick={() => setDeliveryStore(store)}>{t("admin:ui.editCoverage")}</Button></div>
-        <div><h4><TeamOutlined /> {t("accounts:title")}</h4><p>{store.managerName || t("admin:ui.manageTheManagerAndStaffAccountPairOn")}</p><Link to="/admin/users">{t("admin:ui.openAccountManagement")}</Link></div>
+        <div><h4><TeamOutlined /> {t("accounts:title")}</h4><p>{store.managerName || t("admin:ui.manageTheManagerAndStaffAccountPairOn")}</p><Link to={`/admin/users?storeId=${store.id}`}>{t("admin:ui.openAccountManagement")}</Link></div>
       </div> }} />
     </div>
     <Modal className="stores-modal" centered width={600} open={shippingOpen} title={t("shipping:chainFee")} footer={null} maskClosable={false} closable={!shippingSaving} keyboard={!shippingSaving} onCancel={() => { if (!shippingSaving) setShippingOpen(false); }}>
