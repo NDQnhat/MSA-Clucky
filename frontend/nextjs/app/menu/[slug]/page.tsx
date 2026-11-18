@@ -2,7 +2,7 @@ import { getTranslations } from 'next-intl/server';
 import Link from '@/components/ui-loader/navigation-link';
 import { ProductDetailClient } from '@/components/product-detail-client';
 import type { Product } from '@/lib/products';
-import { catalogApi } from '@/lib/catalog-and-stores.api';
+import { catalogApi, comboAsProduct } from '@/lib/catalog-and-stores.api';
 
 export default async function ProductPage({
   params,
@@ -12,7 +12,7 @@ export default async function ProductPage({
   searchParams: Promise<{ storeId?: string | string[] }>;
 }) {
   const [{ slug }, query] = await Promise.all([params, searchParams]);
-  const isCombo = slug.startsWith('combo-');
+  const isCombo = /^combo-[1-9]\d*$/.test(slug);
   const id = Number(slug.match(/-(\d+)$/)?.[1] ?? slug);
   const storeIdValue = Array.isArray(query.storeId) ? query.storeId[0] : query.storeId;
   const parsedStoreId = storeIdValue === undefined ? undefined : Number(storeIdValue);
@@ -22,9 +22,22 @@ export default async function ProductPage({
   let productIsCombo = isCombo;
   try {
     if (Number.isSafeInteger(id) && id > 0) {
-      product = isCombo
-        ? await catalogApi.getComboProductById(id, storeId)
-        : await catalogApi.getProductById(id, storeId);
+      if (isCombo) {
+        product = await catalogApi.getComboProductById(id, storeId);
+      } else {
+        const candidate = await catalogApi.getProductById(id, storeId).catch(() => null);
+        // Older menu links used the name-derived slug returned by Catalog.
+        // Those can end in a product ID that also belongs to a combo.
+        if (candidate?.slug !== slug && String(id) !== slug) {
+          const combos = await catalogApi.getCombos(storeId, true).catch(() => []);
+          const legacyCombo = combos.find(combo => combo.slug === slug);
+          if (legacyCombo) {
+            product = comboAsProduct(legacyCombo);
+            productIsCombo = true;
+          }
+        }
+        product ??= candidate;
+      }
     } else {
       const allProducts = await catalogApi.getProducts({ storeId, activeOnly: true });
       const matched = allProducts.find(

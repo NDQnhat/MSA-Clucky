@@ -54,8 +54,10 @@ test("invalid password login displays only the neutral localized error", async (
     return route.fulfill({ status: 401, json: { code: "INVALID_CREDENTIALS", message: "do not show backend details" } });
   });
   await page.goto(customer + "/login");
-  await page.getByLabel("Số điện thoại hoặc email").fill("0901234567");
-  await page.getByLabel("Mật khẩu", { exact: true }).fill("NotTheRightPassword1");
+  // Route transitions can keep an inaccessible previous form in the DOM.
+  // Interact with the visible, accessible login form only.
+  await page.getByRole("textbox", { name: "Số điện thoại hoặc email" }).fill("0901234567");
+  await page.locator('input[type="password"]:visible').fill("NotTheRightPassword1");
   await page.getByRole("button", { name: "Đăng nhập", exact: true }).click();
   await expect(page.locator(".form-error")).toHaveText("Thông tin đăng nhập chưa hợp lệ");
   await expect(page.locator(".form-error")).not.toContainText("do not show backend details");

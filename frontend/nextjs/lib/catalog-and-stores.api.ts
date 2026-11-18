@@ -79,7 +79,9 @@ export interface ComboItem {
 export function comboAsProduct(combo: ComboItem): ProductItem {
   return {
     id: combo.id,
-    slug: combo.slug || `combo-${combo.id}`,
+    // The catalog's name-based slug is not guaranteed to start with "combo-".
+    // Use a stable, typed URL so a combo never resolves as a product sharing its ID.
+    slug: `combo-${combo.id}`,
     name: combo.name,
     categoryName: "Combo",
     category: "Combo",

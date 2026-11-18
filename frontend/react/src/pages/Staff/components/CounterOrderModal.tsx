@@ -36,6 +36,7 @@ import {
   counterLoyaltyApi,
   type CounterOrderItemPayload,
   type CreateCounterOrderPayload,
+  type BackendOrder,
   type CounterLoyaltyLookupKind,
   type CounterOrderPreview,
 } from "../../../lib/api";
@@ -48,7 +49,7 @@ interface CounterOrderModalProps {
   open: boolean;
   onClose: () => void;
   onSubmitOrder?: (order: Partial<StaffOrder>) => Promise<void> | void;
-  onSuccess?: (created?: any) => Promise<void> | void;
+  onSuccess?: (created?: BackendOrder, result?: { cashCollectionRecorded: boolean }) => Promise<void> | void;
   existingOrderCount?: number;
 }
 
@@ -785,11 +786,11 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
       try { window.sessionStorage.removeItem(draftStorageKey); } catch {}
       setHydratedDraftKey('');
 
-      let latestCreated: any = created;
+      let cashCollectionRecorded = false;
       if (paymentMethod === "CASH" && isCashCollected && Number(created.totalAmount) > 0
           && created.paymentStatus === "PENDING" && created.id && created.orderCode) {
         try {
-          await paymentsApi.collectCounter({
+          const receipt = await paymentsApi.collectCounter({
             orderId: Number(created.id),
             orderCode: created.orderCode,
             queueNumber: created.queueNumber ?? existingOrderCount + 1,
@@ -802,7 +803,8 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             manualAcceptance: false,
             staffNotes: t("business:counterPos.autoCollectStaffNote"),
           });
-          latestCreated = { ...created };
+          cashCollectionRecorded = ['PENDING', 'ACCEPTED'].includes(receipt.collectionStatus);
+          if (!cashCollectionRecorded) message.warning(t('business:counterLoyalty.cashCollectionDeferred'));
         } catch {
           message.warning(t('business:counterLoyalty.cashCollectionDeferred'));
         }
@@ -817,9 +819,9 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
       onClose();
 
       if (onSuccess) {
-        await onSuccess(latestCreated);
+        await onSuccess(created, { cashCollectionRecorded });
       } else if (onSubmitOrder) {
-        await onSubmitOrder(latestCreated as any);
+        await onSubmitOrder(created as any);
       }
     } catch (err: any) {
       message.error(t("business:staffactions.counterCreateFailed", {

@@ -1137,32 +1137,42 @@ public class OrderService {
         return DomainMapper.toResponse(order, items, histories);
     }
 
-    @Transactional
     public OrderResponse changeCounterPaymentMethod(Long id, ChangeCounterPaymentMethodRequest request) {
-        Order order = orderRepository.lockById(id)
-                .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        accessGuard.requireStore(order.getStoreId());
         CurrentActor actor = CurrentActor.require();
         if (!Set.of(Role.STAFF, Role.STORE_MANAGER, Role.ADMIN).contains(actor.role()))
             throw new ApiException(ErrorCode.FORBIDDEN);
         String method = request.paymentMethod().trim().toUpperCase(Locale.ROOT);
         if (!Set.of("CASH", "BANK_TRANSFER", "SPLIT").contains(method))
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Phương thức thanh toán không hợp lệ");
-        if (!"COUNTER".equals(order.getOrderSource()) || !"PENDING".equals(order.getPaymentStatus())
-                || !Set.of("CONFIRMED", "PREPARING", "READY").contains(order.getStatus())
-                || order.getTotalAmount().signum() <= 0)
-            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn quầy không còn chờ thanh toán");
-        if (request.version() != null && !Objects.equals(request.version(), order.getVersion()))
-            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã thay đổi, vui lòng tải lại");
-        if (!method.equals(order.getPaymentMethod())) {
-            if (paymentClient == null || paymentClient.hasCounterActivity(id))
-                throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã có phiên QR hoặc thao tác thu tiền, không thể đổi phương thức");
-            order.setPaymentMethod(method);
-            order.setVersion(order.getVersion() + 1);
-            order = orderRepository.save(order);
-        }
-        return DomainMapper.toResponse(order, orderItemRepository.findByOrderIdOrderByIdAsc(id),
-                orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(id));
+        if (jdbc == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        // Check legacy payment activity BEFORE locking the Order. A pending POS
+        // payment can hold payment-service locks while it calls the Order claim API.
+        // No network call may run while we hold the Order row lock.
+        var stores = jdbc.queryForList("SELECT store_id FROM order_service.orders WHERE id=?", Long.class, id);
+        if (stores.isEmpty()) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
+        accessGuard.requireStore(stores.getFirst());
+        if (paymentClient == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        boolean existingPaymentActivity = paymentClient.hasCounterActivity(id);
+
+        return transactionTemplate.execute(status -> {
+            Order order = orderRepository.lockById(id)
+                    .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
+            accessGuard.requireStore(order.getStoreId());
+            if (!"COUNTER".equals(order.getOrderSource()) || !"PENDING".equals(order.getPaymentStatus())
+                    || !Set.of("CONFIRMED", "PREPARING", "READY").contains(order.getStatus())
+                    || order.getTotalAmount().signum() <= 0)
+                throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn quầy không còn chờ thanh toán");
+            if (request.version() != null && !Objects.equals(request.version(), order.getVersion()))
+                throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã thay đổi, vui lòng tải lại");
+            if (!method.equals(order.getPaymentMethod())) {
+                if (order.isCounterPaymentStarted() || existingPaymentActivity)
+                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, "Đơn đã có phiên QR hoặc thao tác thu tiền, không thể đổi phương thức");
+                order.setPaymentMethod(method);
+                order = orderRepository.saveAndFlush(order);
+            }
+            return DomainMapper.toResponse(order, orderItemRepository.findByOrderIdOrderByIdAsc(id),
+                    orderStatusHistoryRepository.findByOrderIdOrderByCreatedAtAsc(id));
+        });
     }
 
     @Transactional

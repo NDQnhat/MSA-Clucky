@@ -155,7 +155,7 @@ export function ProductDetailClient({ product, storeId, itemType }: ProductDetai
     }, 600);
   };
 
-  const isSoldOut = product.isSoldOut === true || product.isAvailable === false;
+  const isSoldOut = product.isActive === false || product.isSoldOut === true || product.isAvailable === false;
 
   return (
     <div

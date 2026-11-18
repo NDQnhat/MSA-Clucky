@@ -131,7 +131,7 @@ export function mapBackendOrderToOrder(
     id: String(it.id),
     productId: it.productId,
     comboId: it.comboId,
-    slug: String(it.productId || it.comboId || it.id),
+    slug: it.comboId != null ? `combo-${it.comboId}` : String(it.productId ?? it.id),
     itemName: it.itemName,
     itemType: it.itemType,
     unitPrice: Number(it.unitPrice),

@@ -62,6 +62,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const [splitCash, setSplitCash] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isChangingMethod, setIsChangingMethod] = useState(false);
+  const changeMethodRequestRef = useRef(0);
   const [sepaySession, setSepaySession] = useState<CounterSepaySession | null>(null);
   const [bankError, setBankError] = useState("");
   const [createError, setCreateError] = useState("");
@@ -80,6 +81,12 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const orderId = order?.id;
   const activeOrderRef = useRef<string | undefined>(undefined);
   activeOrderRef.current = open ? orderId : undefined;
+
+  useEffect(() => {
+    // A method change from a closed/replaced dialog must not update the next one.
+    changeMethodRequestRef.current++;
+    setIsChangingMethod(false);
+  }, [open, orderId]);
   const orderTotal = order?.total;
   const orderPaymentMethod = order?.paymentMethod;
   const isWebCod = order?.orderSource === "WEB" && order.paymentMethod === "COD";
@@ -293,15 +300,19 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const changeMethod = async (method: 'CASH' | 'BANK_TRANSFER' | 'SPLIT') => {
     if (method === activeTab || !order || !onChangeMethod || isChangingMethod || bankLoading || sepaySession
         || order.orderSource !== 'COUNTER' || order.paymentStatus !== 'PENDING') return;
+    const request = ++changeMethodRequestRef.current;
     setIsChangingMethod(true);
     try {
       await onChangeMethod(method);
+      if (request !== changeMethodRequestRef.current || activeOrderRef.current !== order.id) return;
       setBankError('');
       setActiveTab(method);
     } catch (failure) {
-      message.error(getErrorMessage(failure));
+      if (request === changeMethodRequestRef.current && activeOrderRef.current === order.id) {
+        message.error(getErrorMessage(failure));
+      }
     } finally {
-      setIsChangingMethod(false);
+      if (request === changeMethodRequestRef.current) setIsChangingMethod(false);
     }
   };
 

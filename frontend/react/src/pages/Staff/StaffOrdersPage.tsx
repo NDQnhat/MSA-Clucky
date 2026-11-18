@@ -190,6 +190,7 @@ export function StaffOrdersPage() {
   // 2. Data Layer: Khởi tạo danh sách đơn hàng (trống ban đầu, load từ backend API)
   const [orders, setOrders] = useState<StaffOrder[]>([]);
   const [trackingById, setTrackingById] = useState<Record<string, ShipmentSimulationTracking>>({});
+  const completedTrackingReadRef = useRef(new Map<string, number>());
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<boolean>(false);
   const [selectedDate, setSelectedDate] = useState(businessDate);
@@ -260,35 +261,76 @@ export function StaffOrdersPage() {
   const trackedOrderIds = useMemo(() => orders
     .filter(order => order.orderType === 'DELIVERY' && ['READY', 'SHIPPING', 'DELIVERY_FAILED', 'COMPLETED'].includes(order.status))
     .map(order => order.id).sort().join(','), [orders]);
+  const completedOrderIds = useMemo(() => orders
+    .filter(order => order.orderType === 'DELIVERY' && order.status === 'COMPLETED')
+    .map(order => order.id).sort().join(','), [orders]);
 
   useEffect(() => {
     if (!trackedOrderIds) { setTrackingById({}); return; }
     const controller = new AbortController();
     const ids = trackedOrderIds.split(',');
+    const trackedIds = new Set(ids);
+    const completedIds = new Set(completedOrderIds ? completedOrderIds.split(',') : []);
+    for (const id of completedTrackingReadRef.current.keys()) {
+      if (!trackedIds.has(id)) completedTrackingReadRef.current.delete(id);
+    }
+    setTrackingById(previous => {
+      if (Object.keys(previous).every(id => trackedIds.has(id))) return previous;
+      return Object.fromEntries(Object.entries(previous).filter(([id]) => trackedIds.has(id)));
+    });
     let fetching = false;
     const load = async () => {
       if (fetching) return;
+      // Completed delivery details are terminal. Read once per order; retry
+      // failures after a minute instead of polling every historical delivery.
+      const now = Date.now();
+      const idsToRead = ids.filter(id => {
+        if (!completedIds.has(id)) return true;
+        const previousRead = completedTrackingReadRef.current.get(id);
+        return previousRead === undefined || (Number.isFinite(previousRead) && now - previousRead >= 60_000);
+      });
+      if (!idsToRead.length) return;
       fetching = true;
       try {
-        const results = await Promise.all(ids.map(async id => {
+        const results = await Promise.all(idsToRead.map(async id => {
           try { return [id, await shipmentSimulationApi.tracking(id, controller.signal)] as const; }
           catch { return null; }
         }));
-        if (!controller.signal.aborted) setTrackingById(previous => {
-          const next = { ...previous };
-          for (const id of Object.keys(next)) if (!ids.includes(id)) delete next[id];
-          for (const result of results) if (result) next[result[0]] = result[1];
-          return next;
-        });
+        if (!controller.signal.aborted) {
+          results.forEach((result, index) => {
+            const id = idsToRead[index];
+            if (completedIds.has(id)) completedTrackingReadRef.current.set(id, result ? Infinity : now);
+          });
+          setTrackingById(previous => {
+            const next = { ...previous };
+            for (const id of Object.keys(next)) if (!trackedIds.has(id)) delete next[id];
+            for (const result of results) if (result) next[result[0]] = result[1];
+            return next;
+          });
+        }
       } finally { fetching = false; }
     };
     void load();
     const interval = window.setInterval(() => { if (!document.hidden) void load(); }, 2500);
     return () => { controller.abort(); window.clearInterval(interval); };
-  }, [trackedOrderIds]);
+  }, [trackedOrderIds, completedOrderIds]);
 
   // 3. Tab công việc hiện tại (Mặc định vào tab 'CONFIRMED' - Mới xác nhận)
   const [activeTab, setActiveTab] = useState<WorkQueueKey>("CONFIRMED");
+  const awaitingAutoCashCollectionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const pendingId = awaitingAutoCashCollectionRef.current;
+    if (!pendingId) return;
+    const latest = orders.find(order => order.id === pendingId);
+    if (!latest) return;
+    if (['COLLECTED', 'PAID'].includes(latest.paymentStatus)) {
+      awaitingAutoCashCollectionRef.current = null;
+      setActiveTab(current => current === 'PENDING_PAYMENT' ? 'CONFIRMED' : current);
+    } else if (['CANCELLED', 'DELIVERY_FAILED'].includes(latest.status)) {
+      awaitingAutoCashCollectionRef.current = null;
+    }
+  }, [orders]);
 
   // 4. Tìm kiếm & Sắp xếp
   const [searchQuery, setSearchQuery] = useState("");
@@ -389,8 +431,10 @@ export function StaffOrdersPage() {
   }, [storeOpenState.isOpen]);
 
   // Xử lý tạo đơn quầy mới từ CounterOrderModal
-  const handleCounterOrderSuccess = async (created?: BackendOrder) => {
+  const handleCounterOrderSuccess = async (created?: BackendOrder, result?: { cashCollectionRecorded: boolean }) => {
     const today = businessDate();
+    awaitingAutoCashCollectionRef.current = result?.cashCollectionRecorded && created?.id
+      ? String(created.id) : null;
     if (created?.id) {
       const mapped = fromBackendOrderToStaffOrder(
         created,
@@ -702,12 +746,13 @@ export function StaffOrdersPage() {
 
   const handleChangeCounterPaymentMethod = async (method: 'CASH' | 'BANK_TRANSFER' | 'SPLIT') => {
     if (!paymentModalOrder) return;
+    const originalOrder = paymentModalOrder;
     const updated = await ordersApi.changeCounterPaymentMethod(
-      paymentModalOrder.id, method, paymentModalOrder.version,
+      originalOrder.id, method, originalOrder.version,
     );
     const mapped = fromBackendOrderToStaffOrder(updated, imageMapRef.current ?? new Map(),
-      storesRef.current, paymentModalOrder.queueNumber);
-    setPaymentModalOrder(mapped);
+      storesRef.current, originalOrder.queueNumber);
+    setPaymentModalOrder(current => current?.id === originalOrder.id ? mapped : current);
     setOrders((previous) => previous.map((order) => order.id === mapped.id ? mapped : order));
   };
 
