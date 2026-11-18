@@ -31,7 +31,7 @@ public class RedisConfig {
     private static final Set<String> ALLOWED_PREFIXES = Set.of(
             "cart", "cart:guest", "menu:store", "otp",
             "auth:google:pending", "payment:pending", "rate-limit",
-            "auth:revoked:sid", "auth:revoked:user"
+            "auth:revoked:sid", "auth:revoked:user", "auth:revoked:user-ns"
     );
 
     public static String key(String prefix, String identifier) {

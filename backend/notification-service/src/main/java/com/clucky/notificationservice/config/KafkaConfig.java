@@ -14,9 +14,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
+import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
+import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.ConsumerRecordRecoverer;
 import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.util.backoff.FixedBackOff;
@@ -151,6 +154,32 @@ public class KafkaConfig {
                 ClassCastException.class
         );
         return handler;
+    }
+
+    @Bean(name = "securityEmailKafkaListenerContainerFactory")
+    ConcurrentKafkaListenerContainerFactory<String, String> securityEmailKafkaListenerContainerFactory(
+            ConsumerFactory<String, String> consumerFactory,
+            KafkaTemplate<String, String> kafkaTemplate,
+            ObjectMapper mapper,
+            @Value("${clucky.kafka.retry.dlt-timeout-sec:10}") long dltTimeoutSec) {
+        if (dltTimeoutSec < 1) throw new IllegalArgumentException("Invalid DLT timeout");
+        var factory = new ConcurrentKafkaListenerContainerFactory<String, String>();
+        factory.setConsumerFactory(consumerFactory);
+        var handler = new DefaultErrorHandler(createDltRecoverer(kafkaTemplate, mapper, dltTimeoutSec),
+                new FixedBackOff(5000L, FixedBackOff.UNLIMITED_ATTEMPTS));
+        handler.setAckAfterHandle(true);
+        handler.setCommitRecovered(true);
+        handler.setRetryListeners(KafkaLogging::failedDelivery);
+        handler.addNotRetryableExceptions(
+                IllegalArgumentException.class,
+                com.fasterxml.jackson.core.JsonProcessingException.class,
+                org.springframework.messaging.converter.MessageConversionException.class,
+                org.springframework.kafka.support.serializer.DeserializationException.class,
+                ClassCastException.class
+        );
+        factory.setCommonErrorHandler(handler);
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
+        return factory;
     }
 
     @Bean

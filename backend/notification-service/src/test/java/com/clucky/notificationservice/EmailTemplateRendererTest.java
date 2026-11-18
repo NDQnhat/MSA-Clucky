@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class EmailTemplateRendererTest {
     @Test
-    void allNineteenTemplatesUseTheApprovedLayoutAndOnlyTransactionsHaveButtons() throws Exception {
-        var renderer = new EmailTemplateRenderer("https://clucky.example");
+    void allNineteenTemplatesUseTheApprovedLayoutAndOnlyActivationSecurityEmailHasAnAction() throws Exception {
+        var renderer = new EmailTemplateRenderer("https://clucky.example", "https://admin.clucky.example");
         String sql = new ClassPathResource("db/migration/V14__refined_email_templates.sql")
                 .getContentAsString(StandardCharsets.UTF_8);
         var templates = Pattern.compile("\\('([^']+)'\\s*,\\s*'((?:[^']|'')*)'\\s*,\\s*'((?:[^']|'')*)'\\s*,true\\)", Pattern.DOTALL).matcher(sql);
@@ -43,8 +43,13 @@ class EmailTemplateRendererTest {
                 assertTrue(rendered.get("body").contains(variables.get("otp")), key);
                 assertTrue(rendered.get("html").contains("10:00:00 12/11/2026"), key);
                 assertFalse(rendered.get("subject").contains(variables.get("otp")), key);
-                assertFalse(rendered.get("html").contains("href="), key);
-                assertFalse(rendered.get("body").contains("https://"), key);
+                if ("BRANCH_ACTIVATE".equals(key)) {
+                    assertTrue(rendered.get("html").contains("href=\"https://admin.clucky.example/reset-password?login="), key);
+                    assertTrue(rendered.get("body").contains("https://admin.clucky.example/reset-password?login="), key);
+                } else {
+                    assertFalse(rendered.get("html").contains("href="), key);
+                    assertFalse(rendered.get("body").contains("https://"), key);
+                }
                 assertFalse(rendered.get("html").contains("Mở ứng dụng"), key);
                 assertTrue(rendered.get("body").contains("Không chia sẻ mã"), key);
             } else {
@@ -81,6 +86,36 @@ class EmailTemplateRendererTest {
         assertTrue(renderer.render("BRANCH_RECOVERY", "Recovery", "{{channelInstruction}}", variables, "id.secondary", Instant.now())
                 .get("body").contains("địa chỉ email khôi phục mới"));
         assertThrows(IllegalArgumentException.class, () -> renderer.render("BRANCH_RESET", "Reset", "Body", variables, "id.unknown", Instant.now()));
+    }
+
+    @Test
+    void latestMigrationKeepsActivationEmailShortWithOneSafeActionLink() throws Exception {
+        String migration = new ClassPathResource("db/migration/V20__simplify_branch_activation_email.sql")
+                .getContentAsString(StandardCharsets.UTF_8);
+        var subject = Pattern.compile("subject_template = '([^']*)'").matcher(migration);
+        var body = Pattern.compile("body_template = '([\\s\\S]*?)',\\s*updated_at").matcher(migration);
+        assertTrue(subject.find());
+        assertTrue(body.find());
+        var variables = Map.of("login", "manager.42", "otp", "12345678", "role", "STORE_MANAGER",
+                "accountId", "42", "challengeId", "challenge-42");
+        var renderer = new EmailTemplateRenderer("https://clucky.example", "https://admin.clucky.example");
+        var rendered = renderer.render("BRANCH_ACTIVATE",
+                subject.group(1), body.group(1), variables, "challenge-42.primary",
+                Instant.parse("2026-11-18T10:10:00Z"));
+        assertTrue(rendered.get("body").contains("manager.42 (Quản lý chi nhánh)"));
+        assertTrue(rendered.get("body").contains("Mã xác minh: 12345678"));
+        assertTrue(rendered.get("body").contains("Mã challenge: challenge-42"));
+        assertFalse(rendered.get("body").contains("Cách kích hoạt tài khoản này:"));
+        assertFalse(rendered.get("body").contains("{{login}}"));
+        assertTrue(rendered.get("html").contains("cid:clucky-logo-v1"));
+        assertTrue(rendered.get("html").contains("href=\"https://admin.clucky.example/reset-password?login=manager.42&amp;purpose=ACTIVATE\""));
+        assertEquals(1, rendered.get("html").split("href=", -1).length - 1);
+        assertFalse(rendered.get("html").contains("Mã tài khoản"));
+        assertFalse(rendered.get("html").contains("otp=12345678"));
+        assertFalse(rendered.get("html").contains("challengeId=challenge-42"));
+        assertFalse(renderer.render("BRANCH_RESET", "Đặt lại mật khẩu", "Đặt mật khẩu mới.", variables,
+                "challenge-42.primary", Instant.parse("2026-11-18T10:10:00Z")).get("html").contains("href="));
+        assertTrue(migration.contains("WHERE template_key = 'BRANCH_ACTIVATE'"));
     }
 
     @Test

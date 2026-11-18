@@ -73,4 +73,16 @@ class AdminOriginRegressionTest {
                 .andExpect(status().isOk());
         verify(access).requireStore(1L);
     }
+
+    @Test
+    void storeUpdateRejectsRecoveryEmailInsteadOfSilentlyIgnoringIt() throws Exception {
+        when(decoder.decode("admin")).thenReturn(token("ADMIN"));
+        mvc.perform(put("/api/stores/1").header(HttpHeaders.AUTHORIZATION, "Bearer admin")
+                        .contentType("application/json").content("""
+                                {"name":"Branch","address":"Address","phone":"0900000000","district":"District",
+                                 "city":"HCMC","openTime":"08:00","closeTime":"22:00","recoveryEmail":"new@example.com"}
+                                """))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(stores, branches);
+    }
 }

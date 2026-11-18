@@ -130,6 +130,9 @@ public class BranchAccountService {
         if (!Set.of("ADMIN", "STORE_MANAGER", "STAFF").contains(target.get("role")) || !"ACTIVE".equals(target.get("status"))) return new Challenge(opaque);
         boolean current = Boolean.TRUE.equals(target.get("current_branch_account"));
         boolean activated = Boolean.TRUE.equals(target.get("email_verified"));
+        // Retired branch credentials must not be recovered through their former personal email.
+        if (("STAFF".equals(target.get("role")) || "STORE_MANAGER".equals(target.get("role"))) && !current)
+            return new Challenge(opaque);
         if (request.purpose().equals("ACTIVATE") ? (!current || activated) : !activated) return new Challenge(opaque);
         Long storeId = current ? number(target, "store_id") : null;
         var settings = current ? branch(storeId) : null;
@@ -176,6 +179,37 @@ public class BranchAccountService {
                 emailChange ? normalized(request.newEmail()) : null, number(settings, "version"));
     }
 
+    /** Signed-in branch identities can change only their own password. */
+    @Transactional
+    public Challenge requestOwnPasswordChange(String currentPassword) {
+        var actor = CurrentActor.require();
+        if (actor.role() != Role.STAFF && actor.role() != Role.STORE_MANAGER) throw failure(ErrorCode.FORBIDDEN);
+        otp.limitIssuance("branch-own-password:" + actor.userId(), "BRANCH");
+        lock();
+        var account = user(actor.userId());
+        if (!activeBranchActor(actor, account)) throw failure(ErrorCode.FORBIDDEN);
+        reauthenticate(currentPassword);
+        var settings = branch(actor.storeId());
+        if (!Boolean.TRUE.equals(settings.get("email_verified"))) throw failure(ErrorCode.RESOURCE_CONFLICT);
+        String recipient = (String) settings.get("recovery_email");
+        String sid = sessionId();
+        if (recipient == null || recipient.isBlank() || sid == null || sid.isBlank()) throw failure(ErrorCode.FORBIDDEN);
+        // Actor-bound RESET reuses the existing BRANCH_RESET email template. Unlike
+        // public RESET, this challenge requires the original authenticated session.
+        return createChallenge(actor.userId(), actor.storeId(), "RESET", actor.userId(), sid,
+                recipient, null, number(settings, "version"));
+    }
+
+    private boolean activeBranchActor(CurrentActor actor, Map<String, Object> account) {
+        return (actor.role() == Role.STAFF || actor.role() == Role.STORE_MANAGER)
+                && account.get("role").equals(actor.role().name())
+                && "ACTIVE".equals(account.get("status"))
+                && Boolean.TRUE.equals(account.get("current_branch_account"))
+                && Boolean.TRUE.equals(account.get("email_verified"))
+                && actor.storeId() != null
+                && Objects.equals(number(account, "store_id"), actor.storeId());
+    }
+
     public String code(UUID challengeId, String channel) {
         String digest = otp.verifier("branch-code-v1:" + challengeId + ":" + channel);
         return String.format(Locale.ROOT, "%08d", Long.parseUnsignedLong(digest.substring(0, 12), 16) % 100_000_000);
@@ -184,8 +218,26 @@ public class BranchAccountService {
         return received != null && MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), received.getBytes(StandardCharsets.UTF_8));
     }
 
+    /** Executed by public controllers before entering the global branch transaction lock. */
+    public void precheckFinish(UUID challengeId) {
+        // Real and opaque UUIDs have identical attempt accounting and error codes.
+        otp.limitVerification("branch-challenge:" + challengeId, "BRANCH");
+        Boolean exists = jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM identity_service.branch_challenges WHERE id=?)", Boolean.class, challengeId);
+        if (!Boolean.TRUE.equals(exists)) throw failure(ErrorCode.INVALID_OTP);
+    }
+
     @Transactional
     public void finish(Finish request, boolean management) {
+        finishInternal(request, management, false);
+    }
+
+    @Transactional
+    public void finishOwnPasswordChange(OwnPasswordChangeConfirm request) {
+        finishInternal(new Finish(request.challengeId(), request.otp(), null, request.newPassword()), true, true);
+    }
+
+    private void finishInternal(Finish request, boolean management, boolean ownPasswordChange) {
         lock();
         var rows = jdbc.queryForList("SELECT * FROM identity_service.branch_challenges WHERE id=? FOR UPDATE", request.challengeId());
         if (rows.isEmpty()) throw failure(ErrorCode.INVALID_OTP);
@@ -196,6 +248,11 @@ public class BranchAccountService {
         if (management != (challenge.get("actor_id") != null)) throw failure(ErrorCode.FORBIDDEN);
         if (management && (!Objects.equals(number(challenge, "actor_id"), CurrentActor.require().userId())
                 || !Objects.equals(challenge.get("session_id"), sessionId()))) throw failure(ErrorCode.FORBIDDEN);
+        if (ownPasswordChange) {
+            if (!"RESET".equals(purpose) || targetId != CurrentActor.require().userId()) throw failure(ErrorCode.FORBIDDEN);
+        } else if (management && !Set.of("RECOVERY", "ADMIN_RESET", "ADMIN_RECOVERY").contains(purpose)) {
+            throw failure(ErrorCode.FORBIDDEN);
+        }
         if (Boolean.TRUE.equals(challenge.get("used"))) throw failure(ErrorCode.INVALID_OTP);
         if (((Timestamp) challenge.get("expires_at")).toInstant().isBefore(Instant.now())) throw failure(ErrorCode.OTP_EXPIRED);
         var target = user(targetId);
@@ -203,7 +260,12 @@ public class BranchAccountService {
         Long storeId = (Long) challenge.get("store_id");
         if (management) {
             if (storeId == null || !Boolean.TRUE.equals(target.get("current_branch_account"))) throw failure(ErrorCode.FORBIDDEN);
-            scope(storeId);
+            if (ownPasswordChange) {
+                if (!activeBranchActor(CurrentActor.require(), target) || !Objects.equals(CurrentActor.require().storeId(), storeId))
+                    throw failure(ErrorCode.FORBIDDEN);
+            } else {
+                scope(storeId);
+            }
             var actor = user(CurrentActor.require().userId());
             if (!"ACTIVE".equals(actor.get("status")) || !actor.get("role").equals(CurrentActor.require().role().name()))
                 throw failure(ErrorCode.FORBIDDEN);
@@ -212,7 +274,13 @@ public class BranchAccountService {
                     && (!Boolean.TRUE.equals(actor.get("current_branch_account")) || !Objects.equals(actor.get("store_id"), storeId)))
                 throw failure(ErrorCode.FORBIDDEN);
         }
-        if (storeId != null && number(branch(storeId), "version") != number(challenge, "branch_version")) throw failure(ErrorCode.RESOURCE_CONFLICT);
+        if (storeId != null) {
+            var settings = branch(storeId);
+            if (number(settings, "version") != number(challenge, "branch_version")) throw failure(ErrorCode.RESOURCE_CONFLICT);
+            if (ownPasswordChange && (!Boolean.TRUE.equals(settings.get("email_verified"))
+                    || !Objects.equals(settings.get("recovery_email"), challenge.get("recipient"))))
+                throw failure(ErrorCode.FORBIDDEN);
+        }
         if (!sameCode(code(request.challengeId(), "primary"), request.otp())
                 || challenge.get("new_email") != null && !sameCode(code(request.challengeId(), "secondary"), request.newEmailOtp()))
             throw failure(ErrorCode.INVALID_OTP);
@@ -225,13 +293,17 @@ public class BranchAccountService {
             if (purpose.equals("ADMIN_RESET") && !Boolean.TRUE.equals(target.get("email_verified"))) throw failure(ErrorCode.RESOURCE_CONFLICT);
             if (request.password() == null || !request.password().matches("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{8,72}$")
                     || request.password().getBytes(StandardCharsets.UTF_8).length > 72) throw failure(ErrorCode.VALIDATION_ERROR);
+            if (ownPasswordChange && passwords.matches(request.password(), target.get("password_hash").toString()))
+                throw failure(ErrorCode.VALIDATION_ERROR);
             jdbc.update("UPDATE identity_service.users SET password_hash=?,email_verified=TRUE,updated_at=now() WHERE id=?", passwords.encode(request.password()), targetId);
             if (storeId != null && !purpose.equals("ADMIN_RESET")) jdbc.update("UPDATE identity_service.branch_accounts SET email_verified=TRUE WHERE store_id=?", storeId);
             sessions.revokeAllForUser(targetId);
             jdbc.update("UPDATE identity_service.branch_challenges SET used=TRUE WHERE target_id=?", targetId);
         }
         var actor = management ? CurrentActor.require() : new CurrentActor(targetId, Role.valueOf(target.get("role").toString()), storeId);
-        audit(actor.userId(), actor.role().name(), storeId, management ? sessionId() : null, "ACCOUNT_" + purpose, targetId, "Account", "SUCCESS", null);
+        audit(actor.userId(), actor.role().name(), storeId, management ? sessionId() : null,
+                ownPasswordChange ? "ACCOUNT_PASSWORD_CHANGE" : "ACCOUNT_" + purpose,
+                targetId, "Account", "SUCCESS", null);
     }
 
 

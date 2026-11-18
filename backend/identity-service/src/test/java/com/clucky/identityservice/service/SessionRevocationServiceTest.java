@@ -25,6 +25,7 @@ class SessionRevocationServiceTest {
         service.revokeAllUserSessions(7L, cutoff, ttl);
         verify(redis.opsForValue()).set("auth:revoked:sid:device-a", "revoked", ttl);
         verify(redis.opsForValue()).set("auth:revoked:user:7", "100000", ttl);
+        verify(redis.opsForValue()).set("auth:revoked:user-ns:7", "100000000000", ttl);
     }
 
     @Test
@@ -44,5 +45,16 @@ class SessionRevocationServiceTest {
                 .set("auth:revoked:sid:device-a", "revoked", ttl);
         assertEquals(ErrorCode.DEPENDENCY_UNAVAILABLE,
                 assertThrows(ApiException.class, () -> service.revokeSession("device-a", ttl)).getCode());
+    }
+
+    @Test
+    void nanosecondRevocationAllowsANewTokenIssuedWithinTheSameSecond() {
+        Instant cutoff = Instant.ofEpochSecond(1_800_000_000, 250_000_000);
+        String key = "auth:revoked:user-ns:7";
+        String watermark = String.valueOf(cutoff.getEpochSecond() * 1_000_000_000L + cutoff.getNano());
+        when(redis.opsForValue().get(key)).thenReturn(watermark);
+        assertTrue(service.isUserRevoked(7L, cutoff.minusNanos(1)));
+        assertTrue(service.isUserRevoked(7L, cutoff));
+        assertFalse(service.isUserRevoked(7L, cutoff.plusNanos(1)));
     }
 }

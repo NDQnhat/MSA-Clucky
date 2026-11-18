@@ -54,8 +54,12 @@ public class SessionRevocationService {
         }
         try {
             String key = RedisConfig.key("auth:revoked:user", String.valueOf(userId));
-            long timestamp = (revokedAt != null ? revokedAt : Instant.now()).toEpochMilli();
-            redisTemplate.opsForValue().set(key, String.valueOf(timestamp), ttl);
+            String preciseKey = RedisConfig.key("auth:revoked:user-ns", String.valueOf(userId));
+            Instant cutoff = revokedAt != null ? revokedAt : Instant.now();
+            long timestamp = Math.addExact(Math.multiplyExact(cutoff.getEpochSecond(), 1_000_000_000L), cutoff.getNano());
+            // Other business services still consume this millisecond watermark.
+            redisTemplate.opsForValue().set(key, String.valueOf(cutoff.toEpochMilli()), ttl);
+            redisTemplate.opsForValue().set(preciseKey, String.valueOf(timestamp), ttl);
         } catch (Exception e) {
             LOG.warn("Failed to write revoked user to Redis: {}", SafeLog.trace(e));
             throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
@@ -68,10 +72,16 @@ public class SessionRevocationService {
         }
         try {
             String key = RedisConfig.key("auth:revoked:user", String.valueOf(userId));
+            String preciseKey = RedisConfig.key("auth:revoked:user-ns", String.valueOf(userId));
+            String precise = redisTemplate.opsForValue().get(preciseKey);
+            if (precise != null && !precise.isBlank()) {
+                long issuedNanos = Math.addExact(Math.multiplyExact(tokenIssuedAt.getEpochSecond(), 1_000_000_000L), tokenIssuedAt.getNano());
+                return issuedNanos <= Long.parseLong(precise);
+            }
             String value = redisTemplate.opsForValue().get(key);
             if (value != null && !value.isBlank()) {
-                long revokedTimestamp = Long.parseLong(value);
-                return tokenIssuedAt.toEpochMilli() <= revokedTimestamp;
+                // Conservative fallback for revocations created by older deployments.
+                return tokenIssuedAt.toEpochMilli() <= Long.parseLong(value);
             }
             return false;
         } catch (Exception e) {

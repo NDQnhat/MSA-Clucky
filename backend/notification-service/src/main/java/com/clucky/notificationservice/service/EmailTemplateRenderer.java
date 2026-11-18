@@ -1,6 +1,7 @@
 package com.clucky.notificationservice.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
@@ -8,6 +9,7 @@ import org.springframework.web.util.HtmlUtils;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -25,11 +27,20 @@ public class EmailTemplateRenderer {
             .withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
     private final String layout;
     private final String customerUrl;
+    private final String adminUrl;
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public EmailTemplateRenderer(@Value("${clucky.frontend.customer-url}") String customerUrl) throws IOException {
+    @Autowired
+    public EmailTemplateRenderer(@Value("${clucky.frontend.customer-url}") String customerUrl,
+            @Value("${clucky.frontend.admin-url}") String adminUrl) throws IOException {
         this.customerUrl = origin(customerUrl);
+        this.adminUrl = adminUrl == null ? null : origin(adminUrl);
         this.layout = new ClassPathResource("mail/layout.html").getContentAsString(StandardCharsets.UTF_8);
+    }
+
+    // Retain the standalone renderer constructor for callers without the admin application URL.
+    public EmailTemplateRenderer(String customerUrl) throws IOException {
+        this(customerUrl, null);
     }
 
     public static String templateKey(String requested, Map<String, String> variables) {
@@ -53,6 +64,13 @@ public class EmailTemplateRenderer {
             if (!messageId.endsWith(".primary") && !messageId.endsWith(".secondary")) {
                 throw new IllegalArgumentException("Invalid security email channel");
             }
+            String roleLabel = switch (values.getOrDefault("role", "")) {
+                case "ADMIN" -> "Quản trị viên";
+                case "STORE_MANAGER" -> "Quản lý chi nhánh";
+                case "STAFF" -> "Nhân viên";
+                default -> throw new IllegalArgumentException("Invalid account role");
+            };
+            values.put("roleLabel", roleLabel);
             values.put("channelInstruction", messageId.endsWith(".secondary")
                     ? "Đây là mã xác minh gửi tới địa chỉ email khôi phục mới."
                     : "Đây là mã xác nhận gửi tới địa chỉ email đang được dùng để bảo vệ tài khoản.");
@@ -85,14 +103,13 @@ public class EmailTemplateRenderer {
                 }
                 details.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:20px;\">");
                 appendRow(text, details, "Tài khoản", values.get("login"), false);
-                appendRow(text, details, "Vai trò", switch (values.get("role")) {
-                    case "ADMIN" -> "Quản trị viên";
-                    case "STORE_MANAGER" -> "Quản lý chi nhánh";
-                    case "STAFF" -> "Nhân viên";
-                    default -> throw new IllegalArgumentException("Invalid account role");
-                }, false);
-                appendRow(text, details, "Mã tài khoản", values.get("accountId"), false);
-                appendRow(text, details, "Phiên xác minh", values.get("challengeId"), false);
+                if ("BRANCH_ACTIVATE".equals(key)) {
+                    appendRow(text, details, "Mã challenge", values.get("challengeId"), false);
+                } else {
+                    appendRow(text, details, "Vai trò", values.get("roleLabel"), false);
+                    appendRow(text, details, "Mã tài khoản", values.get("accountId"), false);
+                    appendRow(text, details, "Phiên xác minh", values.get("challengeId"), false);
+                }
                 details.append("</table>");
             }
         } else {
@@ -127,7 +144,18 @@ public class EmailTemplateRenderer {
             }
         }
         String action = "";
-        if (!security) {
+        if ("BRANCH_ACTIVATE".equals(key) && adminUrl != null) {
+            String url = adminUrl + "/reset-password?login="
+                    + URLEncoder.encode(values.get("login"), StandardCharsets.UTF_8) + "&purpose=ACTIVATE";
+            String label = "Kích hoạt tài khoản";
+            text.append("\n\n").append(label).append(": ").append(url);
+            action = """
+                    <tr><td align="right" style="padding:30px 24px 0;">
+                    <table role="presentation" align="right" cellpadding="0" cellspacing="0"><tr>
+                    <td align="right" bgcolor="#8F1216" style="border-radius:10px;">
+                    """ + "<a href=\"" + escape(url) + "\" style=\"display:inline-block;padding:14px 24px;border:1px solid #8F1216;border-radius:10px;color:#FFFFFF;font-size:14px;font-weight:700;line-height:20px;text-align:right;text-decoration:none;\">"
+                    + escape(label) + "</a></td></tr></table></td></tr>";
+        } else if (!security) {
             String orderId = values.getOrDefault("orderId", "");
             String path = orderId.matches("[1-9][0-9]{0,18}") ? "/orders/" + orderId : "/orders";
             String label = key.startsWith("REFUND_") ? "Xem yêu cầu hoàn tiền" : "Xem chi tiết đơn hàng";
@@ -140,7 +168,9 @@ public class EmailTemplateRenderer {
                     """ + "<a href=\"" + escape(url) + "\" style=\"display:inline-block;padding:14px 24px;border:1px solid #8F1216;border-radius:10px;color:#FFFFFF;font-size:14px;font-weight:700;line-height:20px;text-align:right;text-decoration:none;\">"
                     + escape(label) + "</a></td></tr></table></td></tr>";
         }
-        String notice = security
+        String notice = "BRANCH_ACTIVATE".equals(key)
+                ? "Không chia sẻ mã xác minh hoặc mật khẩu. Nếu không yêu cầu kích hoạt, hãy bỏ qua email."
+                : security
                 ? "Mỗi mã chỉ dùng một lần. Không chia sẻ mã với bất kỳ ai, kể cả người tự nhận là nhân viên Clucky.\nNếu không yêu cầu thao tác này, hãy bỏ qua email và không cung cấp mã."
                 : switch (key) {
                     case "ORDER_CANCELLED" -> "Email hủy đơn không phải xác nhận đã hoàn tiền.\nNếu có khoản hoàn, Clucky sẽ cập nhật tiến trình riêng.";

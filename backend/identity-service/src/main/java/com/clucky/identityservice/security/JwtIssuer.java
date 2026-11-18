@@ -46,6 +46,7 @@ public class JwtIssuer {
                 .audience(List.of(jwtSettings.audience()))
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(expiry))
+                .claim("issuedAtNs", epochNanos(now))
                 .claim("role", role.name())
                 .claim("sid", sid)
                 .claim("typ", "access");
@@ -68,6 +69,7 @@ public class JwtIssuer {
                 .jwtID(jti != null ? jti : UUID.randomUUID().toString())
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(expiry))
+                .claim("issuedAtNs", epochNanos(now))
                 .claim("sid", sid)
                 .claim("typ", "refresh")
                 .build();
@@ -115,7 +117,10 @@ public class JwtIssuer {
             if (userId <= 0 || sid == null || sid.isBlank() || jti == null || claims.getIssueTime() == null) {
                 throw new ApiException(ErrorCode.UNAUTHENTICATED);
             }
-            return new RefreshTokenClaims(userId, sid, jti, expiresAt, claims.getIssueTime().toInstant());
+            Object precise = claims.getClaim("issuedAtNs");
+            Instant issuedAt = precise instanceof Number nanos
+                    ? Instant.ofEpochSecond(0, nanos.longValue()) : claims.getIssueTime().toInstant();
+            return new RefreshTokenClaims(userId, sid, jti, expiresAt, issuedAt);
         } catch (ApiException e) {
             throw e;
         } catch (Exception e) {
@@ -132,6 +137,10 @@ public class JwtIssuer {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to sign JWT token", e);
         }
+    }
+
+    private static long epochNanos(Instant value) {
+        return Math.addExact(Math.multiplyExact(value.getEpochSecond(), 1_000_000_000L), value.getNano());
     }
 
     public record RefreshTokenClaims(Long userId, String sid, String jti, Instant expiresAt, Instant issuedAt) {}
