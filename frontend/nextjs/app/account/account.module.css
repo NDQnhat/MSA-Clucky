@@ -436,6 +436,8 @@
 .securityHeading h3 { margin: 0; font: 550 17px "Fredoka", "Quicksand", sans-serif; }
 .securityHeading p { margin: 5px 0 0; color: #75675e; font-size: 12px; line-height: 1.6; }
 .securityHint { margin: 16px 0 0; padding: 12px 14px; border-radius: 12px; background: #f5ede0; color: #65554d; font-size: 12px; line-height: 1.7; }
+.resendOtp { justify-self: start; padding: 4px 0; border: 0; background: none; color: #8f1216; font: 700 13px "Quicksand", sans-serif; text-decoration: underline; cursor: pointer; }
+.resendOtp:disabled { opacity: .55; cursor: not-allowed; text-decoration: none; }
 .verifiedBadge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; background: #eaf3e9; color: #1e7a46; font-size: 11px; font-weight: 700; padding: 7px 10px; }
 .channelOptions { display: flex; flex-wrap: wrap; gap: 12px 20px; margin: 24px 0 16px; padding: 14px 16px; border: 1px solid #e5dbce; border-radius: 14px; }
 .channelOptions legend { padding: 0 5px; color: #625247; font-size: 13px; font-weight: 700; }

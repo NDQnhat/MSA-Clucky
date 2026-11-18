@@ -57,14 +57,18 @@ public class LoyaltyService {
         String where = """
                  WHERE (customer_id=? OR wallet_id IN (
                    SELECT source_wallet_id FROM promotion_service.loyalty_phone_claims
+                   WHERE verified_customer_id=?
+                   UNION
+                   SELECT source_wallet_id FROM promotion_service.loyalty_email_claims
                    WHERE verified_customer_id=?))
                  AND (?='ALL' OR type=?)
                 """;
         List<Entry> entries = jdbc.query("SELECT * FROM promotion_service.point_transactions" + where + " ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
                 (row, index) -> new Entry(row.getLong("id"), row.getObject("order_id", Long.class), row.getLong("change"),
                         row.getLong("balance_after"), row.getString("type"), row.getString("reason"), row.getTimestamp("created_at").toInstant()),
-                customerId, customerId, type, type, size, (long) page * size);
-        long total = jdbc.queryForObject("SELECT count(*) FROM promotion_service.point_transactions" + where, Long.class, customerId, customerId, type, type);
+                customerId, customerId, customerId, type, type, size, (long) page * size);
+        long total = jdbc.queryForObject("SELECT count(*) FROM promotion_service.point_transactions" + where,
+                Long.class, customerId, customerId, customerId, type, type);
         return new Overview(balance(customerId, policy, false), policy, entries, page, size, total);
     }
     public Quote preview(PreviewInput input) {

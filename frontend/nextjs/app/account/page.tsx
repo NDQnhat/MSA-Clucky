@@ -30,6 +30,7 @@ import { Modal } from "@/components/ui/modal";
 import styles from "./account.module.css";
 import { MyReviewsPanel } from "@/components/reviews/my-reviews-panel";
 import { useSession } from "@/components/auth/use-session";
+import { GuestPointsClaimPanel } from "@/components/account/guest-points-claim";
 
 const initialProfile: Profile = {
   fullName: "",
@@ -109,14 +110,39 @@ export default function AccountPage() {
   const [emailChallenge, setEmailChallenge] = useState<string | null>(null);
   const [emailBusy, setEmailBusy] = useState(false);
   const [emailError, setEmailError] = useState("");
+  const [emailResendCooldown, setEmailResendCooldown] = useState(0);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [phoneOtp, setPhoneOtp] = useState("");
   const [phoneCurrentPassword, setPhoneCurrentPassword] = useState("");
   const [phoneChallenge, setPhoneChallenge] = useState<string | null>(null);
   const [phoneBusy, setPhoneBusy] = useState(false);
   const [phoneError, setPhoneError] = useState("");
+  const [phoneResendCooldown, setPhoneResendCooldown] = useState(0);
+  const [guestClaimRefresh, setGuestClaimRefresh] = useState(0);
   const [passwordChannel, setPasswordChannel] = useState<OtpChannel>("SMS");
   const [passwordChallenge, setPasswordChallenge] = useState<string | null>(null);
+  useEffect(() => {
+    if (emailResendCooldown === 0 && phoneResendCooldown === 0) return;
+    const timer = window.setInterval(() => {
+      setEmailResendCooldown(value => Math.max(0, value - 1));
+      setPhoneResendCooldown(value => Math.max(0, value - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [emailResendCooldown, phoneResendCooldown]);
+  useEffect(() => {
+    if (!ready) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("link") === "email") {
+      document.getElementById("account-email-verify")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (params.get("claim") === "1") {
+      document.getElementById("account-guest-points")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [ready]);
+  useEffect(() => {
+    if (guestClaimRefresh > 0) {
+      document.getElementById("account-guest-points")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [guestClaimRefresh]);
   useEffect(() => {
     if (!userId) return;
     let active = true;
@@ -148,7 +174,7 @@ export default function AccountPage() {
   }
   async function requestEmailOtp(event: FormEvent) {
     event.preventDefault();
-    if (busy || emailBusy || phoneBusy) return;
+    if (busy || emailBusy || phoneBusy || emailResendCooldown > 0) return;
     if (savedProfile.emailVerified === true) { setEmailError("auth.security.verifiedContactLocked"); return; }
     const email = emailDraft.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -158,7 +184,7 @@ export default function AccountPage() {
     try {
       const result = await securityProfileApi.requestEmailOtp(email);
       if (!result.challengeId) { setEmailError("auth.validation.missingChallenge"); return; }
-      setEmailChallenge(result.challengeId); setEmailOtp(""); setNotice("auth.security.emailSent");
+      setEmailChallenge(result.challengeId); setEmailOtp(""); setEmailResendCooldown(60); setNotice("auth.security.emailSent");
     } catch (error) { setEmailError(accountError(error, "email", "auth.security.emailRequestFailed")); }
     finally { setEmailBusy(false); }
   }
@@ -175,14 +201,14 @@ export default function AccountPage() {
       const updated: Profile = { ...response, phone: response.phone ?? "" };
       setProfile(updated); setSavedProfile(updated);
       setEmailDraft(updated.email ?? ""); setEmailOtp(""); setEmailCurrentPassword(""); setEmailChallenge(null);
-      if (updated.emailVerified === true) setNotice("auth.security.emailVerified");
+      if (updated.emailVerified === true) { setNotice("auth.security.emailVerified"); setGuestClaimRefresh(current => current + 1); }
       else setEmailError("auth.security.emailVerificationPending");
     } catch (error) { setEmailError(accountError(error, "email", "auth.security.emailConfirmFailed")); }
     finally { setEmailBusy(false); }
   }
   async function requestPhoneOtp(event: FormEvent) {
     event.preventDefault();
-    if (busy || phoneBusy || emailBusy) return;
+    if (busy || phoneBusy || emailBusy || phoneResendCooldown > 0) return;
     if (savedProfile.phoneVerified === true) { setPhoneError("auth.security.verifiedContactLocked"); return; }
     const phone = canonicalPhone(phoneDraft);
     if (!/^(?:0\d{9}|\+[1-9]\d{7,14})$/.test(phone)) {
@@ -192,7 +218,7 @@ export default function AccountPage() {
     try {
       const result = await securityProfileApi.requestPhoneOtp(phone);
       if (!result.challengeId) { setPhoneError("auth.validation.missingChallenge"); return; }
-      setPhoneChallenge(result.challengeId); setPhoneOtp(""); setNotice("auth.security.phoneSent");
+      setPhoneChallenge(result.challengeId); setPhoneOtp(""); setPhoneResendCooldown(60); setNotice("auth.security.phoneSent");
     } catch (error) { setPhoneError(accountError(error, "phone", "auth.security.phoneRequestFailed")); }
     finally { setPhoneBusy(false); }
   }
@@ -209,7 +235,7 @@ export default function AccountPage() {
       const updated: Profile = { ...response, phone: response.phone ?? "" };
       setProfile(updated); setSavedProfile(updated);
       setPhoneDraft(updated.phone ?? ""); setPhoneOtp(""); setPhoneCurrentPassword(""); setPhoneChallenge(null);
-      if (updated.phoneVerified === true) { setNotice("auth.security.phoneVerified"); setPasswordChannel("SMS"); }
+      if (updated.phoneVerified === true) { setNotice("auth.security.phoneVerified"); setPasswordChannel("SMS"); setGuestClaimRefresh(current => current + 1); }
       else setPhoneError("auth.security.phoneVerificationPending");
     } catch (error) { setPhoneError(accountError(error, "phone", "auth.security.phoneConfirmFailed")); }
     finally { setPhoneBusy(false); }
@@ -417,6 +443,7 @@ export default function AccountPage() {
                     > {t("business.account.discardChanges")} </button>
                   </div>
                 </form>
+                <GuestPointsClaimPanel key={`guest-points-${userId}`} refreshKey={guestClaimRefresh} />
                 <div className={styles.contactSectionHeading}>
                   <h3>{t("auth.security.contactHeading")}</h3>
                   <p>{t("auth.security.contactDescription")}</p>
@@ -439,16 +466,16 @@ export default function AccountPage() {
                     </div>
                     {savedProfile.phoneVerified === true ? (
                       <p className={styles.contactHint}>{t("auth.security.verifiedContactLocked")}</p>
-                    ) : <form className={styles.form} onSubmit={requestPhoneOtp}>
+                    ) : <form id="account-phone-otp-request" className={styles.form} onSubmit={requestPhoneOtp}>
                       <Input type="tel" inputMode="tel" label={t("auth.security.newPhone")}
                         autoComplete="tel" placeholder={t("auth.fields.phonePlaceholder")}
                         value={phoneDraft} onChange={e => { setPhoneDraft(e.target.value); setPhoneChallenge(null); setPhoneOtp(""); setPhoneCurrentPassword(""); setPhoneError(""); }}
                         disabled={busy || phoneBusy || emailBusy} required
                         error={phoneError && phoneError !== "auth.security.contactPasswordInvalid" ? t(phoneError) : undefined} />
-                      <button className={styles.primary} type="submit"
-                        disabled={busy || phoneBusy || emailBusy || !phoneDraft.trim()}>
-                        {phoneBusy ? t("auth.otp.sending") : t("auth.security.sendPhoneCode")}
-                      </button>
+                      {!phoneChallenge && <button className={styles.primary} type="submit"
+                        disabled={busy || phoneBusy || emailBusy || phoneResendCooldown > 0 || !phoneDraft.trim()}>
+                        {phoneBusy ? t("auth.otp.sending") : phoneResendCooldown > 0 ? t("auth.otp.resendCountdown", { seconds: phoneResendCooldown }) : t("auth.security.sendPhoneCode")}
+                      </button>}
                     </form>}
                     {savedProfile.phoneVerified !== true && phoneChallenge && (
                       <form className={styles.otpForm} onSubmit={confirmPhone}>
@@ -456,6 +483,10 @@ export default function AccountPage() {
                         <Input label={t("auth.otp.label")} inputMode="numeric" autoComplete="one-time-code"
                           value={phoneOtp} onChange={e => setPhoneOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                           maxLength={6} disabled={busy || phoneBusy || emailBusy} required />
+                        <button type="submit" form="account-phone-otp-request" className={styles.resendOtp}
+                          disabled={busy || phoneBusy || emailBusy || phoneResendCooldown > 0}>
+                          {phoneResendCooldown > 0 ? t("auth.otp.resendCountdown", { seconds: phoneResendCooldown }) : t("auth.security.sendCodeAgain")}
+                        </button>
                         <Input label={t("auth.security.currentCluckyPassword")} type="password" autoComplete="current-password"
                           value={phoneCurrentPassword} onChange={e => setPhoneCurrentPassword(e.target.value)}
                           helperText={t("auth.security.contactPasswordHint")}
@@ -467,7 +498,7 @@ export default function AccountPage() {
                       </form>
                     )}
                   </section>
-                  <section className={styles.contactCard} aria-label={t("auth.security.emailHeading")}>
+                  <section id="account-email-verify" className={styles.contactCard} aria-label={t("auth.security.emailHeading")}>
                     <div className={styles.securityHeading}>
                       <span className={styles.contactIcon}><Mail size={21} aria-hidden="true" /></span>
                       <div>
@@ -484,16 +515,16 @@ export default function AccountPage() {
                     </div>
                     {savedProfile.emailVerified === true ? (
                       <p className={styles.contactHint}>{t("auth.security.verifiedContactLocked")}</p>
-                    ) : <form className={styles.form} onSubmit={requestEmailOtp}>
+                    ) : <form id="account-email-otp-request" className={styles.form} onSubmit={requestEmailOtp}>
                       <Input type="email" label={t("auth.security.newEmail")} autoComplete="email"
                         placeholder="ban@clucky.vn" value={emailDraft}
                         onChange={e => { setEmailDraft(e.target.value); setEmailChallenge(null); setEmailOtp(""); setEmailCurrentPassword(""); setEmailError(""); }}
                         disabled={busy || emailBusy || phoneBusy} required
                         error={emailError && emailError !== "auth.security.contactPasswordInvalid" ? t(emailError) : undefined} />
-                      <button className={styles.primary} type="submit"
-                        disabled={busy || emailBusy || phoneBusy || !emailDraft.trim()}>
-                        {emailBusy ? t("auth.otp.sending") : t("auth.security.sendEmailCode")}
-                      </button>
+                      {!emailChallenge && <button className={styles.primary} type="submit"
+                        disabled={busy || emailBusy || phoneBusy || emailResendCooldown > 0 || !emailDraft.trim()}>
+                        {emailBusy ? t("auth.otp.sending") : emailResendCooldown > 0 ? t("auth.otp.resendCountdown", { seconds: emailResendCooldown }) : t("auth.security.sendEmailCode")}
+                      </button>}
                     </form>}
                     {savedProfile.emailVerified !== true && emailChallenge && (
                       <form className={styles.otpForm} onSubmit={confirmEmail}>
@@ -501,6 +532,10 @@ export default function AccountPage() {
                         <Input label={t("auth.otp.label")} inputMode="numeric" autoComplete="one-time-code"
                           value={emailOtp} onChange={e => setEmailOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                           maxLength={6} disabled={busy || emailBusy || phoneBusy} required />
+                        <button type="submit" form="account-email-otp-request" className={styles.resendOtp}
+                          disabled={busy || emailBusy || phoneBusy || emailResendCooldown > 0}>
+                          {emailResendCooldown > 0 ? t("auth.otp.resendCountdown", { seconds: emailResendCooldown }) : t("auth.security.sendCodeAgain")}
+                        </button>
                         <Input label={t("auth.security.currentCluckyPassword")} type="password" autoComplete="current-password"
                           value={emailCurrentPassword} onChange={e => setEmailCurrentPassword(e.target.value)}
                           helperText={t("auth.security.contactPasswordHint")}

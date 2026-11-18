@@ -112,7 +112,8 @@ public class LiveLoyaltySessionService {
         if (count == null || count > 30) throw new ApiException(ErrorCode.TOO_MANY_REQUESTS);
     }
     public String subject(String kind, Long customerId, String phoneKey, String sessionId, Integer generation, Duration ttl) {
-        if (!java.util.Set.of("PHONE","CUSTOMER","TEXT","QR").contains(kind) || ttl.isNegative() || ttl.isZero())
+        if (!java.util.Set.of("PHONE","EMAIL","CUSTOMER","TEXT","QR").contains(kind)
+                || ttl.isNegative() || ttl.isZero())
             throw new BadRequestException("Invalid loyalty lookup");
         String ref = random(24);
         String data = kind + "|" + (customerId == null ? "" : customerId) + "|" + (phoneKey == null ? "" : phoneKey)

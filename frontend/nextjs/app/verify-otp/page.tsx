@@ -11,6 +11,8 @@ import { useNavigationRouter as useRouter } from "@/components/ui-loader/use-nav
 import Link from "@/components/ui-loader/navigation-link";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { authApi } from "@/lib/api";
+import { Gift } from "lucide-react";
+import { GuestPointsClaimPanel } from "@/components/account/guest-points-claim";
 
 const OTP_LENGTH = 6;
 
@@ -29,6 +31,7 @@ function VerifyOtpForm() {
   useFeedback(error ? (typeof error === "string" && t.has(error) ? t(error) : errorMessage(error)) : null);
   const [success, setSuccess] = React.useState<string | null>(null);
   useFeedback(success && t(success), "success");
+  const [verified, setVerified] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [resending, setResending] = React.useState(false);
   const [cooldown, setCooldown] = React.useState(0);
@@ -75,8 +78,7 @@ function VerifyOtpForm() {
     try {
       await authApi.verifyOtp({ phone, otp, challengeId });
       if (!task.isCurrent()) return;
-      setSuccess("auth.otp.verified");
-      task.schedule(() => router.push("/account"), 800);
+      setVerified(true);
     } catch (err) {
       if (!task.isCurrent()) return;
 
@@ -117,7 +119,24 @@ function VerifyOtpForm() {
       title={t("auth.otp.title")}
       subtitle={t("auth.otp.description", { count: OTP_LENGTH, phone: phone || t("auth.fields.yourPhone") })}
     >
-      <form className="auth-form" onSubmit={onSubmit} noValidate>
+      {verified ? (
+        <>
+          <div className="rounded-2xl border border-[#E8D6BC] bg-[#FFF5E8] p-6 text-center" role="status">
+            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#F4DFB7] text-[#8F1216]">
+              <Gift size={25} aria-hidden="true" />
+            </div>
+            <h2 className="mb-2 text-lg font-bold text-[#241510]">{t("auth.otp.linkPointsTitle")}</h2>
+            <p className="text-sm leading-6 text-[#625247]">{t("auth.otp.linkPointsDescription")}</p>
+          </div>
+          <GuestPointsClaimPanel />
+          <button type="button" className="btn-primary btn-block" onClick={() => router.push("/account?link=email")}>
+            {t("auth.otp.linkPointsAction")}
+          </button>
+          <button type="button" className="mt-3 w-full py-2 text-sm font-semibold text-[#625247] underline" onClick={() => router.push("/account")}>
+            {t("auth.otp.linkPointsLater")}
+          </button>
+        </>
+      ) : <form className="auth-form" onSubmit={onSubmit} noValidate>
         {Boolean(error) && (
           <div className="form-error" role="alert">
             {typeof error === "string" && t.has(error) ? t(error) : errorMessage(error)}
@@ -189,7 +208,7 @@ function VerifyOtpForm() {
         <span className="auth-footer-link">
           <Link href="/login">{t("auth.backToLogin")}</Link>
         </span>
-      </form>
+      </form>}
     </AuthShell>
   );
 }

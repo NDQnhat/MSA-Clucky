@@ -18,7 +18,6 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.client.loadbalancer.LoadBalanced;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,7 +43,7 @@ public class CounterLoyaltyService {
     public record ClaimStatus(String status, long claimedPoints, int verifiedPhones,
                               int claimedWallets) {}
     private record Wallet(long id, Long customerId, long total, long reserved, long lifetime,
-                          long clawback, String state, Long mergedInto) {}
+                          long clawback, String state, Long mergedInto, String ownerType) {}
     public record CounterRequest(String loyaltySubject, String scanProof, int pointsUsed,
             BigDecimal amount, long staffId, long storeId, String draftHash) {}
     public record CounterReserve(long orderId, String loyaltySubject, String scanProof, int pointsUsed,
@@ -64,11 +63,16 @@ public class CounterLoyaltyService {
 
     public String phoneKey(String input) {
         String phone = normalizePhone(input);
+        return keyedContact("clucky:loyalty:phone-key:v1:", phone);
+    }
+    public String emailKey(String input) {
+        return keyedContact("clucky:loyalty:email-key:v1:", input.strip().toLowerCase(java.util.Locale.ROOT));
+    }
+    private String keyedContact(String prefix, String normalized) {
         try {
             Mac hmac = Mac.getInstance("HmacSHA256");
             hmac.init(new SecretKeySpec(security.secret().getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            return HexFormat.of().formatHex(hmac.doFinal(
-                    ("clucky:loyalty:phone-key:v1:" + phone).getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of().formatHex(hmac.doFinal((prefix + normalized).getBytes(StandardCharsets.UTF_8)));
         } catch (java.security.GeneralSecurityException failure) {
             throw new IllegalStateException("Phone key derivation unavailable");
         }
@@ -104,24 +108,35 @@ public class CounterLoyaltyService {
             if (value == null || !value.strip().matches("(?i)^[a-z0-9._%+\\-]{1,64}@[a-z0-9.\\-]{1,190}\\.[a-z]{2,}$"))
                 throw new BadRequestException("Invalid email");
             record VerifiedEmail(long customerId) {}
-            VerifiedEmail email = identity.post()
-                    .uri(identityUrl + "/internal/identity/verified-email/resolve")
-                    .headers(headers -> headers.setBearerAuth(credential.token()))
-                    .body(Map.of("email", value.strip().toLowerCase(java.util.Locale.ROOT)))
-                    .retrieve()
-                    .onStatus(HttpStatusCode::is4xxClientError, (request,response) -> {
-                        throw new BadRequestException("Verified account not found");
-                    })
-                    .body(VerifiedEmail.class);
-            if (email == null || email.customerId() <= 0) throw new BadRequestException("Verified account not found");
-            return new Lookup(sessions.subject("CUSTOMER", email.customerId(), null, null, null,
-                    Duration.ofMinutes(5)), false, "••••" + Math.floorMod(email.customerId(),10000));
+            String normalized = value.strip().toLowerCase(java.util.Locale.ROOT);
+            try {
+                VerifiedEmail email = identity.post()
+                        .uri(identityUrl + "/internal/identity/verified-email/resolve")
+                        .headers(headers -> headers.setBearerAuth(credential.token()))
+                        .body(Map.of("email", normalized)).retrieve().body(VerifiedEmail.class);
+                if (email == null || email.customerId() <= 0)
+                    throw new ConflictException("Verified contact unavailable");
+                return new Lookup(sessions.subject("CUSTOMER", email.customerId(), null, null, null,
+                        Duration.ofMinutes(5)), false, "••••" + Math.floorMod(email.customerId(),10000));
+            } catch (org.springframework.web.client.HttpClientErrorException.NotFound absent) {
+                String key = emailKey(normalized);
+                return new Lookup(sessions.subject("EMAIL", null, key, null, null,
+                        Duration.ofMinutes(5)), false, "••••" + normalized.substring(normalized.indexOf('@')));
+            }
         }
         throw new BadRequestException("Invalid lookup type");
     }
 
     private Wallet wallet(LiveLoyaltySessionService.Subject subject, boolean create, boolean lock) {
         if (subject == null) return null;
+        if ("EMAIL".equals(subject.kind()) && subject.phoneKey() != null) {
+            contactClaimLock("email", subject.phoneKey());
+            List<Long> owners = jdbc.queryForList(
+                    "SELECT customer_id FROM promotion_service.loyalty_verified_emails WHERE email_key=?",
+                    Long.class, subject.phoneKey());
+            if (!owners.isEmpty()) return customerWallet(owners.getFirst(), create, lock);
+            return emailWallet(subject.phoneKey(), create, lock);
+        }
         if (subject.phoneKey() != null) {
             phoneClaimLock(subject.phoneKey());
             // A PHONE subject may have been issued seconds before the first
@@ -148,6 +163,10 @@ public class CounterLoyaltyService {
         jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", Object.class,
                 "loyalty:phone:" + key);
     }
+    private void contactClaimLock(String kind, String key) {
+        jdbc.queryForObject("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", Object.class,
+                "loyalty:" + kind + ":" + key);
+    }
     private Wallet customerWallet(long customerId, boolean create, boolean lock) {
         if (create) jdbc.update("""
                 INSERT INTO promotion_service.member_points(customer_id) VALUES (?)
@@ -167,11 +186,21 @@ public class CounterLoyaltyService {
                 + (lock ? " FOR UPDATE" : ""), (r,i) -> walletRow(r), phoneKey);
         return rows.isEmpty() ? null : rows.getFirst();
     }
+    private Wallet emailWallet(String emailKey, boolean create, boolean lock) {
+        if (create) jdbc.update("""
+                INSERT INTO promotion_service.member_points(customer_id,owner_type,email_key)
+                VALUES (NULL,'EMAIL',?)
+                ON CONFLICT(email_key) WHERE owner_type='EMAIL' DO NOTHING
+                """, emailKey);
+        var rows = jdbc.query("SELECT * FROM promotion_service.member_points WHERE owner_type='EMAIL' AND email_key=?"
+                + (lock ? " FOR UPDATE" : ""), (r,i) -> walletRow(r), emailKey);
+        return rows.isEmpty() ? null : rows.getFirst();
+    }
     private Wallet walletRow(java.sql.ResultSet row) throws java.sql.SQLException {
         return new Wallet(row.getLong("id"), row.getObject("customer_id", Long.class), row.getLong("total_points"),
                 row.getLong("reserved_points"), row.getLong("lifetime_points"),
                 row.getLong("pending_clawback_points"), row.getString("wallet_state"),
-                row.getObject("merged_into_wallet_id", Long.class));
+                row.getObject("merged_into_wallet_id", Long.class), row.getString("owner_type"));
     }
     private Wallet destination(Wallet wallet, boolean lock) {
         if (wallet == null || wallet.mergedInto() == null) return wallet;
@@ -199,7 +228,16 @@ public class CounterLoyaltyService {
                 SELECT COALESCE(sum(amount),0) FROM promotion_service.loyalty_phone_claims
                 WHERE verified_customer_id=?
                 """, Long.class, customerId);
-        return new ClaimStatus(verified != null && verified > 0 ? "COMPLETED" : "PENDING",
+        Long awaitingConsent = jdbc.queryForObject("""
+                SELECT COALESCE(sum(wallet.total_points),0)
+                FROM promotion_service.loyalty_verified_phones ownership
+                JOIN promotion_service.member_points wallet
+                  ON wallet.phone_key=ownership.phone_key AND wallet.owner_type='PHONE'
+                WHERE ownership.customer_id=? AND wallet.wallet_state='ACTIVE'
+                """, Long.class, customerId);
+        String status = verified != null && verified > 0
+                && (awaitingConsent == null || awaitingConsent <= 0) ? "COMPLETED" : "PENDING";
+        return new ClaimStatus(status,
                 transferred == null ? 0 : transferred, verified == null ? 0 : Math.toIntExact(verified),
                 claimed == null ? 0 : Math.toIntExact(claimed));
     }
@@ -324,7 +362,8 @@ public class CounterLoyaltyService {
                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT (operation_key) DO NOTHING
                 """, wallet.customerId(), wallet.id(), originWalletId, orderId, change, after, type,
                 orderId + ":" + action, action, version, eventId, correlation,
-                wallet.customerId() == null ? "PHONE" : originWalletId == wallet.id() ? "CUSTOMER" : "PHONE_CLAIMED",
+                wallet.customerId() == null ? wallet.ownerType()
+                        : originWalletId == wallet.id() ? "CUSTOMER" : "CONTACT_CLAIMED",
                 String.valueOf(originWalletId));
     }
     @Transactional
@@ -386,55 +425,7 @@ public class CounterLoyaltyService {
         var mapping = jdbc.queryForList("SELECT customer_id FROM promotion_service.loyalty_verified_phones WHERE phone_key=? FOR UPDATE", key);
         if (((Number) mapping.getFirst().get("customer_id")).longValue() != customerId)
             throw new ConflictException("Phone already claimed by another account");
-        Wallet sourceSnapshot = guestWallet(key, false, false);
-        if (sourceSnapshot == null || sourceSnapshot.mergedInto() != null) return;
-        Wallet targetSnapshot = customerWallet(customerId, true, false);
-        // Lock both member rows in monotonically increasing primary key order,
-        // independent of which wallet was created first.
-        var locked = jdbc.query("""
-                SELECT * FROM promotion_service.member_points WHERE id IN (?,?)
-                ORDER BY id FOR UPDATE
-                """, (row, index) -> walletRow(row), sourceSnapshot.id(), targetSnapshot.id());
-        Wallet source = locked.stream().filter(wallet -> wallet.id() == sourceSnapshot.id()).findFirst()
-                .orElseThrow(() -> new ConflictException("Phone wallet disappeared"));
-        Wallet target = locked.stream().filter(wallet -> wallet.id() == targetSnapshot.id()).findFirst()
-                .orElseThrow(() -> new ConflictException("Customer wallet disappeared"));
-        if (source.mergedInto() != null) return;
-        if (source.id() == target.id()) return;
-        int inserted = jdbc.update("""
-                INSERT INTO promotion_service.loyalty_phone_claims
-                  (source_wallet_id,target_wallet_id,verified_customer_id,verification_event_id,amount)
-                VALUES (?,?,?,?,?) ON CONFLICT (source_wallet_id) DO NOTHING
-                """, source.id(), target.id(), customerId, eventId, source.total());
-        if (inserted == 0) throw new ConflictException("Guest phone points were already claimed");
-        long combined = Math.addExact(source.total(), target.total());
-        long held = Math.addExact(source.reserved(), target.reserved());
-        long lifetime = Math.addExact(source.lifetime(), target.lifetime());
-        long debt = Math.addExact(source.clawback(), target.clawback());
-        jdbc.update("""
-                UPDATE promotion_service.member_points
-                SET total_points=?,reserved_points=?,lifetime_points=?,pending_clawback_points=?,
-                    tier=?,updated_at=now() WHERE id=?
-                """, combined, held, lifetime, debt,
-                LoyaltyMath.tier(lifetime, loyalty.policy()), target.id());
-        jdbc.update("""
-                UPDATE promotion_service.member_points SET
-                    total_points=0,reserved_points=0,lifetime_points=0,pending_clawback_points=0,
-                    wallet_state='MERGED',merged_into_wallet_id=?,updated_at=now()
-                WHERE id=?
-                """,
-                target.id(), source.id());
-        jdbc.update("""
-                INSERT INTO promotion_service.loyalty_daily_earn_usage(wallet_id,local_date,earned,held)
-                SELECT ?,local_date,earned,held FROM promotion_service.loyalty_daily_earn_usage WHERE wallet_id=?
-                ON CONFLICT(wallet_id,local_date) DO UPDATE
-                    SET earned=promotion_service.loyalty_daily_earn_usage.earned+EXCLUDED.earned,
-                        held=promotion_service.loyalty_daily_earn_usage.held+EXCLUDED.held
-                """, target.id(), source.id());
-        jdbc.update("DELETE FROM promotion_service.loyalty_daily_earn_usage WHERE wallet_id=?", source.id());
-        jdbc.update("INSERT INTO promotion_service.point_transactions(customer_id,wallet_id,origin_wallet_id,change,balance_after,type,operation_key,reason) VALUES (NULL,?,?,?,0,'ADJUST',?,'TRANSFER_OUT')",
-                source.id(), source.id(), -source.total(), "claim-out:" + source.id());
-        jdbc.update("INSERT INTO promotion_service.point_transactions(customer_id,wallet_id,origin_wallet_id,change,balance_after,type,operation_key,reason) VALUES (?,?,?,?,?,'ADJUST',?,'TRANSFER_IN')",
-                customerId, target.id(), source.id(), source.total(), combined, "claim-in:" + source.id());
+        // Verification records ownership only. Historical guest points remain
+        // untouched until the customer explicitly confirms their claim.
     }
 }
