@@ -3,6 +3,7 @@ import request from "./api";
 export type LoyaltyPolicy = {
   version: number; spendPerPoint: number; pointValue: number;
   silverThreshold: number; goldThreshold: number; silverDiscount: number; goldDiscount: number;
+  maxEarnPerOrder: number; maxEarnPerDay: number; maxPointBalance: number;
 };
 export type LoyaltyOverview = {
   points: { customerId: number; totalPoints: number; availablePoints: number; reservedPoints: number; lifetimePoints: number; tier: "MEMBER" | "SILVER" | "GOLD" };

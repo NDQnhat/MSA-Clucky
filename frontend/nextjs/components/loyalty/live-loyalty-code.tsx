@@ -156,6 +156,9 @@ export function LiveLoyaltyCode({ customerId }: { customerId: number }) {
     };
   }, [customerId, setCode]);
 
+  const validitySeconds = current ? (Date.parse(current.expiresAt) - Date.parse(current.issuedAt)) / 1000 : 0;
+  const timeProgress = validitySeconds > 0 ? Math.min(100, remaining / validitySeconds * 100) : 0;
+
   return <section className={styles.panel} aria-labelledby="live-loyalty-title">
     <div className={styles.heading}>
       <span className={styles.icon}><ShieldCheck size={22} aria-hidden="true" /></span>
@@ -170,7 +173,7 @@ export function LiveLoyaltyCode({ customerId }: { customerId: number }) {
           <p className={styles.hint}>{t("liveTextHint")}</p>
           <button type="button" className={styles.copy} onClick={() => { void navigator.clipboard.writeText(current.loyaltyTextCode); }}>{t("liveCopy")} <Copy size={15} aria-hidden="true" /></button>
           <p className={styles.timer} role="timer"><Timer size={18} aria-hidden="true" />{t("liveExpiry", { seconds: remaining })}</p>
-          <div className={styles.bar}><div style={{ width: `${Math.min(100, remaining / 30 * 100)}%` }} /></div>
+          <div className={styles.bar}><div style={{ width: `${timeProgress}%` }} /></div>
           <p className={styles.hint}>{t("liveQrHint")}</p>
         </div>
       </div> : <div className={styles.notice} role="status">

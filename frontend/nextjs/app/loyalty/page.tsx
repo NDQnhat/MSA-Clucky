@@ -11,6 +11,10 @@ import { loyaltyApi, type LoyaltyOverview, type LoyaltyPolicy } from "@/lib/loya
 import { LiveLoyaltyCode } from "@/components/loyalty/live-loyalty-code";
 import styles from "./loyalty.module.css";
 
+const transactionReasons = ["RESERVED", "RELEASED", "REDEEMED", "EARNED", "OPENING_BALANCE",
+  "PHONE_TRANSFER_IN", "PHONE_TRANSFER_OUT", "EMAIL_TRANSFER_IN", "EMAIL_TRANSFER_OUT",
+  "REFUND_REDEEM_RESTORE", "REFUND_EARN_REVERSE", "REFUND_EARN_DEFERRED", "REFUND_CLAWBACK_SETTLED"];
+
 export default function LoyaltyPage() {
   const t = useTranslations("loyalty");
   const { money, number, date } = useLocaleTools();
@@ -24,7 +28,7 @@ export default function LoyaltyPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   useFeedback(error && t("error"));
-  const [spend, setSpend] = useState(250000);
+  const [spendInput, setSpendInput] = useState<number | null>(null);
   const data = loaded?.userId === user?.userId ? loaded?.data : null;
   const points = data?.points;
   const currentPolicy = data?.policy ?? policy;
@@ -40,6 +44,17 @@ export default function LoyaltyPage() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [ready, userId, page, filter, reload]);
+  useEffect(() => {
+    let lastRefresh = 0;
+    const refreshPolicy = () => {
+      if (document.hidden || Date.now() - lastRefresh < 1000) return;
+      lastRefresh = Date.now();
+      setReload(value => value + 1);
+    };
+    document.addEventListener("visibilitychange", refreshPolicy);
+    window.addEventListener("focus", refreshPolicy);
+    return () => { document.removeEventListener("visibilitychange", refreshPolicy); window.removeEventListener("focus", refreshPolicy); };
+  }, []);
   const nextThreshold = currentPolicy && points ? points.tier === "GOLD" ? null : points.tier === "SILVER" ? currentPolicy.goldThreshold : currentPolicy.silverThreshold : null;
   const progress = points && nextThreshold ? Math.min(100, points.lifetimePoints / nextThreshold * 100) : 100;
   const tierCards = [
@@ -48,7 +63,18 @@ export default function LoyaltyPage() {
     { tier: "GOLD", Icon: Crown, badge: styles.tierBadgeGold },
   ] as const;
   const currentTier = tierCards.find(card => card.tier === points?.tier);
-  const estimatedPoints = currentPolicy ? Math.floor(spend / currentPolicy.spendPerPoint) : 0;
+  const maxSpend = 1_000_000_000;
+  const spend = spendInput ?? (currentPolicy ? Math.min(maxSpend, currentPolicy.spendPerPoint * 20) : 0);
+  const spendPresets = currentPolicy ? [...new Set([5, 10, 20, 50]
+    .map(points => Math.min(maxSpend, currentPolicy.spendPerPoint * points)))] : [];
+  const uncappedPoints = currentPolicy && currentPolicy.spendPerPoint > 0 ? Math.floor(spend / currentPolicy.spendPerPoint) : 0;
+  const estimatedPoints = currentPolicy ? [uncappedPoints, currentPolicy.maxEarnPerOrder, currentPolicy.maxEarnPerDay]
+    .reduce((maximum, cap) => cap > 0 ? Math.min(maximum, cap) : maximum) : 0;
+  const activeLimits = currentPolicy ? ([
+    { key: "maxEarnPerOrder", value: currentPolicy.maxEarnPerOrder },
+    { key: "maxEarnPerDay", value: currentPolicy.maxEarnPerDay },
+    { key: "maxPointBalance", value: currentPolicy.maxPointBalance },
+  ] as const).filter(({ value }) => value > 0) : [];
   return <main className={styles.container}>
     <header className={styles.hero}>
       <span className={styles.heroTag}><Sparkles size={14} aria-hidden="true" /> Clucky Club</span>
@@ -72,7 +98,7 @@ export default function LoyaltyPage() {
         <div className={styles.pointsBigWrap}>
           <span className={styles.pointsLabel}>{t("available")}</span>
           <div className={styles.pointsBigVal}>{number(points.availablePoints)}<span className={styles.pointsUnit}>{t("points")}</span></div>
-          <div className={styles.equivalentVal}><CheckCircle2 size={15} aria-hidden="true" /><span>{t("equivalent", { amount: money(points.availablePoints * currentPolicy.pointValue) })}</span></div>
+          <div className={styles.equivalentVal}><CheckCircle2 size={15} aria-hidden="true" /><span>{t("equivalent", { amount: money(BigInt(points.availablePoints) * BigInt(currentPolicy.pointValue)) })}</span></div>
         </div>
         <span className={styles.tierBadgeHero + " " + currentTier.badge}><currentTier.Icon size={18} aria-hidden="true" />{t(points.tier)}</span>
       </div>
@@ -118,8 +144,8 @@ export default function LoyaltyPage() {
       <section className={styles.calcCard} aria-labelledby="loyalty-calculator">
         <div className={styles.calcHeader}><span className={styles.calcIconWrap}><Calculator size={21} aria-hidden="true" /></span><h2 id="loyalty-calculator" className={styles.sectionTitle}>{t("calculator")}</h2></div>
         <div className={styles.calcGrid}>
-          <div className={styles.calcInputWrap}><label htmlFor="loyalty-spend">{t("eligibleAmount")}</label><input id="loyalty-spend" className={styles.spendInput} type="number" min={0} max={1000000000} step={1000} value={spend} onChange={event => setSpend(Math.min(1000000000, Math.max(0, Number(event.target.value) || 0)))} /><div className={styles.spendPresets}>{[100000, 200000, 350000, 500000].map(amount => <button key={amount} type="button" aria-pressed={spend === amount} onClick={() => setSpend(amount)}>{money(amount)}</button>)}</div></div>
-          <div className={styles.calcOutputBox} aria-live="polite"><div className={styles.calcStatItem}><span className={styles.calcStatLabel}>{t("estimatedEarn")}</span><strong className={styles.calcStatVal}>+{number(estimatedPoints)} <small>{t("points")}</small></strong></div><div className={styles.calcStatItem}><span className={styles.calcStatLabel}>{t("rewardValue")}</span><strong className={styles.calcStatVal}>{money(estimatedPoints * currentPolicy.pointValue)}</strong></div></div>
+          <div className={styles.calcInputWrap}><label htmlFor="loyalty-spend">{t("eligibleAmount")}</label><input id="loyalty-spend" className={styles.spendInput} type="number" min={0} max={maxSpend} step={currentPolicy.spendPerPoint} value={spend} onChange={event => setSpendInput(Math.min(maxSpend, Math.max(0, Number(event.target.value) || 0)))} /><div className={styles.spendPresets}>{spendPresets.map(amount => <button key={amount} type="button" aria-pressed={spend === amount} onClick={() => setSpendInput(amount)}>{money(amount)}</button>)}</div></div>
+          <div><div className={styles.calcOutputBox} aria-live="polite"><div className={styles.calcStatItem}><span className={styles.calcStatLabel}>{t("estimatedEarn")}</span><strong className={styles.calcStatVal}>+{number(estimatedPoints)} <small>{t("points")}</small></strong></div><div className={styles.calcStatItem}><span className={styles.calcStatLabel}>{t("rewardValue")}</span><strong className={styles.calcStatVal}>{money(BigInt(estimatedPoints) * BigInt(currentPolicy.pointValue))}</strong></div></div><p className={styles.calcNote}>{t("estimateLimitNote")}</p></div>
         </div>
         <section className={styles.policySection} aria-labelledby="loyalty-rules">
           <h3 id="loyalty-rules" className={styles.sectionTitle}>{t("rulesTitle")}</h3>
@@ -140,6 +166,10 @@ export default function LoyaltyPage() {
             <div><span className={styles.earnRuleLabel}>{t("rulesEarnTitle")}</span><strong>{t("rulesEarnRate", { amount: money(currentPolicy.spendPerPoint) })}</strong><p>{t("rulesEarnText")}</p></div>
             <ul>{["rulesCompleted", "rulesRounding", "rulesShipping"].map(key => <li key={key}><CheckCircle2 size={16} aria-hidden="true" />{t(key)}</li>)}</ul>
           </div>
+          {activeLimits.length > 0 && <div className={styles.earnLimits}>
+            <strong>{t("limitsTitle")}</strong>
+            <ul>{activeLimits.map(({ key, value }) => <li key={key}>{t(key, { points: number(value) })}</li>)}</ul>
+          </div>}
         </section>
       </section>
     </>}
@@ -149,10 +179,10 @@ export default function LoyaltyPage() {
       <div className={styles.txFilterList} role="group" aria-label={t("filter")}>{["ALL", "EARN", "REDEEM", "ADJUST"].map(type => <button key={type} className={styles.txFilterBtn + (filter === type ? " " + styles.txFilterBtnActive : "")} aria-pressed={filter === type} onClick={() => { setFilter(type); setPage(0); }}>{t(type)}</button>)}</div>
       {!loading && !error && !data?.transactions.length && <div className={styles.emptyHistory}><History size={36} aria-hidden="true" /><p>{t("empty")}</p></div>}
       <div className={styles.txList}>{!error && data?.transactions.map(entry => <article className={styles.txItem} key={entry.id}>
-        <div className={styles.txLeft}><span className={styles.txTypeIconWrap + " " + (entry.type === "EARN" ? styles.txEarnIcon : entry.type === "REDEEM" ? styles.txRedeemIcon : styles.txAdjustIcon)}>{entry.type === "EARN" ? <PlusCircle size={20} aria-hidden="true" /> : entry.type === "REDEEM" ? <MinusCircle size={20} aria-hidden="true" /> : <Sparkles size={20} aria-hidden="true" />}</span><div className={styles.txDetails}><strong className={styles.txReason}>{t(["RESERVED", "RELEASED", "REDEEMED", "EARNED", "OPENING_BALANCE"].includes(entry.reason ?? "") ? entry.reason! : entry.type)}</strong><span className={styles.txTime}><Clock size={12} aria-hidden="true" />{date(entry.createdAt, { dateStyle: "medium", timeStyle: "short" })}{entry.orderId && <Link href={"/orders/" + entry.orderId}>{t("orderRef", { id: entry.orderId })}</Link>}</span></div></div>
-        <div className={styles.txRight}><strong className={entry.change > 0 ? styles.txChangeEarn : entry.change < 0 ? styles.txChangeRedeem : styles.txChangeAdjust}>{entry.change > 0 ? "+" : ""}{number(entry.change)} {t("points")}</strong><span className={styles.txBalanceAfter}>{t("after", { points: number(entry.balanceAfter) })}</span></div>
+        <div className={styles.txLeft}><span className={styles.txTypeIconWrap + " " + (entry.type === "EARN" ? styles.txEarnIcon : entry.type === "REDEEM" ? styles.txRedeemIcon : styles.txAdjustIcon)}>{entry.type === "EARN" ? <PlusCircle size={20} aria-hidden="true" /> : entry.type === "REDEEM" ? <MinusCircle size={20} aria-hidden="true" /> : <Sparkles size={20} aria-hidden="true" />}</span><div className={styles.txDetails}><strong className={styles.txReason}>{t(transactionReasons.includes(entry.reason ?? "") ? entry.reason! : entry.type)}</strong><span className={styles.txTime}><Clock size={12} aria-hidden="true" />{date(entry.createdAt, { dateStyle: "medium", timeStyle: "short" })}{entry.orderId && <Link href={"/orders/" + entry.orderId}>{t("orderRef", { id: entry.orderId })}</Link>}</span></div></div>
+        <div className={styles.txRight}><strong className={entry.change > 0 ? styles.txChangeEarn : entry.change < 0 ? styles.txChangeRedeem : styles.txChangeAdjust}>{entry.change > 0 ? "+" : ""}{number(entry.change)} {t("points")}</strong><span className={styles.txBalanceAfter}>{t(entry.reason?.endsWith("_TRANSFER_OUT") ? "sourceWalletAfter" : "after", { points: number(entry.balanceAfter) })}</span></div>
       </article>)}</div>
-      {data && data.totalElements > 10 && <nav className={styles.pager} aria-label={t("pagination")}><button className={styles.historyJumpBtn} disabled={loading || page === 0} onClick={() => setPage(value => value - 1)}>{t("previous")}</button><span>{page + 1} / {Math.ceil(data.totalElements / data.size)}</span><button className={styles.historyJumpBtn} disabled={loading || (page + 1) * data.size >= data.totalElements} onClick={() => setPage(value => value + 1)}>{t("next")}</button></nav>}
+      {data && data.totalElements > data.size && <nav className={styles.pager} aria-label={t("pagination")}><button className={styles.historyJumpBtn} disabled={loading || page === 0} onClick={() => setPage(value => value - 1)}>{t("previous")}</button><span>{page + 1} / {Math.ceil(data.totalElements / data.size)}</span><button className={styles.historyJumpBtn} disabled={loading || (page + 1) * data.size >= data.totalElements} onClick={() => setPage(value => value + 1)}>{t("next")}</button></nav>}
     </section>}
   </main>;
 }
