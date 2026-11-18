@@ -27,6 +27,7 @@
   "discountLabel": "Ưu đãi",
   "cardCategory": "Ưu đãi thành viên",
   "publicCategory": "Ưu đãi chung",
+  "legacyAtCounter": "Mã ưu đãi chung, xuất trình tại quầy. Không cần nhận vào tài khoản.",
   "unavailable": "Chưa khả dụng",
   "allStores": "Áp dụng tại tất cả chi nhánh",
   "selectedStores": "Áp dụng tại {count} chi nhánh",

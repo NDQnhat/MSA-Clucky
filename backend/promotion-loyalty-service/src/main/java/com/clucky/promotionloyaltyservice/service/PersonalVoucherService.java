@@ -95,6 +95,8 @@ public class PersonalVoucherService {
         if (campaignId == null || campaignId <= 0 || ownerId <= 0) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         Voucher campaign = campaigns.findByIdWithLock(campaignId)
                 .orElseThrow(() -> new ApiException(ErrorCode.VOUCHER_NOT_FOUND));
+        if (campaign.getCampaignKind() != VoucherCampaignKind.PERSONAL)
+            throw new ApiException(ErrorCode.VOUCHER_NOT_FOUND);
         var existing = jdbc.queryForList("SELECT * FROM promotion_service.customer_voucher_instances WHERE campaign_id=? AND customer_id=?",
                 campaignId, ownerId);
         if (!existing.isEmpty()) return view(existing.getFirst(), campaign, false);
@@ -326,6 +328,8 @@ public class PersonalVoucherService {
     }
 
     private void checkCampaign(Voucher campaign, Instant now) {
+        if (campaign.getCampaignKind() != VoucherCampaignKind.PERSONAL)
+            throw new ApiException(ErrorCode.VOUCHER_NOT_FOUND);
         if (campaign.getStatus() != VoucherStatus.ACTIVE) throw new ApiException(ErrorCode.VOUCHER_INACTIVE);
         if (now.isBefore(campaign.getStartAt())) throw new ApiException(ErrorCode.VOUCHER_NOT_STARTED);
         if (!now.isBefore(campaign.getEndAt())) throw new ApiException(ErrorCode.VOUCHER_EXPIRED);

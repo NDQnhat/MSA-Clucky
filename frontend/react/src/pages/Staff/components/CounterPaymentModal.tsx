@@ -652,7 +652,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
             )}
           </div>
 
-          {activeTab === 'CASH' && !isWebBank && !sepaySession && totalDue > 0 && <button
+          {activeTab === 'CASH' && !isWebCod && !isWebBank && !sepaySession && totalDue > 0 && <button
             type="button"
             className={styles.confirmButton}
             disabled={!isCashSufficient || isSubmitting}

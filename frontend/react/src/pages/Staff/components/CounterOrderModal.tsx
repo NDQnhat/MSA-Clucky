@@ -49,7 +49,7 @@ interface CounterOrderModalProps {
   open: boolean;
   onClose: () => void;
   onSubmitOrder?: (order: Partial<StaffOrder>) => Promise<void> | void;
-  onSuccess?: (created?: BackendOrder, result?: { cashCollectionRecorded: boolean }) => Promise<void> | void;
+  onSuccess?: (created?: BackendOrder, result?: { cashCollectionNeedsSync: boolean }) => Promise<void> | void;
   existingOrderCount?: number;
 }
 
@@ -786,25 +786,53 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
       try { window.sessionStorage.removeItem(draftStorageKey); } catch {}
       setHydratedDraftKey('');
 
-      let cashCollectionRecorded = false;
+      let cashCollectionNeedsSync = false;
+      let cashCollectionReceiptRecorded = false;
       if (paymentMethod === "CASH" && isCashCollected && Number(created.totalAmount) > 0
           && created.paymentStatus === "PENDING" && created.id && created.orderCode) {
+        const collectionPayload = {
+          orderId: Number(created.id),
+          orderCode: created.orderCode,
+          queueNumber: created.queueNumber ?? existingOrderCount + 1,
+          storeId: Number(created.storeId || effectiveStoreId),
+          totalDue: Number(created.totalAmount ?? totalAmount),
+          method: "CASH" as const,
+          cashAmount: Number(created.totalAmount ?? totalAmount),
+          cashTendered: effectiveCashTendered,
+          bankAmount: 0,
+          manualAcceptance: false,
+          staffNotes: t("business:counterPos.autoCollectStaffNote"),
+        };
+        // Reuse the same key if the response is lost after the service commits.
+        // Payment Service replays the original receipt for an identical key.
+        const collectionKey = typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `counter-cash-${Date.now()}-${Math.random().toString(36).slice(2)}`;
         try {
-          const receipt = await paymentsApi.collectCounter({
-            orderId: Number(created.id),
-            orderCode: created.orderCode,
-            queueNumber: created.queueNumber ?? existingOrderCount + 1,
-            storeId: Number(created.storeId || effectiveStoreId),
-            totalDue: Number(created.totalAmount ?? totalAmount),
-            method: "CASH",
-            cashAmount: Number(created.totalAmount ?? totalAmount),
-            cashTendered: effectiveCashTendered,
-            bankAmount: 0,
-            manualAcceptance: false,
-            staffNotes: t("business:counterPos.autoCollectStaffNote"),
-          });
-          cashCollectionRecorded = ['PENDING', 'ACCEPTED'].includes(receipt.collectionStatus);
-          if (!cashCollectionRecorded) message.warning(t('business:counterLoyalty.cashCollectionDeferred'));
+          let receipt: Awaited<ReturnType<typeof paymentsApi.collectCounter>> | undefined;
+          try {
+            receipt = await paymentsApi.collectCounter(collectionPayload, collectionKey);
+          } catch (failure) {
+            const status = (failure as { response?: { status?: number }; status?: number })?.response?.status
+              ?? (failure as { status?: number })?.status;
+            // A network timeout, gateway timeout or server error can happen
+            // after the collection transaction has committed. Retry once with
+            // the same key so this cannot create a second receipt.
+            if (status === undefined || status === 408 || status >= 500) {
+              try {
+                receipt = await paymentsApi.collectCounter(collectionPayload, collectionKey);
+              } catch {
+                // The result is still ambiguous. Let order polling determine
+                // whether the asynchronous collection event was applied.
+                cashCollectionNeedsSync = true;
+              }
+            }
+          }
+          if (receipt) {
+            cashCollectionReceiptRecorded = ['PENDING', 'ACCEPTED'].includes(receipt.collectionStatus);
+            cashCollectionNeedsSync = cashCollectionReceiptRecorded;
+          }
+          if (!cashCollectionReceiptRecorded) message.warning(t('business:counterLoyalty.cashCollectionDeferred'));
         } catch {
           message.warning(t('business:counterLoyalty.cashCollectionDeferred'));
         }
@@ -819,7 +847,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
       onClose();
 
       if (onSuccess) {
-        await onSuccess(created, { cashCollectionRecorded });
+        await onSuccess(created, { cashCollectionNeedsSync });
       } else if (onSubmitOrder) {
         await onSubmitOrder(created as any);
       }

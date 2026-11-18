@@ -263,9 +263,11 @@ export function OrderDetailDrawer({
               <dd>
                 {onOpenFinance
                   ? (order.paymentMethod || "UNKNOWN")
-                  : (order.paymentMethod === "COD" || (order.paymentMethod as string) === "CASH")
-                    ? t("business:orderdetaildrawer.cashCod")
-                    : t("business:id.bankTransfer")}
+                  : order.paymentMethod === "SPLIT"
+                    ? t("business:excel.staffMethod.SPLIT")
+                    : (order.paymentMethod === "COD" || (order.paymentMethod as string) === "CASH")
+                      ? t("business:orderdetaildrawer.cashCod")
+                      : t("business:id.bankTransfer")}
               </dd>
             </div>
             <div>
@@ -318,7 +320,8 @@ export function OrderDetailDrawer({
             )}
             {!onOpenFinance && order.paymentStatus === "PENDING" && order.total > 0 &&
               (onCollectCounter
-                ? order.orderSource === 'COUNTER' && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status)
+                ? ((order.orderSource === 'COUNTER' && ['CONFIRMED', 'PREPARING', 'READY'].includes(order.status))
+                  || (order.orderSource === 'WEB' && order.orderType === 'PICKUP' && order.status === 'READY'))
                 : order.orderType === "PICKUP" && order.status === "READY") && (
                 onCollectCounter ? (
                   <Button

@@ -317,18 +317,22 @@ export function StaffOrdersPage() {
 
   // 3. Tab công việc hiện tại (Mặc định vào tab 'CONFIRMED' - Mới xác nhận)
   const [activeTab, setActiveTab] = useState<WorkQueueKey>("CONFIRMED");
-  const awaitingAutoCashCollectionRef = useRef<string | null>(null);
+  const awaitingAutoCashCollectionIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
-    const pendingId = awaitingAutoCashCollectionRef.current;
-    if (!pendingId) return;
-    const latest = orders.find(order => order.id === pendingId);
-    if (!latest) return;
-    if (['COLLECTED', 'PAID'].includes(latest.paymentStatus)) {
-      awaitingAutoCashCollectionRef.current = null;
+    let collectionSettled = false;
+    for (const pendingId of awaitingAutoCashCollectionIdsRef.current) {
+      const latest = orders.find(order => order.id === pendingId);
+      if (!latest) continue;
+      if (['COLLECTED', 'PAID'].includes(latest.paymentStatus)) {
+        awaitingAutoCashCollectionIdsRef.current.delete(pendingId);
+        collectionSettled = true;
+      } else if (['CANCELLED', 'DELIVERY_FAILED'].includes(latest.status)) {
+        awaitingAutoCashCollectionIdsRef.current.delete(pendingId);
+      }
+    }
+    if (collectionSettled) {
       setActiveTab(current => current === 'PENDING_PAYMENT' ? 'CONFIRMED' : current);
-    } else if (['CANCELLED', 'DELIVERY_FAILED'].includes(latest.status)) {
-      awaitingAutoCashCollectionRef.current = null;
     }
   }, [orders]);
 
@@ -431,10 +435,11 @@ export function StaffOrdersPage() {
   }, [storeOpenState.isOpen]);
 
   // Xử lý tạo đơn quầy mới từ CounterOrderModal
-  const handleCounterOrderSuccess = async (created?: BackendOrder, result?: { cashCollectionRecorded: boolean }) => {
+  const handleCounterOrderSuccess = async (created?: BackendOrder, result?: { cashCollectionNeedsSync: boolean }) => {
     const today = businessDate();
-    awaitingAutoCashCollectionRef.current = result?.cashCollectionRecorded && created?.id
-      ? String(created.id) : null;
+    if (result?.cashCollectionNeedsSync && created?.id) {
+      awaitingAutoCashCollectionIdsRef.current.add(String(created.id));
+    }
     if (created?.id) {
       const mapped = fromBackendOrderToStaffOrder(
         created,
@@ -908,7 +913,7 @@ export function StaffOrdersPage() {
       paymentMethod:
         found.paymentMethod === "CASH" || found.paymentMethod === "COD"
           ? "COD"
-          : "BANK_TRANSFER",
+          : found.paymentMethod === "SPLIT" ? "SPLIT" : "BANK_TRANSFER",
       paymentStatus: found.paymentStatus,
       items: found.items.map((it) => ({
         id: it.id,

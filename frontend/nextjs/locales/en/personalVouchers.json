@@ -27,6 +27,7 @@
   "discountLabel": "Your discount",
   "cardCategory": "Member offer",
   "publicCategory": "Public offer",
+  "legacyAtCounter": "Shared promotion code for use at the counter. No account claim needed.",
   "unavailable": "Not available",
   "allStores": "Valid at all stores",
   "selectedStores": "Valid at {count} stores",

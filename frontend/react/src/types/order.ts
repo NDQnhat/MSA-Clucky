@@ -10,7 +10,7 @@ export type AdminOrderStatus =
   | "DELIVERY_FAILED"
   | "CANCELLED";
 
-export type AdminPaymentMethod = "COD" | "BANK_TRANSFER";
+export type AdminPaymentMethod = "COD" | "BANK_TRANSFER" | "SPLIT";
 export type AdminPaymentStatus = "PENDING" | "PAID" | "FAILED" | "COLLECTED" | "REFUNDED" | "UNKNOWN";
 
 export interface AdminOrderItem {

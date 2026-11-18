@@ -30,6 +30,7 @@ export default function VouchersPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState("");
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [legacyCopyState, setLegacyCopyState] = useState<{ campaignId: number; status: "copied" | "failed" } | null>(null);
   const detailEpoch = useRef(0);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [version, setVersion] = useState(0);
@@ -100,7 +101,7 @@ export default function VouchersPage() {
   }, []);
 
   async function claim(campaignId: number) {
-    if (!user) return;
+    if (!user || !campaigns.some(campaign => campaign.id === campaignId && campaign.campaignKind === "PERSONAL")) return;
     const ownerId = user.userId;
     setBusyId(campaignId); setError("");
     try {
@@ -140,6 +141,15 @@ export default function VouchersPage() {
       setCopyState("copied");
     } catch {
       setCopyState("failed");
+    }
+  }
+
+  async function copyLegacyCode(campaignId: number, code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setLegacyCopyState({ campaignId, status: "copied" });
+    } catch {
+      setLegacyCopyState({ campaignId, status: "failed" });
     }
   }
 
@@ -237,8 +247,21 @@ export default function VouchersPage() {
                     <div className={styles.actions}>
                       {voucher
                         ? canView(voucher) && <button type="button" className={styles.primary} onClick={() => void loadDetail(voucher.instanceId)}>{t("viewCode")}<ArrowRight size={17} aria-hidden="true" /></button>
-                        : <button type="button" className={styles.primary} disabled={!user || inactive || busyId !== null}
-                            onClick={() => void claim(campaign.id)}>{busyId === campaign.id ? t("claiming") : user ? t("claim") : t("signIn")}<ArrowRight size={17} aria-hidden="true" /></button>}
+                        : campaign.campaignKind === "PERSONAL"
+                          ? <button type="button" className={styles.primary} disabled={!user || inactive || busyId !== null}
+                              onClick={() => void claim(campaign.id)}>{busyId === campaign.id ? t("claiming") : user ? t("claim") : t("signIn")}<ArrowRight size={17} aria-hidden="true" /></button>
+                          : <div className={styles.legacyOffer}>
+                              {campaign.code && <code className={styles.legacyCode}>{campaign.code}</code>}
+                              {campaign.code && <button type="button" className={styles.secondaryButton} disabled={inactive}
+                                onClick={() => void copyLegacyCode(campaign.id, campaign.code!)}>
+                                {legacyCopyState?.campaignId === campaign.id && legacyCopyState.status === "copied"
+                                  ? <CheckCheck size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+                                {t(legacyCopyState?.campaignId === campaign.id && legacyCopyState.status === "copied" ? "copied" : "copy")}
+                              </button>}
+                              <span className={styles.legacyHint} role={legacyCopyState?.campaignId === campaign.id && legacyCopyState.status === "failed" ? "alert" : undefined}>
+                                {legacyCopyState?.campaignId === campaign.id && legacyCopyState.status === "failed" ? t("copyFailed") : t("legacyAtCounter")}
+                              </span>
+                            </div>}
                     </div>
                   </div>
                 </div>
