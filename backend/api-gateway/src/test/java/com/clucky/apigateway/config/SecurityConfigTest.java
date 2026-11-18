@@ -142,6 +142,9 @@ class SecurityConfigTest {
                     .header("Access-Control-Request-Method", "POST")
                     .header("Access-Control-Request-Headers", "X-Clucky-Client,Content-Type,Idempotency-Key")
                     .exchange().expectStatus().isOk();
+            client.get().uri("/api/catalog/combos/1").exchange().expectStatus().isOk();
+            client.get().uri("/api/catalog/categories/1").exchange().expectStatus().isOk();
+            client.put().uri("/api/catalog/combos/1").exchange().expectStatus().isUnauthorized();
         }
     }
 
@@ -163,6 +166,9 @@ class SecurityConfigTest {
                     .POST("/api/auth/login", request -> ServerResponse.ok().build())
                     .POST("/api/auth/refresh", request -> ServerResponse.ok().build())
                     .POST("/api/payments/webhook/sepay", request -> ServerResponse.ok().bodyValue(request.headers().firstHeader("Authorization")))
+                    .GET("/api/catalog/combos/{id}", request -> ServerResponse.ok().build())
+                    .GET("/api/catalog/categories/{id}", request -> ServerResponse.ok().build())
+                    .PUT("/api/catalog/combos/{id}", request -> ServerResponse.ok().build())
                     .GET("/api/orders", request -> ServerResponse.ok().build()).build();
         }
     }
