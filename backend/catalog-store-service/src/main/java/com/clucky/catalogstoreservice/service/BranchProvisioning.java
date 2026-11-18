@@ -23,12 +23,16 @@ import org.springframework.web.client.RestClientResponseException;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 @Service
 @EnableScheduling
 public class BranchProvisioning {
+    private static final Duration MISSING_ACCOUNT_RECHECK = Duration.ofMinutes(15);
     private final JdbcTemplate jdbc;
     private final StoreService stores;
     private final CatalogCacheService cache;
@@ -103,18 +107,52 @@ public class BranchProvisioning {
 
     @Scheduled(fixedDelayString = "${clucky.branch.poll-ms:10000}")
     public void poll() {
-        for (Long storeId : jdbc.queryForList("SELECT id FROM catalog_service.stores ORDER BY id", Long.class)) {
+        var candidates = jdbc.queryForList("""
+                SELECT store.id, store.account_readiness, store.identity_not_found_at,
+                       job.store_id IS NOT NULL AS has_job
+                FROM catalog_service.stores store
+                LEFT JOIN catalog_service.account_provisioning job ON job.store_id=store.id
+                WHERE job.store_id IS NOT NULL OR store.account_readiness IN ('PROVISIONED','READY')
+                   OR (store.account_readiness IN ('UNPROVISIONED','PENDING')
+                       AND (store.identity_not_found_at IS NULL
+                            OR store.identity_not_found_at <= now() - (? * interval '1 second')))
+                ORDER BY store.id
+                """, MISSING_ACCOUNT_RECHECK.toSeconds());
+        Instant now = Instant.now();
+        for (var candidate : candidates) {
+            String readiness = String.valueOf(candidate.get("account_readiness"));
+            boolean hasJob = Boolean.TRUE.equals(candidate.get("has_job"));
+            Instant notFound = toInstant(candidate.get("identity_not_found_at"));
+            if (!shouldSynchronize(readiness, hasJob, notFound, now)) continue;
+            long storeId = ((Number) candidate.get("id")).longValue();
             try { synchronize(storeId); } catch (RuntimeException ignored) { }
         }
     }
 
+    static boolean shouldSynchronize(String readiness, boolean hasJob, Instant identityNotFoundAt, Instant now) {
+        if (hasJob || "PROVISIONED".equals(readiness) || "READY".equals(readiness)) return true;
+        return ("UNPROVISIONED".equals(readiness) || "PENDING".equals(readiness))
+                && (identityNotFoundAt == null || !identityNotFoundAt.isAfter(now.minus(MISSING_ACCOUNT_RECHECK)));
+    }
+
+    private static Instant toInstant(Object value) {
+        if (value == null) return null;
+        if (value instanceof Timestamp timestamp) return timestamp.toInstant();
+        if (value instanceof OffsetDateTime dateTime) return dateTime.toInstant();
+        if (value instanceof Instant instant) return instant;
+        throw new IllegalStateException("Unsupported Identity lookup timestamp type");
+    }
+
     public void synchronize(long storeId) {
         transactions.executeWithoutResult(status -> {
-            var rows = jdbc.queryForList("SELECT account_readiness FROM catalog_service.stores WHERE id=? FOR UPDATE SKIP LOCKED", storeId);
+            var rows = jdbc.queryForList("SELECT account_readiness, notification_manager_id FROM catalog_service.stores WHERE id=? FOR UPDATE SKIP LOCKED", storeId);
             if (rows.isEmpty()) return;
             var jobs = jdbc.queryForList("SELECT * FROM catalog_service.account_provisioning WHERE store_id=?", storeId);
+            String currentReadiness = String.valueOf(rows.getFirst().get("account_readiness"));
+            Object managerValue = rows.getFirst().get("notification_manager_id");
+            Long currentManagerUserId = managerValue == null ? null : ((Number) managerValue).longValue();
             String body = "";
-            boolean provision = !jobs.isEmpty() && "PENDING".equals(rows.getFirst().get("account_readiness"));
+            boolean provision = !jobs.isEmpty() && "PENDING".equals(currentReadiness);
             try {
                 var instances = discovery.getInstances("identity-service");
                 if (instances.isEmpty()) throw new IllegalStateException();
@@ -140,26 +178,38 @@ public class BranchProvisioning {
                             && "ACTIVE".equals(account.path("status").asText())) managerUserId = account.path("id").asLong();
                 }
                 if (ids.size() != 2 || !roles.equals(Set.of("STAFF", "STORE_MANAGER"))) throw new IllegalStateException();
-                jdbc.update("UPDATE catalog_service.stores SET notification_manager_id=? WHERE id=?", managerUserId, storeId);
                 // Operational OPEN/CLOSED_TEMP/INACTIVE is owned by Manager/Admin.
                 // A temporarily unavailable or disabled Identity account must only
                 // affect readiness; StoreService.isStoreServingNow checks both fields.
                 // Otherwise a brief Identity outage permanently closes an OPEN store.
-                jdbc.update("UPDATE catalog_service.stores SET version=version+1,account_readiness=? "
-                                + "WHERE id=? AND account_readiness<>?",
-                        ready ? "READY" : "PROVISIONED", storeId, ready ? "READY" : "PROVISIONED");
-                jdbc.update("UPDATE catalog_service.account_provisioning SET last_error=NULL,updated_at=now() WHERE store_id=?", storeId);
-                cache.evictStoreMenuCache(storeId);
+                String nextReadiness = ready ? "READY" : "PROVISIONED";
+                if (!Objects.equals(currentManagerUserId, managerUserId)) {
+                    jdbc.update("UPDATE catalog_service.stores SET notification_manager_id=? WHERE id=?", managerUserId, storeId);
+                }
+                if (!currentReadiness.equals(nextReadiness)) {
+                    jdbc.update("UPDATE catalog_service.stores SET version=version+1,account_readiness=? WHERE id=?",
+                            nextReadiness, storeId);
+                    cache.evictStoreMenuCache(storeId);
+                }
+                jdbc.update("UPDATE catalog_service.stores SET identity_not_found_at=NULL WHERE id=? AND identity_not_found_at IS NOT NULL", storeId);
+                jdbc.update("UPDATE catalog_service.account_provisioning SET last_error=NULL,updated_at=now() WHERE store_id=? AND last_error IS NOT NULL", storeId);
             } catch (Exception failure) {
-                jdbc.update("UPDATE catalog_service.stores SET notification_manager_id=NULL WHERE id=?", storeId);
                 boolean missing = jobs.isEmpty() && failure instanceof RestClientResponseException response && response.getStatusCode().value() == 404;
-                jdbc.update("UPDATE catalog_service.account_provisioning SET last_error='IDENTITY_PROVISIONING_PENDING',updated_at=now() WHERE store_id=?", storeId);
+                String nextReadiness = missing ? "UNPROVISIONED"
+                        : "READY".equals(currentReadiness) ? "PROVISIONED" : currentReadiness;
+                if (currentManagerUserId != null || !currentReadiness.equals(nextReadiness)) {
+                    jdbc.update("UPDATE catalog_service.stores SET notification_manager_id=NULL,account_readiness=?,version=version+? WHERE id=?",
+                            nextReadiness, currentReadiness.equals(nextReadiness) ? 0 : 1, storeId);
+                }
                 // Keep the intended operating status intact. Readiness alone gates
                 // new orders while Identity verification is unavailable.
-                jdbc.update("UPDATE catalog_service.stores SET version=version+1,"
-                        + "account_readiness=CASE WHEN ? THEN 'UNPROVISIONED' WHEN account_readiness='READY' THEN 'PROVISIONED' ELSE account_readiness END "
-                        + "WHERE id=? AND (account_readiness='READY' OR (? AND account_readiness<>'UNPROVISIONED'))", missing, storeId, missing);
-                cache.evictStoreMenuCache(storeId);
+                if (!currentReadiness.equals(nextReadiness)) cache.evictStoreMenuCache(storeId);
+                if (missing) {
+                    jdbc.update("UPDATE catalog_service.stores SET identity_not_found_at=now() WHERE id=?", storeId);
+                } else {
+                    jdbc.update("UPDATE catalog_service.stores SET identity_not_found_at=NULL WHERE id=? AND identity_not_found_at IS NOT NULL", storeId);
+                }
+                if (!jobs.isEmpty()) jdbc.update("UPDATE catalog_service.account_provisioning SET last_error='IDENTITY_PROVISIONING_PENDING',updated_at=now() WHERE store_id=? AND last_error IS DISTINCT FROM 'IDENTITY_PROVISIONING_PENDING'", storeId);
             }
         });
     }

@@ -30,6 +30,8 @@ class JwtIssuerTest {
         assertEquals(11L, ((Number) claims.getClaim("storeId")).longValue());
         assertEquals("sid-abc", claims.getClaim("sid"));
         assertEquals("access", claims.getClaim("typ"));
+        assertEquals(claims.getIssueTime().toInstant().getEpochSecond(),
+                ((Number) claims.getClaim("issuedAtNs")).longValue() / 1_000_000_000L);
         assertEquals("clucky-identity", claims.getIssuer());
         assertTrue(claims.getAudience().contains("clucky-api"));
     }
@@ -49,6 +51,7 @@ class JwtIssuerTest {
         var claims = com.nimbusds.jwt.SignedJWT.parse(token).getJWTClaimsSet();
 
         assertEquals("refresh", claims.getClaim("typ"));
+        assertTrue(((Number) claims.getClaim("issuedAtNs")).longValue() > 0);
         assertEquals("jti-1", claims.getJWTID());
         assertEquals("sid-refresh", claims.getClaim("sid"));
         assertEquals(7 * 24 * 3600, Duration.between(claims.getIssueTime().toInstant(),
@@ -90,11 +93,20 @@ class JwtIssuerTest {
     @Test
     void refreshParsingReturnsSessionAndExpiry() {
         JwtIssuer issuer = issuer();
-        var claims = issuer.verifyAndParseRefreshToken(issuer.issueRefreshToken(99L, "sid-99", "jti-99"));
+        String raw = issuer.issueRefreshToken(99L, "sid-99", "jti-99");
+        var claims = issuer.verifyAndParseRefreshToken(raw);
         assertEquals(99L, claims.userId());
         assertEquals("sid-99", claims.sid());
         assertEquals("jti-99", claims.jti());
         assertTrue(claims.expiresAt().isAfter(java.time.Instant.now()));
+        try {
+            long issuedNanos = ((Number) com.nimbusds.jwt.SignedJWT.parse(raw)
+                    .getJWTClaimsSet().getClaim("issuedAtNs")).longValue();
+            assertEquals(java.time.Instant.ofEpochSecond(0, issuedNanos), claims.issuedAt(),
+                    "Refresh rotations must use the precise issuance time");
+        } catch (java.text.ParseException failure) {
+            fail(failure);
+        }
     }
 }
 

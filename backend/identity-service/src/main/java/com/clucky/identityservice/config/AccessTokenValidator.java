@@ -6,6 +6,7 @@ import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
+import java.time.Instant;
 
 public final class AccessTokenValidator implements OAuth2TokenValidator<Jwt> {
     private final String audience;
@@ -53,7 +54,10 @@ public final class AccessTokenValidator implements OAuth2TokenValidator<Jwt> {
                         || sessionRevocationService.isSessionRevoked(sid)) {
                     return invalid();
                 }
-                if (sessionRevocationService.isUserRevoked(userId, token.getIssuedAt())) {
+                Object precise = token.getClaim("issuedAtNs");
+                Instant issuedAt = precise instanceof Number nanos
+                        ? Instant.ofEpochSecond(0, nanos.longValue()) : token.getIssuedAt();
+                if (sessionRevocationService.isUserRevoked(userId, issuedAt)) {
                     return invalid();
                 }
             }

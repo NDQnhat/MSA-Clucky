@@ -2,6 +2,8 @@ package com.clucky.catalogstoreservice.controller;
 
 import com.clucky.catalogstoreservice.config.AccessGuard;
 import com.clucky.catalogstoreservice.dto.StoreDto;
+import com.clucky.catalogstoreservice.exception.ApiException;
+import com.clucky.catalogstoreservice.exception.ErrorCode;
 import com.clucky.catalogstoreservice.service.StoreService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -59,6 +61,10 @@ public class StoreController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<StoreDto.Response> updateStore(@PathVariable Long id,
                                                          @Valid @RequestBody StoreDto.Request request) {
+        if (request.getRecoveryEmail() != null) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR,
+                    "Recovery email must be changed through the branch account verification flow.");
+        }
         if ("OPEN".equals(request.getStatus())) branches.synchronize(id);
         return ResponseEntity.ok(storeService.updateStore(id, request));
     }

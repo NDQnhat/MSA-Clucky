@@ -1,5 +1,6 @@
 package com.clucky.identityservice.controller;
 
+import com.clucky.identityservice.config.AuthProperties;
 import com.clucky.identityservice.dto.BranchAccountData.*;
 import com.clucky.identityservice.exception.ApiException;
 import com.clucky.identityservice.exception.ErrorCode;
@@ -8,6 +9,9 @@ import com.clucky.identityservice.service.OtpService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Valid;
 import jakarta.validation.Validator;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -22,16 +26,51 @@ public class BranchAccountController {
     private final OtpService signatures;
     private final ObjectMapper mapper;
     private final Validator validator;
-    public BranchAccountController(BranchAccountService service, OtpService signatures, ObjectMapper mapper, Validator validator) {
+    private final AuthProperties authProperties;
+    public BranchAccountController(BranchAccountService service, OtpService signatures, ObjectMapper mapper,
+            Validator validator, AuthProperties authProperties) {
         this.service = service; this.signatures = signatures; this.mapper = mapper; this.validator = validator;
+        this.authProperties = authProperties;
     }
     @PostMapping("/branch/challenge")
     public Challenge challenge(@Valid @RequestBody RequestChallenge request) { return service.request(request); }
     @PostMapping("/branch/finish")
-    public ResponseEntity<Void> finish(@Valid @RequestBody Finish request) { service.finish(request, false); return ResponseEntity.noContent().build(); }
+    public ResponseEntity<Void> finish(@Valid @RequestBody Finish request) {
+        service.precheckFinish(request.challengeId());
+        service.finish(request, false);
+        return ResponseEntity.noContent().build();
+    }
     @PostMapping("/branch/management/finish")
     @PreAuthorize("hasAnyRole('ADMIN','STORE_MANAGER')")
-    public ResponseEntity<Void> finishManagement(@Valid @RequestBody Finish request) { service.finish(request, true); return ResponseEntity.noContent().build(); }
+    public ResponseEntity<Void> finishManagement(@Valid @RequestBody Finish request) {
+        service.precheckFinish(request.challengeId());
+        service.finish(request, true);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/branch/change-password/request")
+    @PreAuthorize("hasAnyRole('STAFF','STORE_MANAGER')")
+    public Challenge requestOwnPasswordChange(@Valid @RequestBody OwnPasswordChangeRequest request) {
+        return service.requestOwnPasswordChange(request.currentPassword());
+    }
+
+    @PostMapping("/branch/change-password/confirm")
+    @PreAuthorize("hasAnyRole('STAFF','STORE_MANAGER')")
+    public ResponseEntity<Void> confirmOwnPasswordChange(@Valid @RequestBody OwnPasswordChangeConfirm request,
+            HttpServletResponse response) {
+        service.precheckFinish(request.challengeId());
+        service.finishOwnPasswordChange(request);
+        clearAdminCookie(response, "clucky_admin_access", "/api");
+        clearAdminCookie(response, "clucky_admin_refresh", "/api/auth");
+        clearAdminCookie(response, AuthController.REFRESH_COOKIE_NAME, "/api/auth");
+        return ResponseEntity.noContent().build();
+    }
+
+    private void clearAdminCookie(HttpServletResponse response, String name, String path) {
+        response.addHeader(HttpHeaders.SET_COOKIE, ResponseCookie.from(name, "")
+                .httpOnly(true).secure(authProperties.cookie().secure()).sameSite("Lax")
+                .path(path).maxAge(0).build().toString());
+    }
     @GetMapping("/branch/stores/{storeId}")
     @PreAuthorize("hasAnyRole('ADMIN','STORE_MANAGER')")
     public Pair pair(@PathVariable long storeId) { return service.get(storeId); }

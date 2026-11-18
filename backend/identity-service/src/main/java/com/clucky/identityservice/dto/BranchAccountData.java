@@ -28,4 +28,14 @@ public final class BranchAccountData {
             @Email @Size(max = 255) String newEmail) {
         @Override public String toString() { return "Management[redacted]"; }
     }
+    public record OwnPasswordChangeRequest(@NotBlank @Size(max = 72) String currentPassword) {
+        @JsonAnySetter public void rejectUnknown(String field, Object value) { throw new IllegalArgumentException("Unsupported field"); }
+        @Override public String toString() { return "OwnPasswordChangeRequest[redacted]"; }
+    }
+    public record OwnPasswordChangeConfirm(@NotNull UUID challengeId,
+            @NotBlank @Pattern(regexp = "[0-9]{8}") String otp,
+            @NotBlank @Size(max = 72) String newPassword) {
+        @JsonAnySetter public void rejectUnknown(String field, Object value) { throw new IllegalArgumentException("Unsupported field"); }
+        @Override public String toString() { return "OwnPasswordChangeConfirm[redacted]"; }
+    }
 }

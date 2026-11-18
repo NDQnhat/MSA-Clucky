@@ -22,6 +22,7 @@ import { PromotionsPage } from "./pages/Promotions";
 import { ReviewsPage } from "./pages/Reviews";
 import { LoginPage } from "./pages/Auth/LoginPage";
 import { BranchAccessPage } from "./pages/Auth/BranchAccessPage";
+import { BranchChangePasswordPage } from "./pages/Auth/BranchChangePasswordPage";
 import { BranchAccountsPage } from "./pages/Users/BranchAccountsPage";
 import { PaymentsPage } from "./pages/Payments";
 import { AdminPaymentsPage } from "./pages/Payments/AdminPaymentsPage";
@@ -129,6 +130,11 @@ export const App: React.FC = () => {
                       index
                       element={<RoleHome />}
                     />
+                    <Route path="change-password" element={
+                      <ProtectedRoute allowedRoles={["STORE_MANAGER", "STAFF"]}>
+                        <BranchChangePasswordPage />
+                      </ProtectedRoute>
+                    } />
                     <Route
                       path="dashboard"
                       element={

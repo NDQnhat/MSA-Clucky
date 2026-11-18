@@ -196,6 +196,10 @@ public class AuthService {
             throw new ApiException(ErrorCode.ACCOUNT_LOCKED);
         }
 
+        if (branchRole(user) && !user.isCurrentBranchAccount()) {
+            throw new ApiException(ErrorCode.INVALID_CREDENTIALS);
+        }
+
         // A legacy CUSTOMER may have an email-verified account and a phone
         // recorded before phone OTP was introduced. Password login by either
         // identifier must still work; the phone remains *unverified* and cannot
@@ -443,11 +447,18 @@ public class AuthService {
 
     private static void requireSessionAllowed(User user) {
         if (!STATUS_ACTIVE.equals(user.getStatus())) throw new ApiException(ErrorCode.ACCOUNT_LOCKED);
+        if (branchRole(user) && (!user.isCurrentBranchAccount() || !Boolean.TRUE.equals(user.getEmailVerified()))) {
+            throw new ApiException(ErrorCode.UNAUTHENTICATED);
+        }
         if (user.getRole() == Role.CUSTOMER
                 && !Boolean.TRUE.equals(user.getPhoneVerified())
                 && !Boolean.TRUE.equals(user.getEmailVerified())) {
             throw new ApiException(ErrorCode.UNAUTHENTICATED);
         }
+    }
+
+    private static boolean branchRole(User user) {
+        return user.getRole() == Role.STAFF || user.getRole() == Role.STORE_MANAGER;
     }
 
     private static boolean validPassword(String password) {

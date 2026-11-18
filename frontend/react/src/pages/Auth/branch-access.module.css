@@ -9,22 +9,28 @@
 .cardHeader { padding-bottom: 24px; border-bottom: 1px solid #e8e2d9; }
 .eyebrow { display: inline-flex; align-items: center; gap: 7px; color: #8f1216; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .cardHeader h1 { margin: 10px 0 4px; color: #211813; font: 700 34px/1.15 "Baloo 2", sans-serif; letter-spacing: -.02em; }
-.cardHeader p { max-width: 660px; margin: 0; color: #75675e; font-size: 13px; line-height: 1.65; }
+.cardHeader p { max-width: 660px; margin: 0; color: #75675e; font-size: 14px; line-height: 1.65; }
 .card :global(.ant-alert) { margin-top: 18px; border-radius: 12px; }
-.section { padding: 26px 0 24px; }
+.section { padding: 26px 0 6px; border-top: 1px solid #e8e2d9; }
 .sectionTitle { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
 .sectionTitle > svg { flex: 0 0 auto; margin-top: 3px; color: #8f1216; }
 .sectionTitle h2, .requestHeader h2 { margin: 0; color: #211813; font: 700 19px/1.25 "Baloo 2", sans-serif; }
-.sectionTitle span, .requestHeader span { display: block; margin-top: 4px; color: #75675e; font-size: 11px; line-height: 1.55; }
+.sectionTitle span, .requestHeader span { display: block; margin-top: 4px; color: #75675e; font-size: 13px; line-height: 1.6; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 14px; }
 .card :global(.ant-form-item) { margin-bottom: 16px; }
-.card :global(.ant-form-item-label > label) { font-size: 12px; font-weight: 700; }
+.card :global(.ant-form-item-label > label) { font-size: 14px; font-weight: 700; }
 .card :global(.ant-input), .card :global(.ant-input-affix-wrapper), .card :global(.ant-select-selector) { min-height: 44px; border-radius: 10px !important; border-color: #ded3c5; background: #fffefa; }
 .card :global(.ant-btn-primary) { height: 46px; border-radius: 11px; font-weight: 700; box-shadow: 0 6px 16px rgba(143,18,22,.12); }
-.requestSection { padding-top: 24px; border-top: 1px solid #e8e2d9; }
+.requestSection { padding: 26px 0 24px; }
 .requestHeader { margin-bottom: 16px; }
 .requestGrid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(150px, .6fr); gap: 14px; }
 .requestActions { display: flex; justify-content: flex-end; }
 .requestActions :global(.ant-btn) { min-width: 150px; border-radius: 10px; font-weight: 700; }
+.purposeOptions { display: flex !important; width: 100%; gap: 10px; }
+.purposeOptions :global(.ant-radio-button-wrapper) { border-radius: 10px !important; flex: 1; text-align: center; height: auto; min-height: 44px; line-height: 1.5; padding: 10px; font-size: 14px; font-weight: 700; white-space: normal; }
+.purposeOptions :global(.ant-radio-button-wrapper::before) { display: none !important; }
+.purposeHelp { padding: 12px 14px; margin: 0 0 18px; border: 1px solid #eadfcf; border-radius: 10px; color: #6b6259; background: #fff4e7; font-size: 13px; line-height: 1.7; }
 .footer { width: min(820px, 100%); margin: 18px auto 0; display: flex; justify-content: flex-end; gap: 8px; color: #968b81; font-size: 10px; }
-@media (max-width: 700px) { .page { padding: 0 16px 22px; } .header { min-height: 78px; } .card { margin-top: 10px; padding: 24px 20px; border-radius: 18px; } .grid, .requestGrid { grid-template-columns: 1fr; } .cardHeader h1 { font-size: 30px; } .requestActions { justify-content: stretch; } .requestActions :global(.ant-btn) { width: 100%; } }
+@media (max-width: 700px) { .page { padding: 0 16px 22px; } .header { min-height: 78px; } .card { margin-top: 10px; padding: 24px 20px; border-radius: 18px; } .grid, .requestGrid { grid-template-columns: 1fr; } .cardHeader h1 { font-size: 30px; } .requestActions { justify-content: stretch; } .requestActions :global(.ant-btn) { width: 100%; min-height: 44px; } }
+@media (max-width: 400px) { .page { padding-inline: 10px; } .card { padding: 22px 14px; } .purposeOptions { flex-direction: column; } .brand { font-size: 20px; } .brand img { width: 38px; height: 38px; } }
+@media (max-width: 700px) { .card :global(.ant-input), .card :global(.ant-input-password input) { font-size: 16px; } }

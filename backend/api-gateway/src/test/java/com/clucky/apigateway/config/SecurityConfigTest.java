@@ -12,6 +12,7 @@ import com.nimbusds.jwt.SignedJWT;
 import java.time.Instant;
 import java.util.Date;
 import java.util.Map;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -21,6 +22,7 @@ import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.core.env.MapPropertySource;
 import org.springframework.security.config.annotation.web.reactive.EnableWebFluxSecurity;
 import org.springframework.security.oauth2.jwt.JwtException;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.config.EnableWebFlux;
 import org.springframework.web.reactive.function.server.RouterFunction;
@@ -36,6 +38,7 @@ class SecurityConfigTest {
         ReactiveStringRedisTemplate redis = mock(ReactiveStringRedisTemplate.class, RETURNS_DEEP_STUBS);
         when(redis.hasKey("auth:revoked:sid:device-a")).thenReturn(Mono.just(false));
         when(redis.opsForValue().get("auth:revoked:user:7")).thenReturn(Mono.empty());
+        when(redis.opsForValue().get("auth:revoked:user-ns:7")).thenReturn(Mono.empty());
         var decoder = new SecurityConfig().jwtDecoder(new JwtSettings(SECRET, "clucky-identity", "clucky-api"), redis);
         Instant now = Instant.now();
         SignedJWT signed = new SignedJWT(new JWSHeader(JWSAlgorithm.HS256), new JWTClaimsSet.Builder()
@@ -54,6 +57,27 @@ class SecurityConfigTest {
         assertThrows(JwtException.class, () -> decoder.decode(token).block());
         when(redis.hasKey("auth:revoked:sid:device-a")).thenReturn(Mono.error(new IllegalStateException()));
         assertThrows(JwtException.class, () -> decoder.decode(token).block());
+    }
+
+    @Test
+    void sessionValidatorUsesNanosecondIssueTimeAcrossTheSameSecondAsRevocation() {
+        ReactiveStringRedisTemplate redis = mock(ReactiveStringRedisTemplate.class, RETURNS_DEEP_STUBS);
+        when(redis.hasKey("auth:revoked:sid:device-a")).thenReturn(Mono.just(false));
+        long second = 1_800_000_000L;
+        long cutoff = second * 1_000_000_000L + 250_000_000L;
+        when(redis.opsForValue().get("auth:revoked:user:7")).thenReturn(Mono.just(String.valueOf(cutoff / 1_000_000L)));
+        when(redis.opsForValue().get("auth:revoked:user-ns:7")).thenReturn(Mono.just(String.valueOf(cutoff)));
+        var validator = new AccessTokenValidator("clucky-api");
+        Jwt after = Jwt.withTokenValue("test").header("alg", "HS256").subject("7")
+                .issuedAt(Instant.ofEpochSecond(second)).expiresAt(Instant.ofEpochSecond(second + 1800))
+                .claim("role", "STAFF").claim("storeId", 3L).claim("sid", "device-a")
+                .claim("issuedAtNs", cutoff + 1).audience(List.of("clucky-api")).build();
+        assertNotNull(validator.validateSession(after, redis).block());
+        Jwt before = Jwt.withTokenValue("test").header("alg", "HS256").subject("7")
+                .issuedAt(Instant.ofEpochSecond(second)).expiresAt(Instant.ofEpochSecond(second + 1800))
+                .claim("role", "STAFF").claim("storeId", 3L).claim("sid", "device-a")
+                .claim("issuedAtNs", cutoff - 1).audience(List.of("clucky-api")).build();
+        assertThrows(JwtException.class, () -> validator.validateSession(before, redis).block());
     }
 
     @Test

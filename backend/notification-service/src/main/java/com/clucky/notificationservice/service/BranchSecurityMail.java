@@ -7,6 +7,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.Set;
 
@@ -29,23 +30,40 @@ public class BranchSecurityMail {
     }
 
     @KafkaListener(topics = {"${clucky.kafka.security-email-topic}", "${clucky.kafka.email-request-topic}"},
-            groupId = "${clucky.kafka.email-consumer-group}")
+            groupId = "${clucky.kafka.email-consumer-group}",
+            containerFactory = "securityEmailKafkaListenerContainerFactory")
     public void receive(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
+        final EmailMessage message;
         try {
-            EmailMessage message = mapper.readValue(record.value(), EmailMessage.class);
-            boolean branch = "branch-security".equals(message.template());
-            if (!validator.validate(message).isEmpty()
-                    || !Set.of("branch-security", "register-otp", "reset-password-otp").contains(message.template())
-                    || !record.topic().equals(branch ? securityTopic : requestTopic)
-                    || !message.variables().getOrDefault("otp", "").matches(branch ? "[0-9]{8}" : "[0-9]{6}")) {
-                throw new IllegalArgumentException();
-            }
-            Instant expiry = Instant.parse(message.variables().get("expiresAt"));
+            message = mapper.readValue(record.value(), EmailMessage.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException malformed) {
+            throw new IllegalArgumentException("Invalid security email intent");
+        }
+        boolean branch = "branch-security".equals(message.template());
+        if (!validator.validate(message).isEmpty()
+                || !Set.of("branch-security", "register-otp", "reset-password-otp").contains(message.template())
+                || !record.topic().equals(branch ? securityTopic : requestTopic)
+                || !message.variables().getOrDefault("otp", "").matches(branch ? "[0-9]{8}" : "[0-9]{6}")) {
+            throw new IllegalArgumentException("Invalid security email intent");
+        }
+        final Instant expiry;
+        String expiryValue = message.variables().get("expiresAt");
+        if (expiryValue == null || expiryValue.isBlank()) {
+            throw new IllegalArgumentException("Invalid security email expiry");
+        }
+        try {
+            expiry = Instant.parse(expiryValue);
+        } catch (DateTimeException malformed) {
+            throw new IllegalArgumentException("Invalid security email expiry");
+        }
+        try {
             deliveries.processEmailIntent(message.messageId(), message.eventId(), message.correlationId(),
                     message.recipient(), message.template(), message.variables(), null, expiry);
-            acknowledgment.acknowledge();
+        } catch (IllegalArgumentException invalid) {
+            throw invalid;
         } catch (Exception failure) {
-            throw new IllegalStateException("Security email intent was not accepted");
+            throw new IllegalStateException("Security email intent was not accepted", failure);
         }
+        acknowledgment.acknowledge();
     }
 }

@@ -189,6 +189,26 @@ class AuthServiceTest {
     }
 
     @Test
+    void retiredStaffCannotLoginOrResumeAnExistingSession() {
+        User retired = new User();
+        retired.setId(ids.incrementAndGet());
+        retired.setEmail("former-staff@example.com");
+        retired.setFullName("Retired Staff");
+        retired.setPasswordHash(encoder.encode("Password1"));
+        retired.setRole(Role.STAFF);
+        retired.setStoreId(7L);
+        retired.setStatus("ACTIVE");
+        retired.setEmailVerified(true);
+        users.put(retired.getId(), retired);
+
+        assertEquals(ErrorCode.INVALID_CREDENTIALS, assertThrows(ApiException.class,
+                () -> service.login(new LoginRequest("former-staff@example.com", "Password1"))).getCode());
+        assertEquals(ErrorCode.UNAUTHENTICATED, assertThrows(ApiException.class,
+                () -> service.session(retired.getId())).getCode());
+        assertTrue(refreshRepository.rows.isEmpty());
+    }
+
+    @Test
     void registerOtpVerifiesAccountAndIssuesTokens() {
         service.register(new RegisterRequest("A", "0901234567", "Password1"));
 

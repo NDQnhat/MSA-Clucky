@@ -6,6 +6,7 @@ import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import java.time.Instant;
 
 public final class AccessTokenValidator implements OAuth2TokenValidator<Jwt> {
     private final String audience;
@@ -39,9 +40,17 @@ public final class AccessTokenValidator implements OAuth2TokenValidator<Jwt> {
                     || Boolean.TRUE.equals(redis.hasKey("auth:revoked:sid:" + sid))) {
                 return invalid();
             }
-            String revokedAt = redis.opsForValue().get("auth:revoked:user:" + token.getSubject());
-            if (revokedAt != null && token.getIssuedAt().toEpochMilli() <= Long.parseLong(revokedAt)) {
-                return invalid();
+            String precise = redis.opsForValue().get("auth:revoked:user-ns:" + token.getSubject());
+            if (precise != null) {
+                Object issued = token.getClaim("issuedAtNs");
+                Instant timestamp = issued instanceof Number nanos
+                        ? Instant.ofEpochSecond(0, nanos.longValue()) : token.getIssuedAt();
+                long issuedNs = Math.addExact(Math.multiplyExact(timestamp.getEpochSecond(), 1_000_000_000L), timestamp.getNano());
+                if (issuedNs <= Long.parseLong(precise)) return invalid();
+            } else {
+                // Continue honoring old millisecond-only markers until they expire.
+                String revokedAt = redis.opsForValue().get("auth:revoked:user:" + token.getSubject());
+                if (revokedAt != null && token.getIssuedAt().toEpochMilli() <= Long.parseLong(revokedAt)) return invalid();
             }
             return OAuth2TokenValidatorResult.success();
         } catch (RuntimeException failure) {

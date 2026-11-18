@@ -3,7 +3,7 @@ import { useFeedback } from "../../components/feedback";
 import { useLocaleTools } from "../../i18n/hooks";
 import React from "react";
 import { useDeferredAction } from "../../components/ui-loader/use-deferred-action";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useScopedNavigate as useNavigate } from "../../components/ui-loader/use-scoped-navigate";
 import { Form, Input, Button, Alert } from "antd";
 import { AuthLayout } from "./AuthLayout";
@@ -12,6 +12,29 @@ import { roleHome } from "../../lib/role-home";
 
 export const LoginPage: React.FC = () => {
   const { t, i18n } = useTranslation();
+  const location = useLocation();
+  const [passwordUpdated] = React.useState(() => {
+    try {
+      return Boolean((location.state as { branchPasswordUpdated?: boolean } | null)?.branchPasswordUpdated)
+        || sessionStorage.getItem('clucky_admin_password_updated') === '1';
+    } catch {
+      return Boolean((location.state as { branchPasswordUpdated?: boolean } | null)?.branchPasswordUpdated);
+    }
+  });
+  const [recoveryUpdated] = React.useState(() => {
+    try {
+      return Boolean((location.state as { recoveryUpdated?: boolean } | null)?.recoveryUpdated)
+        || sessionStorage.getItem('clucky_admin_recovery_updated') === '1';
+    } catch {
+      return Boolean((location.state as { recoveryUpdated?: boolean } | null)?.recoveryUpdated);
+    }
+  });
+  React.useEffect(() => {
+    try {
+      sessionStorage.removeItem('clucky_admin_password_updated');
+      sessionStorage.removeItem('clucky_admin_recovery_updated');
+    } catch {}
+  }, []);
   const { errorMessage } = useLocaleTools();
   const navigate = useNavigate();
   const startAction = useDeferredAction();
@@ -47,6 +70,12 @@ export const LoginPage: React.FC = () => {
         requiredMark={false}
         style={{ display: "grid", gap: 0 }}
       >
+        {passwordUpdated && (
+          <Alert type="success" showIcon message={t("accounts:loginAfterPassword")} style={{ marginBottom: 18, borderRadius: 12 }} />
+        )}
+        {recoveryUpdated && (
+          <Alert type="success" showIcon message={t("accounts:loginAfterRecovery")} style={{ marginBottom: 18, borderRadius: 12 }} />
+        )}
         {Boolean(error) && (
           <Alert
             type="error"

@@ -198,12 +198,15 @@ public class EmailSenderService {
                         """, row.get("id"));
             } else {
                 jdbc.update("UPDATE notification_service.email_logs SET retry_count=retry_count+1 WHERE id=?", row.get("id"));
-                boolean retry = "SMTP_CONNECT_FAILED".equals(outcome) && number(row, "cycle_attempts") < properties.maxRetries();
+                long retryDelay = backoff(number(row, "cycle_attempts"));
+                boolean retry = shouldRetry(outcome, Boolean.TRUE.equals(row.get("sensitive")),
+                        number(row, "cycle_attempts"), properties.maxRetries(),
+                        ((Timestamp) row.get("expires_at")).toInstant(), retryDelay, Instant.now());
                 if (retry) {
                     jdbc.update("""
                             UPDATE notification_service.email_logs SET status='QUEUED',last_error=?,claim_token=NULL,
                             lease_until=NULL,next_attempt_at=now()+(? * interval '1 second') WHERE id=?
-                            """, outcome, backoff(number(row, "cycle_attempts")), row.get("id"));
+                            """, outcome, retryDelay, row.get("id"));
                 } else {
                     terminal(row, "EMAIL_EXPIRED".equals(outcome) ? "EXPIRED" : "FAILED", outcome);
                 }
@@ -252,6 +255,13 @@ public class EmailSenderService {
 
     private long backoff(int attempt) {
         return Math.min(properties.retryMaxSeconds(), properties.retryBaseSeconds() * (1L << Math.min(attempt - 1, 20)));
+    }
+
+    static boolean shouldRetry(String outcome, boolean sensitive, int cycleAttempts, int maxRetries,
+            Instant expiresAt, long retryDelaySeconds, Instant now) {
+        if (!"SMTP_CONNECT_FAILED".equals(outcome) || expiresAt == null || retryDelaySeconds < 0) return false;
+        if (!sensitive && cycleAttempts >= maxRetries) return false;
+        return expiresAt.isAfter(now.plusSeconds(retryDelaySeconds));
     }
 
     public static String classify(Throwable failure) {

@@ -1,6 +1,7 @@
 package com.clucky.identityservice.service;
 
 import com.clucky.identityservice.config.AuthProperties;
+import com.clucky.identityservice.dto.Role;
 import com.clucky.identityservice.entity.RefreshToken;
 import com.clucky.identityservice.entity.User;
 import com.clucky.identityservice.exception.ApiException;
@@ -84,6 +85,11 @@ public class RefreshTokenService {
 
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new ApiException(ErrorCode.ACCOUNT_LOCKED);
+        }
+
+        if ((user.getRole() == Role.STAFF || user.getRole() == Role.STORE_MANAGER)
+                && (!user.isCurrentBranchAccount() || !Boolean.TRUE.equals(user.getEmailVerified()))) {
+            throw new ApiException(ErrorCode.UNAUTHENTICATED);
         }
 
         // Issue new access and refresh tokens with new JTI, same session ID

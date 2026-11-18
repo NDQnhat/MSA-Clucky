@@ -122,6 +122,17 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Branch management endpoints live under /api/auth, but require the admin
+// session cookie. Treat them like authenticated business APIs when refreshing
+// an expired access cookie; public login/OTP endpoints must never be retried.
+function isPublicAuthEndpoint(path: string | undefined) {
+  return !path || (path.startsWith('/api/auth/') &&
+    !path.startsWith('/api/auth/branch/accounts/') &&
+    !path.startsWith('/api/auth/branch/stores/') &&
+    path !== '/api/auth/branch/management/finish' &&
+    !path.startsWith('/api/auth/branch/change-password/'));
+}
+
 api.interceptors.response.use(response => {
   const config = response.config as typeof response.config & { sessionRevision?: number };
   if (config.sessionRevision !== getSessionState().revision) throw new axios.CanceledError('Session changed');
@@ -133,7 +144,7 @@ api.interceptors.response.use(response => {
   // the gateway. Probe the identity session once instead of guessing or
   // immediately signing out a legitimate branch user.
   const forbidden = authFailure.status === 403 && !isSessionExpired(authFailure);
-  if ((!isSessionExpired(authFailure) && !forbidden) || !config || config.url?.startsWith('/api/auth/')) throw error;
+  if ((!isSessionExpired(authFailure) && !forbidden) || !config || isPublicAuthEndpoint(config.url)) throw error;
   if (config.sessionRevision !== getSessionState().revision) throw new axios.CanceledError('Session changed');
   if (forbidden) {
     if (config.retried) throw error;
