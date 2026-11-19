@@ -22,4 +22,13 @@ class LoyaltyMathTest {
         assertEquals(0, LoyaltyMath.quote(0, 0, 0, new BigDecimal("9999"), policy).pointsToEarn());
         assertThrows(IllegalArgumentException.class, () -> LoyaltyMath.quote(10, 0, -1, BigDecimal.TEN, policy));
     }
+
+    @Test void redemptionUsesConfiguredPointValueAndNeverExceedsMerchandise() {
+        var twoThousandPerPoint = new Policy(2, 10000, 2000, 1000, 5000, 3, 5);
+        var quote = LoyaltyMath.quote(18, 0, 18, new BigDecimal("17000"), twoThousandPerPoint);
+
+        assertEquals(8, quote.pointsUsed());
+        assertEquals(new BigDecimal("16000"), quote.pointsAmount());
+        assertEquals(new BigDecimal("0"), quote.tierDiscount());
+    }
 }

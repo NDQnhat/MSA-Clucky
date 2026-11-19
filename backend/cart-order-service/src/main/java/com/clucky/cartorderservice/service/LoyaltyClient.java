@@ -33,7 +33,8 @@ public class LoyaltyClient {
         }
     }
     public record CounterQuote(long policyVersion, long availablePoints, int pointsUsed, BigDecimal pointsAmount,
-            long pointsToEarn, String tier, BigDecimal tierDiscount, boolean redeemAllowed, Long walletId) {}
+            long pointsToEarn, String tier, BigDecimal tierDiscount, boolean redeemAllowed, Long walletId,
+            int maxRedeemablePoints) {}
     public Quote preview(Integer requested, BigDecimal amount) {
         int points = requested == null ? 0 : requested;
         if (points < 0) throw new ApiException(ErrorCode.VALIDATION_ERROR);
@@ -92,7 +93,8 @@ public class LoyaltyClient {
             CounterQuote result = client.post().uri(url + "/internal/loyalty/counter/" + action)
                     .headers(headers -> headers.setBearerAuth(credential.token()))
                     .body(input).retrieve().body(CounterQuote.class);
-            if (result == null || result.pointsAmount() == null || result.tierDiscount() == null)
+            if (result == null || result.pointsAmount() == null || result.tierDiscount() == null
+                    || result.maxRedeemablePoints() < 0 || result.maxRedeemablePoints() > result.availablePoints())
                 throw new ApiException(ErrorCode.UPSTREAM_ERROR);
             return result;
         } catch (RestClientResponseException failure) {

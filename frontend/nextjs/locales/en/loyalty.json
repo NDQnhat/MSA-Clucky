@@ -71,5 +71,6 @@
   "sourceWalletAfter": "Source wallet balance: {points}",
   "orderRef": "Order #{id}", "after": "Balance: {points}", "pagination": "History pages", "previous": "Previous", "next": "Next",
   "usePoints": "Use Clucky Club points", "availableCheckout": "{points} points available", "pointsInput": "Points to use", "checkoutHint": "Applied points are limited by your food total and available balance. See the discount in your order summary.",
-  "previewError": "We could not confirm your total. Please retry before placing the order.", "applied": "{points} points applied"
+  "previewError": "We could not confirm your total. Please retry before placing the order.", "applied": "{points} points applied",
+  "voucherCovered": "Your voucher covers the entire food amount, so points cannot be applied."
 }

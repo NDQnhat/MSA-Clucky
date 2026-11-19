@@ -85,3 +85,80 @@ for (const hasSavedAddress of [false, true]) {
     }
   });
 }
+
+test('checkout caps point redemption at remaining food and blocks points when a voucher covers it all', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-11-12T12:00:00+07:00'));
+  await page.addInitScript(() => sessionStorage.setItem('clucky_location_prompt', 'seen'));
+  await page.route('**/api/auth/session', route => route.fulfill({ json: {
+    userId: 7, role: 'CUSTOMER', fullName: 'Customer', email: 'customer@example.com',
+  } }));
+  await page.route('**/api/orders/my?*', route => route.fulfill({ json: { content: [] } }));
+  await page.route('**/api/cart', route => route.fulfill({ json: {
+    items: [{ itemKey: 'item-901', productId: 901, comboId: null, itemName: 'Regression Chicken', quantity: 1,
+      unitPrice: 17000, optionIds: [], toppingIds: [], storeId: 1 }],
+    itemCount: 1, subtotal: 17000,
+  } }));
+  await page.route('**/api/stores?*', route => route.fulfill({ json: [{ id: 1, name: 'Clucky Test', address: 'Test street',
+    status: 'OPEN', phone: '0900000000', openTime: '08:00', closeTime: '22:00', latitude: 21.028, longitude: 105.834 }] }));
+  await page.route('**/api/users/me/addresses', route => route.fulfill({ json: [{ id: 11, receiverName: 'Saved Customer',
+    phone: '0901234567', province: 'Hà Nội', district: 'Ba Đình', ward: 'Ngọc Hà', detail: '123 Test Street',
+    isDefault: true, latitude: 21.03, longitude: 105.82 }] }));
+  await page.route('**/api/loyalty/me?*', route => route.fulfill({ json: {
+    points: { customerId: 7, totalPoints: 18, availablePoints: 18, reservedPoints: 0, lifetimePoints: 0, tier: 'MEMBER' },
+    policy: { version: 1, spendPerPoint: 10000, pointValue: 2000, silverThreshold: 1000, goldThreshold: 5000,
+      silverDiscount: 0, goldDiscount: 0, maxEarnPerOrder: 100, maxEarnPerDay: 200, maxPointBalance: 1000 },
+    transactions: [], page: 0, size: 10, totalElements: 0,
+  } }));
+
+  const partialVoucherId = '11111111-1111-4111-8111-111111111111';
+  const fullVoucherId = '22222222-2222-4222-8222-222222222222';
+  const campaign = (id: number, title: string, value: number) => ({ id, title, description: null,
+    campaignKind: 'PERSONAL', applicability: 'ALL', storeIds: [], scope: 'ALL', storeId: null, storeName: null,
+    type: 'AMOUNT', value, maxDiscount: null, minOrderAmount: 0, startAt: '2026-11-01T00:00:00+07:00',
+    endAt: '2026-12-01T00:00:00+07:00', status: 'ACTIVE', effectiveStatus: 'ACTIVE', usage: 0, maxUsage: null,
+    reservedCount: 0 });
+  await page.route('**/api/promotions/vouchers/mine', route => route.fulfill({ json: [
+    { instanceId: partialVoucherId, campaignId: 1, state: 'ISSUED', issuedAt: '2026-11-01T00:00:00+07:00',
+      expiresAt: null, campaign: campaign(1, 'Partial Food Voucher', 1000) },
+    { instanceId: fullVoucherId, campaignId: 2, state: 'ISSUED', issuedAt: '2026-11-01T00:00:00+07:00',
+      expiresAt: null, campaign: campaign(2, 'Full Food Voucher', 17000) },
+  ] }));
+  await page.route('https://api.mapbox.com/styles/v1/**', route => route.fulfill({ json: { version: 8, sources: {}, layers: [] } }));
+  await page.route('https://events.mapbox.com/**', route => route.fulfill({ json: {} }));
+
+  const previews: Array<{ pointsUsed?: number; voucherInstanceId?: string }> = [];
+  await page.route('**/api/orders/preview', async route => {
+    const request = route.request().postDataJSON() as { pointsUsed?: number; voucherInstanceId?: string };
+    previews.push(request);
+    const discount = request.voucherInstanceId === fullVoucherId ? 17000
+      : request.voucherInstanceId === partialVoucherId ? 1000 : 0;
+    const pointsUsed = request.pointsUsed ?? 0;
+    const pointsAmount = pointsUsed * 2000;
+    await route.fulfill({ json: { orderValid: true, subtotal: 17000, discountAmount: discount,
+      pointsAmount, pointsUsed, shippingFee: 10000, totalAmount: Math.max(0, 17000 - discount - pointsAmount) + 10000,
+      tierDiscount: 0, voucherValid: true,
+      shipping: { available: true, fee: 10000, reason: 'OK', distanceKm: 2, radiusKm: 5, policyVersion: 1 } } });
+  });
+
+  await page.goto('http://127.0.0.1:4174/checkout');
+  const address = page.getByRole('combobox', { name: 'Chọn từ sổ địa chỉ' });
+  await address.click();
+  await page.getByRole('option', { name: /Saved Customer/ }).click();
+
+  const voucher = page.getByRole('combobox', { name: 'Chọn từ Voucher của tôi' });
+  await voucher.click();
+  await page.getByRole('option', { name: 'Partial Food Voucher' }).click();
+  const pointsSwitch = page.getByRole('switch', { name: 'Dùng điểm Clucky Club' });
+  await expect(pointsSwitch).toBeEnabled();
+  await pointsSwitch.check();
+  await expect(page.locator('#points-to-use')).toHaveAttribute('max', '8');
+  await expect(page.locator('#points-to-use')).toHaveValue('8');
+  await expect.poll(() => previews.at(-1)?.pointsUsed).toBe(8);
+
+  await voucher.click();
+  await page.getByRole('option', { name: 'Full Food Voucher' }).click();
+  await expect(pointsSwitch).toBeDisabled();
+  await expect(page.getByText('Voucher đã giảm hết tiền hàng, không thể áp dụng thêm điểm thưởng.')).toBeVisible();
+  await expect.poll(() => previews.at(-1)?.pointsUsed).toBe(0);
+  expect(previews.filter(preview => preview.voucherInstanceId === fullVoucherId).at(-1)?.pointsUsed).toBe(0);
+});

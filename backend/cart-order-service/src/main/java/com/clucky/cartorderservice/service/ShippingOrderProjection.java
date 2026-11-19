@@ -137,7 +137,12 @@ public class ShippingOrderProjection {
             if (!cod && !paid) {
                 throw new IllegalStateException("QR customer has not completed real prepayment");
             }
-            if (pendingCod && advanceConfirmed) recordMerchantPayment(order, "PAID_SIMULATED");
+            if (pendingCod && advanceConfirmed) {
+                recordMerchantPayment(order, "PAID_SIMULATED");
+                // The rider's simulated advance settles the merchant side only.
+                // Customer COD cash remains outside Clucky and must stay unverified.
+                paid = true;
+            }
             change(order, "COMPLETED", "Giao hàng thành công (mô phỏng)", false);
             publisher.publishSimulatedDeliveryCompleted(order, items.findByOrderIdOrderByIdAsc(orderId), paid || noPayment);
         } else if ("shipping.resolved".equals(event.eventType())) {

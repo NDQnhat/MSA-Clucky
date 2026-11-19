@@ -42,15 +42,21 @@ class LoyaltySafetyTest {
     }
 
     @Test
-    void previewCannotDiscountMoreThanTheOrderAndDoesNotWrite() {
+    void previewCapsRedemptionAtEligibleMerchandiseAndDoesNotWrite() {
         var policy = new Policy(1, 10000, 1000, 1000, 5000, 3, 5);
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<Policy>>any())).thenReturn(List.of(policy));
         when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<RowMapper<Balance>>any(), eq(7L)))
                 .thenReturn(List.of(new Balance(7, 200, 0, 200, 200, "MEMBER")));
-        // A request to spend more points than can be covered by merchandise
-        // must be rejected, not silently reduced to two redeemable points.
-        assertThrows(BadRequestException.class, () ->
-                service.preview(new PreviewInput(7L, 100, new BigDecimal("2500"))));
+        var capped = service.preview(new PreviewInput(7L, 100, new BigDecimal("2500")));
+        assertEquals(2, capped.pointsUsed());
+        assertEquals(new BigDecimal("2000"), capped.pointsAmount());
+
+        // A stale client may still submit its previous points value after a
+        // voucher covers all merchandise; the server must clamp that to zero.
+        var voucherCovered = service.preview(new PreviewInput(7L, 100, BigDecimal.ZERO));
+        assertEquals(0, voucherCovered.pointsUsed());
+        assertEquals(BigDecimal.ZERO, voucherCovered.pointsAmount());
+        assertEquals(BigDecimal.ZERO, voucherCovered.tierDiscount());
         verify(jdbc, never()).update(anyString(), any(Object[].class));
     }
 }
