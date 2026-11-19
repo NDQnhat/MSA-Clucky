@@ -30,6 +30,15 @@ for (const locale of ["vi", "en"] as const) {
         amount: "262000", receivedAmount: "262000", missingAmount: "0", excessAmount: "0",
         confirmationPending: false, canTransfer: false, closedReason: null,
       } }));
+      await page.route("**/api/shipping/shipments/901/tracking", route => route.fulfill({ json: {
+        orderId: 901, shipmentId: 1901, storeId: 1, status: "SHIPPING", phase: "SHIPPING",
+        simulationMode: "MOCK", version: 3, serverNow: "2026-11-19T12:00:10Z", attemptNumber: 1,
+        assignedAt: "2026-11-19T12:00:00Z", deliveryStartedAt: "2026-11-19T12:00:05Z",
+        deliveryDueAt: "2026-11-19T12:00:25Z", routeGeometry: {
+          type: "LineString", coordinates: [[105.8, 21.0], [105.81, 21.01], [105.82, 21.02]],
+        }, paymentMethod: "BANK_TRANSFER", originalPaymentStatus: "PAID",
+        merchantPaymentStatus: "PAID_REAL_PROCESSOR", customerCollectionStatus: "NOT_APPLICABLE_PREPAID",
+      } }));
       await page.goto(`${customer}/orders/901`);
       const progressToggle = page.getByRole("button", { name: /CLU-20261028-TEST/ });
       // SHIPPING automatically expands to show the live route. A blind click
@@ -56,6 +65,8 @@ for (const locale of ["vi", "en"] as const) {
         // The live Mapbox route replaces the textual history during shipping.
         await expect(history).toHaveCount(0);
         await expect(page.getByText(locale === "vi" ? "Vị trí dự kiến trên lộ trình" : "Estimated position along the route")).toBeVisible();
+        await expect(page.getByLabel(locale === "vi" ? "Bản đồ theo dõi lộ trình giao hàng" : "Delivery route tracking map")).toBeVisible();
+        await expect(page.getByText(locale === "vi" ? "Đang tải tuyến đường giao hàng..." : "Loading delivery route...")).toHaveCount(0);
       } else {
         await expect(history).toContainText(locale === "vi"
           ? "Đã nhận thanh toán chuyển khoản và xác nhận đơn hàng."

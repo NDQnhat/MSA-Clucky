@@ -64,6 +64,7 @@ def validate_environment(raw):
         values.setdefault(key, default)
         if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", values[key]):
             raise BackendEnvironmentError(f"{key} must match [a-z_][a-z0-9_]{{0,62}}")
+    values.setdefault("SHIPPING_MOCK_ENABLED", "true")
     for flag, required in (("CLOUDINARY_ENABLED", ("CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET")),
                            ("MAIL_SENDER_ENABLED", ("MAIL_SENDER_USERNAME", "MAIL_SENDER_APP_PASSWORD"))):
         if values.get(flag, "false") not in ("true", "false"):
@@ -78,7 +79,7 @@ def validate_environment(raw):
         key = values.get("SEPAY_API_KEY", "")
         if not key or any(marker in key.lower() for marker in ("replace-", "change-me", "placeholder")):
             raise BackendEnvironmentError("A non-placeholder SEPAY_API_KEY is required when SEPAY_POS_ENABLED is true")
-    if values.get("SHIPPING_MOCK_ENABLED", "false") not in ("true", "false"):
+    if values["SHIPPING_MOCK_ENABLED"] not in ("true", "false"):
         raise BackendEnvironmentError('SHIPPING_MOCK_ENABLED must be the string "true" or "false"')
     if values.get("REPORT_REVENUE_EVENT", "false") not in ("false", "order.completed", "payment.confirmed"):
         raise BackendEnvironmentError("REPORT_REVENUE_EVENT must be false, order.completed or payment.confirmed")

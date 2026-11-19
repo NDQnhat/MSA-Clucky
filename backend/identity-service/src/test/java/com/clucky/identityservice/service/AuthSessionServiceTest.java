@@ -64,6 +64,18 @@ class AuthSessionServiceTest {
     }
 
     @Test
+    void loginPersistsTheGatewayProvidedIpAddress() {
+        capacity(5, 0, 3);
+        Instant expiry = Instant.now().plusSeconds(500);
+
+        sessions.issue(user(5, Role.STAFF, 2L, true), "sid", expiry, "Chrome", "203.0.113.8");
+
+        verify(jdbc).update(startsWith("INSERT INTO identity_service.auth_sessions"),
+                eq("sid"), eq(5L), eq("admin"), eq("STAFF"), eq(2L), eq("Chrome"),
+                eq("203.0.113.8"), eq(java.sql.Timestamp.from(expiry)));
+    }
+
+    @Test
     void reducingLimitBelowCurrentCountIsRejected() {
         User admin = user(1, Role.ADMIN, null, false);
         when(users.findById(1L)).thenReturn(Optional.of(admin));
