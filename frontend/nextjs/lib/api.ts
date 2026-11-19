@@ -505,7 +505,7 @@ export const refundApi = {
     return [];
   },
   getEvidence: (id: number) =>
-    request<{ signedUrl: string; publicId: string }>(`/api/refund-requests/${id}/evidence`),
+    request<{ accessUrl: string; expiresInSeconds?: number }>(`/api/refund-requests/${id}/evidence`),
   updateBankDetails: (id: number, data: { bankBin: string; bankName?: string; bankAccountNo: string; bankAccountName: string; expectedBankDetailsVersion?: number }) =>
     request<RefundResult>(`/api/refund-requests/${id}/bank-details`, {
       method: "PUT",
