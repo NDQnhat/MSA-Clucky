@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, App, Button, Card, Input, List, Popconfirm, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import { BoldOutlined, EyeOutlined, ItalicOutlined, OrderedListOutlined, SaveOutlined, SendOutlined, UndoOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { EditorContent, useEditor } from '@tiptap/react';
@@ -27,22 +27,35 @@ function TemplateEditor({ keyName, onChanged }: { keyName: string; onChanged: ()
   const [preview, setPreview] = useState<MailPreview | null>(null);
   const [tab, setTab] = useState('editor');
   const [unsaved, setUnsaved] = useState(false);
+  // Track changes during a pending request. A response can only clear the
+  // unsaved indicator if the editor still matches the submitted snapshot.
+  const editVersion = useRef(0);
 
   const editor = useEditor({
     extensions: [StarterKit],
     content: '',
     editorProps: { attributes: { class: 'clucky-mail-editor', 'aria-label': t('admin:emailTemplates.body') } },
     onUpdate({ editor: current }) {
+      editVersion.current += 1;
       setBodyText(current.getText({ blockSeparator: '\n' }));
       setBodyHtml(current.getHTML());
       setUnsaved(true);
     },
   });
 
-  const variables = keyName.startsWith('ORDER_') ? ['{{customerName}}', '{{orderCode}}', '{{reason}}', '{{readyInstruction}}']
-    : keyName.startsWith('PAYMENT_') ? ['{{orderCode}}', '{{amount}}', '{{paymentExplanation}}']
-      : keyName.startsWith('REFUND_') ? ['{{orderCode}}', '{{amount}}']
-        : keyName.startsWith('BRANCH_') ? ['{{login}}', '{{roleLabel}}', '{{channelInstruction}}'] : [];
+  useEffect(() => {
+    editor?.setEditable(!pending && !loading);
+  }, [editor, pending, loading]);
+
+  const commonVariables = ['{{customerName}}', '{{orderCode}}'];
+  const variables = keyName.startsWith('BRANCH_') ? ['{{login}}', '{{roleLabel}}', '{{channelInstruction}}']
+    : keyName === 'ORDER_READY' ? [...commonVariables, '{{readyInstruction}}']
+      : ['ORDER_CANCELLED', 'REFUND_REJECTED', 'REFUND_WAITING_BANK_DETAILS'].includes(keyName)
+        ? [...commonVariables, '{{reason}}']
+        : ['PAYMENT_CONFIRMED', 'REFUND_PROCESSED'].includes(keyName)
+          ? [...commonVariables, '{{amount}}']
+          : keyName === 'PAYMENT_FAILED' ? [...commonVariables, '{{paymentExplanation}}']
+            : /^(ORDER_|PAYMENT_|REFUND_)/.test(keyName) ? commonVariables : [];
 
   useEffect(() => {
     const controller = new AbortController();
@@ -89,9 +102,11 @@ function TemplateEditor({ keyName, onChanged }: { keyName: string; onChanged: ()
   });
 
   const saveDraft = () => perform(async () => {
-    const result = await mailTemplatesApi.saveDraft(keyName, input());
+    const submitted = input();
+    const submittedVersion = editVersion.current;
+    const result = await mailTemplatesApi.saveDraft(keyName, submitted);
     setDetail(result);
-    setUnsaved(false);
+    setUnsaved(submittedVersion !== editVersion.current);
     setPreview(null);
     onChanged();
     void message.success(t('admin:emailTemplates.saved'));
@@ -138,7 +153,7 @@ function TemplateEditor({ keyName, onChanged }: { keyName: string; onChanged: ()
       ]} />
       {tab === 'editor' && <div className="clucky-mail-form">
         <label htmlFor="clucky-mail-subject">{t('admin:emailTemplates.subject')}</label>
-        <Input id="clucky-mail-subject" value={subject} maxLength={255} onChange={e => { setSubject(e.target.value); setUnsaved(true); }} disabled={pending} />
+        <Input id="clucky-mail-subject" value={subject} maxLength={255} onChange={e => { editVersion.current += 1; setSubject(e.target.value); setUnsaved(true); }} disabled={pending} />
         <label>{t('admin:emailTemplates.body')}</label>
         <div className="clucky-mail-toolbar" role="toolbar" aria-label={t('admin:emailTemplates.toolbar')}>
           <Button aria-label={t('admin:emailTemplates.bold')} icon={<BoldOutlined />} onClick={() => editor?.chain().focus().toggleBold().run()} disabled={!editor || pending} />

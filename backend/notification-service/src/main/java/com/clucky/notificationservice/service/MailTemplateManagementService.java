@@ -16,9 +16,23 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class MailTemplateManagementService {
     private static final Pattern VARIABLE = Pattern.compile("\\{\\{([A-Za-z0-9_]+)}}");
-    private static final Set<String> ORDER_VARIABLES = Set.of("customerName", "orderCode", "readyInstruction", "reason");
-    private static final Set<String> PAYMENT_VARIABLES = Set.of("orderCode", "amount", "paymentExplanation");
-    private static final Set<String> REFUND_VARIABLES = Set.of("orderCode", "amount");
+    // Keep these contracts aligned with NotificationConsumer.resolveNotificationSpec.
+    // A variable supplied only for one event must not be published in another template:
+    // otherwise the renderer fails the delivery with INVALID_TEMPLATE at runtime.
+    private static final Set<String> COMMON = Set.of("orderCode", "customerName");
+    private static final Map<String, Set<String>> TRANSACTION_VARIABLES = Map.ofEntries(
+            Map.entry("ORDER_CREATED", COMMON),
+            Map.entry("ORDER_CONFIRMED", COMMON),
+            Map.entry("ORDER_PREPARING", COMMON),
+            Map.entry("ORDER_READY", Set.of("orderCode", "customerName", "readyInstruction")),
+            Map.entry("ORDER_COMPLETED", COMMON),
+            Map.entry("ORDER_CANCELLED", Set.of("orderCode", "customerName", "reason")),
+            Map.entry("PAYMENT_CONFIRMED", Set.of("orderCode", "customerName", "amount")),
+            Map.entry("PAYMENT_FAILED", Set.of("orderCode", "customerName", "paymentExplanation")),
+            Map.entry("REFUND_APPROVED", COMMON),
+            Map.entry("REFUND_REJECTED", Set.of("orderCode", "customerName", "reason")),
+            Map.entry("REFUND_WAITING_BANK_DETAILS", Set.of("orderCode", "customerName", "reason")),
+            Map.entry("REFUND_PROCESSED", Set.of("orderCode", "customerName", "amount")));
     private static final Set<String> BRANCH_VARIABLES = Set.of("channelInstruction", "login", "roleLabel");
     private final JdbcTemplate jdbc;
     private final MailTemplateRepository templates;
@@ -160,10 +174,8 @@ public class MailTemplateManagementService {
                 || (html != null && html.length() > 100000)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid template size or subject");
         }
-        Set<String> allowed = key.startsWith("ORDER_") ? ORDER_VARIABLES
-                : key.startsWith("PAYMENT_") ? PAYMENT_VARIABLES
-                : key.startsWith("REFUND_") ? REFUND_VARIABLES
-                : key.startsWith("BRANCH_") ? BRANCH_VARIABLES : Set.of();
+        Set<String> allowed = key.startsWith("BRANCH_") ? BRANCH_VARIABLES
+                : TRANSACTION_VARIABLES.getOrDefault(key, Set.of());
         for (String value : List.of(subject, text, html == null ? "" : html)) {
             var tokens = VARIABLE.matcher(value);
             while (tokens.find()) {

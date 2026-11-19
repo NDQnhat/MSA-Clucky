@@ -43,4 +43,30 @@ class MailTemplateManagementServiceTest {
         assertFalse(preview.html().contains("<script>"));
         assertTrue(preview.text().contains("Nguyễn Văn A"));
     }
+
+    @Test
+    void rejectsVariablesMissingFromRealOrderAndPaymentEvents() throws Exception {
+        var repository = mock(MailTemplateRepository.class);
+        for (String key : new String[]{"ORDER_CREATED", "ORDER_CONFIRMED", "ORDER_CANCELLED", "PAYMENT_CONFIRMED", "PAYMENT_FAILED"}) {
+            when(repository.findByTemplateKeyAndIsActiveTrue(key)).thenReturn(Optional.of(new MailTemplate()));
+        }
+        var service = new MailTemplateManagementService(mock(JdbcTemplate.class), repository,
+                new EmailTemplateRenderer("https://clucky.example"));
+        for (String[] invalid : new String[][]{
+                {"ORDER_CREATED", "readyInstruction"},
+                {"ORDER_CONFIRMED", "reason"},
+                {"ORDER_CANCELLED", "readyInstruction"},
+                {"PAYMENT_CONFIRMED", "paymentExplanation"},
+                {"PAYMENT_FAILED", "amount"},
+        }) {
+            var result = assertThrows(ResponseStatusException.class,
+                    () -> service.preview(invalid[0], "Subject", "Body {{" + invalid[1] + "}}", null),
+                    invalid[0]);
+            assertEquals(HttpStatus.BAD_REQUEST, result.getStatusCode());
+        }
+        assertDoesNotThrow(() -> service.preview("ORDER_CANCELLED", "Đơn {{orderCode}}",
+                "Lý do: {{reason}}", null));
+        assertDoesNotThrow(() -> service.preview("PAYMENT_FAILED", "Đơn {{orderCode}}",
+                "Vui lòng xem: {{paymentExplanation}}", null));
+    }
 }
