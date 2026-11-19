@@ -139,10 +139,8 @@ public class ShippingOrderProjection {
             }
             if (pendingCod && advanceConfirmed) {
                 recordMerchantPayment(order, "PAID_SIMULATED");
-                order.setPaymentStatus("COLLECTED");
-                order.setCollectionMethod("CASH");
-                order.setCollectedCash(order.getTotalAmount());
-                orders.saveAndFlush(order);
+                // The rider's simulated advance settles the merchant side only.
+                // Customer COD cash remains outside Clucky and must stay unverified.
                 paid = true;
             }
             change(order, "COMPLETED", "Giao hàng thành công (mô phỏng)", false);

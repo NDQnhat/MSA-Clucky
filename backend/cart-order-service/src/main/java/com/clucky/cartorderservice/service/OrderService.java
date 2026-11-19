@@ -164,6 +164,7 @@ public class OrderService {
         return new CounterOrderPreviewResponse(draftHash, subtotal, voucher.discountAmount(), tier,
                 points == null ? 0 : points.pointsUsed(), pointsAmount,
                 points == null ? 0 : points.pointsToEarn(), points == null ? 0 : points.availablePoints(),
+                points == null ? 0 : points.maxRedeemablePoints(),
                 total, points != null && points.redeemAllowed(), voucher.valid(), voucher.message());
     }
 

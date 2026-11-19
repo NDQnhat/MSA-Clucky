@@ -224,7 +224,14 @@ export default function CheckoutPage() {
   useFeedback(voucherMsg || null, "warning");
   const [usePoints, setUsePoints] = useState(false);
   const [requestedPoints, setRequestedPoints] = useState(0);
-  const [loyaltyBalance, setLoyaltyBalance] = useState<{ userId: number; available: number } | null>(null);
+  const [loyaltyBalance, setLoyaltyBalance] = useState<{
+    userId: number;
+    available: number;
+    tier: "MEMBER" | "SILVER" | "GOLD";
+    pointValue: number;
+    silverDiscount: number;
+    goldDiscount: number;
+  } | null>(null);
   const [loyaltyError, setLoyaltyError] = useState(false);
   useFeedback(loyaltyError && loyaltyText("error"));
   const [loyaltyReload, setLoyaltyReload] = useState(0);
@@ -276,7 +283,14 @@ export default function CheckoutPage() {
   const bestVoucherId = voucherOptions.find(option => option.eligible && option.discount > 0)?.voucher.instanceId;
   const estimatedVoucherDiscount = selectedVoucher ? (voucherOptions.find(option => option.voucher.instanceId === selectedVoucher.instanceId)?.discount ?? 0) : 0;
   const merchandiseAfterVoucher = Math.max(0, subtotal - estimatedVoucherDiscount);
-  const maxPointsNeeded = Math.max(0, Math.ceil(merchandiseAfterVoucher / 1000));
+  const tierDiscountRate = loyaltyBalance?.tier === "GOLD"
+    ? loyaltyBalance.goldDiscount
+    : loyaltyBalance?.tier === "SILVER" ? loyaltyBalance.silverDiscount : 0;
+  const estimatedTierDiscount = Math.floor(merchandiseAfterVoucher * tierDiscountRate / 100);
+  const pointValue = loyaltyBalance?.pointValue ?? 0;
+  const maxPointsNeeded = pointValue > 0
+    ? Math.floor(Math.max(0, merchandiseAfterVoucher - estimatedTierDiscount) / pointValue)
+    : 0;
   const maxInputPoints = Math.min(availablePoints ?? 0, maxPointsNeeded);
 
   useEffect(() => {
@@ -284,18 +298,27 @@ export default function CheckoutPage() {
   }, [selectedVoucherId, selectedVoucher]);
 
   useEffect(() => {
-    if (merchandiseAfterVoucher <= 0 && usePoints) {
-      setUsePoints(false);
-      setRequestedPoints(0);
+    if (maxInputPoints <= 0) {
+      if (usePoints) setUsePoints(false);
+      if (requestedPoints !== 0) setRequestedPoints(0);
+    } else if (requestedPoints > maxInputPoints) {
+      setRequestedPoints(maxInputPoints);
     }
-  }, [merchandiseAfterVoucher, usePoints]);
+  }, [maxInputPoints, requestedPoints, usePoints]);
 
   useEffect(() => {
     let active = true;
     setLoyaltyBalance(null); setLoyaltyError(false); setUsePoints(false); setRequestedPoints(0);
     if (userId !== undefined) {
       loyaltyApi.me().then(result => {
-        if (active) setLoyaltyBalance({ userId, available: result.points.availablePoints });
+        if (active) setLoyaltyBalance({
+          userId,
+          available: result.points.availablePoints,
+          tier: result.points.tier,
+          pointValue: result.policy.pointValue,
+          silverDiscount: result.policy.silverDiscount,
+          goldDiscount: result.policy.goldDiscount,
+        });
       }).catch(() => { if (active) setLoyaltyError(true); });
     }
     return () => { active = false; };
@@ -326,11 +349,11 @@ export default function CheckoutPage() {
   const previewPayload = useMemo(() => ({
     storeId: Number(selectedStore), type: orderType, items: payloadItems ?? [],
     voucherInstanceId: selectedVoucher?.instanceId,
-    pointsUsed: merchandiseAfterVoucher > 0 && usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
+    pointsUsed: usePoints ? Math.min(requestedPoints, maxInputPoints) : 0,
     receiverAddress: orderType === "DELIVERY" ? deliveryAddress.trim() : undefined,
     latitude: orderType === "DELIVERY" ? effectiveDeliveryPoint?.latitude : undefined,
     longitude: orderType === "DELIVERY" ? effectiveDeliveryPoint?.longitude : undefined,
-  }), [selectedStore, orderType, payloadItems, selectedVoucher?.instanceId, usePoints, requestedPoints, availablePoints, deliveryAddress, effectiveDeliveryPoint, merchandiseAfterVoucher]);
+  }), [selectedStore, orderType, payloadItems, selectedVoucher?.instanceId, usePoints, requestedPoints, deliveryAddress, effectiveDeliveryPoint, maxInputPoints]);
   const previewKey = JSON.stringify([userId, previewPayload, previewReload]);
   const [quote, setQuote] = useState<{ key: string; data: OrderPreviewResult } | null>(null);
   const [deliveryQuote, setDeliveryQuote] = useState<{ key: string; data: ShippingQuote } | null>(null);
@@ -406,7 +429,7 @@ export default function CheckoutPage() {
       paymentMethod: paymentMethod,
       items: payloadItems,
       voucherInstanceId: selectedVoucher?.instanceId,
-      pointsUsed: merchandiseAfterVoucher > 0 && usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
+      pointsUsed: usePoints ? Math.min(requestedPoints, maxInputPoints) : 0,
       receiverName: receiverName.trim(),
       receiverPhone: receiverPhone.trim(),
       deliveryAddress:
@@ -879,15 +902,15 @@ export default function CheckoutPage() {
                       aria-labelledby="clucky-points-label"
                       aria-describedby="clucky-points-balance"
                       checked={usePoints}
-                      disabled={!availablePoints || loyaltyError || merchandiseAfterVoucher <= 0}
-                      onChange={(e) => { setUsePoints(e.target.checked); setRequestedPoints(maxInputPoints); }}
+                      disabled={!maxInputPoints || loyaltyError}
+                      onChange={(e) => { setUsePoints(e.target.checked); setRequestedPoints(e.target.checked ? maxInputPoints : 0); }}
                     />
                     <span aria-hidden="true" />
                   </label>
                   </div>
                   {merchandiseAfterVoucher <= 0 && selectedVoucher && (
                     <p className={styles.pointsHint} style={{ color: "#d97706", marginTop: 4 }}>
-                      Voucher đã giảm hết tiền hàng, không thể áp dụng thêm điểm thưởng.
+                      {loyaltyText("voucherCovered")}
                     </p>
                   )}
                   {loyaltyError && <button type="button" className={styles.loyaltyRetry} onClick={() => setLoyaltyReload(value => value + 1)}><RefreshCw size={15} aria-hidden="true" />{loyaltyText("retry")}</button>}

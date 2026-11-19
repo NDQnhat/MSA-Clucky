@@ -575,6 +575,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   const voucherDiscount = Math.max(0, Number(activeQuote?.voucherDiscount ?? 0));
   const tierDiscount = Math.max(0, Number(activeQuote?.tierDiscount ?? 0));
   const pointsDiscount = Math.max(0, Number(activeQuote?.pointsAmount ?? 0));
+  const maxRedeemablePoints = Math.max(0, Number(activeQuote?.maxRedeemablePoints ?? 0));
   const hasDiscount = voucherDiscount > 0 || tierDiscount > 0 || pointsDiscount > 0;
   const effectiveCashTendered = cashTenderedInput >= totalAmount ? cashTenderedInput : totalAmount;
   const effectiveCashChange = Math.max(0, effectiveCashTendered - totalAmount);
@@ -1304,15 +1305,15 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 {currentLoyalty?.mode === 'QR' && <div className={styles.pointsRow}>
                   <label htmlFor="counter-points-used">{t('business:counterLoyalty.pointsToUse')}</label>
                   <input id="counter-points-used" type="number" min={0}
-                    max={Math.max(0, Number(activeQuote?.availablePoints ?? 0))}
+                    max={maxRedeemablePoints}
                     step={1} value={allowedPointsUsed}
-                    disabled={!liveProof || !currentLoyalty || !activeQuote?.redeemAllowed || quoteBusy}
+                    disabled={!liveProof || !currentLoyalty || !activeQuote?.redeemAllowed || quoteBusy || maxRedeemablePoints <= 0}
                     onChange={event => setPointsUsed(Math.min(
                       Math.max(0, Math.floor(Number(event.target.value) || 0)),
-                      Math.max(0, Number(activeQuote?.availablePoints ?? 0)),
+                      maxRedeemablePoints,
                     ))} />
-                  <button type="button" disabled={!liveProof || !activeQuote?.redeemAllowed || quoteBusy}
-                    onClick={() => setPointsUsed(Math.max(0, Number(activeQuote?.availablePoints ?? 0)))}>
+                  <button type="button" disabled={!liveProof || !activeQuote?.redeemAllowed || quoteBusy || maxRedeemablePoints <= 0}
+                    onClick={() => setPointsUsed(maxRedeemablePoints)}>
                     {t('business:counterLoyalty.useMax')}
                   </button>
                 </div>}
