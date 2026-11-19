@@ -49,7 +49,8 @@ import "./admin-orders.css";
 import { usePageLoading } from "../../components/ui-loader/page-loading";
 import { useOrderAlerts } from "../../hooks/useOrderAlerts";
 import { OrderSoundButton } from "../../components/ui/OrderSoundButton";
-import { fulfillmentLabel } from "../../lib/order-fulfillment";
+import { displayPaymentStatus, fulfillmentLabel } from "../../lib/order-fulfillment";
+import { paymentColor, paymentLabels } from "./presentation";
 import { ordersApi } from "../../lib/api";
 
 export const OrdersPage: React.FC = () => {
@@ -367,21 +368,21 @@ export const OrdersPage: React.FC = () => {
       title: t("business:cart.checkout"),
       dataIndex: "paymentMethod",
       key: "paymentMethod",
-      render: (method, record) => (
-        <div>
-          <span style={{ fontSize: 13 }}>
-            {method === "BANK_TRANSFER" ? "VietQR" : t("business:orderdetaildrawer.cashCod")}
-          </span>
+      render: (method, record) => {
+        const paymentState = displayPaymentStatus(record);
+        return (
           <div>
-            <Tag
-              color={["PAID", "COLLECTED"].includes(record.paymentStatus) ? "green" : "gold"}
-              style={{ fontSize: 11 }}
-            >
-              {t(`admin:paymentStates.${record.paymentStatus}`)}
-            </Tag>
+            <span style={{ fontSize: 13 }}>
+              {method === "BANK_TRANSFER" ? "VietQR" : t("business:orderdetaildrawer.cashCod")}
+            </span>
+            <div>
+              <Tag color={paymentColor(paymentState)} style={{ fontSize: 11 }}>
+                {paymentLabels[paymentState] ?? t("admin:paymentStates.UNKNOWN")}
+              </Tag>
+            </div>
           </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       title: t("business:id.total"),

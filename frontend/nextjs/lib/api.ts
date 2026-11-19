@@ -5,6 +5,7 @@
  * same-origin when empty) — never directly to a business service.
  */
 import { sessionRequest, signIn, endSession, loadSession, refreshSession, getSessionState, type SessionUser } from "./session";
+import type { Order } from "./types/order";
 
 export { getErrorMessage } from "./i18n/core";
 import { getBrowserLocale } from "./i18n/core";
@@ -348,6 +349,7 @@ export interface BackendOrder {
   paymentMethod?: string;
   collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus?: 'PENDING' | 'PAID' | 'COLLECTED' | 'REFUNDED';
+  merchantPaymentStatus?: Order['merchantPaymentStatus'];
   subtotal: number;
   discountAmount: number;
   pointsUsed: number;

@@ -1,6 +1,14 @@
 import i18n from "../i18n/index.ts";
 export type FulfillmentMode = 'DELIVERY' | 'DINE_IN' | 'TAKE_AWAY' | 'PICKUP_UNKNOWN';
 
+export function displayPaymentStatus(order: { paymentStatus?: string; merchantPaymentStatus?: string | null }, trackingStatus?: string | null) {
+  const merchantStatus = order.merchantPaymentStatus ?? trackingStatus;
+  if (order.paymentStatus === 'PENDING' && (merchantStatus === 'PAID_SIMULATED' || merchantStatus === 'ADVANCE_RETURNED')) {
+    return merchantStatus;
+  }
+  return order.paymentStatus ?? 'UNKNOWN';
+}
+
 export function maskedReceiverPhone(phone: string | null | undefined): string | null {
   const digits = phone?.replace(/\D/g, '') ?? '';
   if (digits.length < 9 || digits.length > 15) return null;

@@ -183,6 +183,7 @@ export function mapBackendOrderToOrder(
     paymentMethod: (be.paymentMethod as Order["paymentMethod"]) || (be.status === "PENDING_PAYMENT" ? "BANK_TRANSFER" : "COD"),
     collectionMethod: be.collectionMethod,
     paymentStatus: be.paymentStatus ?? "UNKNOWN",
+    merchantPaymentStatus: be.merchantPaymentStatus,
     refundStatus: (be as any).refundStatus,
     refundData: (be as any).refundData,
     receiverName: be.receiverName,

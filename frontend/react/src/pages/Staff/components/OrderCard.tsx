@@ -22,7 +22,7 @@ import type { AdminOrderStatus } from "../../../types/order";
 import { useElapsedTime } from "../../../hooks/useElapsedTime";
 import styles from "./order-card.module.css";
 import { useTranslation } from "react-i18next";
-import { getFulfillmentMode, fulfillmentLabel } from "../../../lib/order-fulfillment";
+import { displayPaymentStatus, getFulfillmentMode, fulfillmentLabel } from "../../../lib/order-fulfillment";
 import type { ShipmentSimulationTracking } from "../../../lib/api";
 
 interface OrderCardProps {
@@ -60,6 +60,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
   const showSlaBreached = isCookingStage && isSlaBreached;
   const showSlaWarning = isCookingStage && isSlaWarning && !isSlaBreached;
   const fulfillment = getFulfillmentMode(order);
+  const paymentState = displayPaymentStatus(order, tracking?.merchantPaymentStatus);
 
   const cardClassName = [
     styles.card,
@@ -127,13 +128,17 @@ export const OrderCard: React.FC<OrderCardProps> = ({
         </span>
       );
     }
-    if (fulfillment === 'DELIVERY' && order.paymentMethod === 'COD'
-        && tracking?.merchantPaymentStatus === 'PAID_SIMULATED') {
+    if (paymentState === 'PAID_SIMULATED') {
       return (
         <span className={`${styles.badgePayment} ${styles.badgePaymentPaid}`}>
           <CheckCircle2 size={13} /> {i18n.t("shipping:ui.riderAdvanceReceivedSimulation")}
         </span>
       );
+    }
+    if (paymentState === 'ADVANCE_RETURNED') {
+      return <span className={`${styles.badgePayment} ${styles.badgePaymentPending}`}>
+        <Wallet size={13} /> {t("shipping:ui.riderAdvanceReturnedSimulation")}
+      </span>;
     }
     if (order.paymentStatus === "PAID") {
       return (
@@ -210,7 +215,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
           {order.status === 'READY' && <span>{tracking?.status === 'ASSIGNED' ? i18n.t("shipping:ui.waitingForTheSimulatedRiderToCollect") : i18n.t("shipping:ui.foodIsReadyAwaitingTheDeliverySystem")}</span>}
           {order.status === 'SHIPPING' && tracking?.status !== 'FAILED' && <span>{i18n.t("shipping:ui.simulatingDeliveryOpenDetailsToTrackTheRoute")}</span>}
           {order.collectionMethod === 'NO_PAYMENT' && order.total === 0 ? <span>{t('business:counterPayment.noPaymentDelivery')}</span>
-            : order.paymentMethod === 'COD' && <span>{tracking?.merchantPaymentStatus === 'PAID_SIMULATED' ? i18n.t("shipping:ui.riderPaidOnCollectionSimulationCustomerPaysCodOnDelivery") : i18n.t("shipping:ui.codCustomerPaysTheRiderOnDelivery")}</span>}
+            : order.paymentMethod === 'COD' && <span>{t("shipping:ui.codCustomerPaysTheRiderOnDelivery")}</span>}
           {order.paymentMethod === 'BANK_TRANSFER' && <span>{i18n.t("shipping:ui.qrPrepayment")} {['PAID', 'COLLECTED'].includes(order.paymentStatus) ? i18n.t("shipping:ui.confirmed") : i18n.t("shipping:ui.awaitingConfirmation")} {i18n.t("shipping:ui.riderOnlyDeliversTheFood")}</span>}
           {!['COD', 'BANK_TRANSFER'].includes(order.paymentMethod) && <span>{i18n.t("shipping:ui.paymentMethodRequiresVerification")} {order.paymentMethod}</span>}
         </div>

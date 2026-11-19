@@ -44,7 +44,7 @@ public class OrderPaymentService {
 
     public record Context(long orderId, String orderCode, Long customerId, Long storeId, BigDecimal amount,
             String status, String paymentMethod, String paymentStatus, Instant expiresAt, Instant version,
-            String orderSource, String orderType) {}
+            String orderSource, String orderType, String merchantPaymentStatus) {}
 
     @Transactional(readOnly = true)
     public Context context(long id) {
@@ -57,7 +57,7 @@ public class OrderPaymentService {
     private Context context(Order order) {
         return new Context(order.getId(), order.getOrderCode(), order.getCustomerId(), order.getStoreId(), order.getTotalAmount(),
                 order.getStatus(), order.getPaymentMethod(), order.getPaymentStatus(), order.getPaymentExpiresAt(), order.getUpdatedAt(),
-                order.getOrderSource(), order.getType());
+                order.getOrderSource(), order.getType(), order.getMerchantPaymentStatus());
     }
 
     /**

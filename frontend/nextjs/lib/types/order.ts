@@ -98,6 +98,7 @@ export interface Order {
   paymentMethod: PaymentMethod;
   collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus: PaymentStatus;
+  merchantPaymentStatus?: 'PAID_SIMULATED' | 'ADVANCE_RETURNED' | null;
   receiverName: string;
   receiverPhone: string;
   deliveryAddress?: string;

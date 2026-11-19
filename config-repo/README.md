@@ -91,6 +91,14 @@ Each schema has its own `flyway_schema_history`; subsequent starts apply only
 pending versioned migrations. Hibernate uses `ddl-auto: validate`, including
 the `dev` profile, rather than changing tables outside Flyway.
 
+Cart Order has a startup compatibility step for databases that applied the
+legacy `V25__sprint4_order_pricing_snapshots.sql` from a parallel branch. It
+archives the matching history row in `order_service.flyway_legacy_history`,
+preserves the pricing columns and data, and lets Flyway run the canonical V25
+and later versions. Back up an existing database before upgrading. Fresh
+databases and those already on the canonical V25 use the normal migration path.
+Other checksum mismatches still require investigation.
+
 Create the PostgreSQL database first and point the service's `DB_NAME` at it.
 For the local Docker database, keep `DB_NAME` aligned with `POSTGRES_DB`.
 The migration user needs permission to create the service schema and modify

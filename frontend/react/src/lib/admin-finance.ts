@@ -21,7 +21,7 @@ export interface Collection {
   bankEvidence: number; pendingTransfer: number; operationalReceived: number; discrepancy: number; bankExcess: number;
 }
 export interface PaymentSnapshot {
-  order: { orderId: number; orderCode: string; storeId: number; amount: number; status: string; paymentStatus: string; paymentMethod: string; orderSource?: string; orderType?: string; expiresAt: string | null; version: string };
+  order: { orderId: number; orderCode: string; storeId: number; amount: number; status: string; paymentStatus: string; paymentMethod: string; orderSource?: string; orderType?: string; expiresAt: string | null; version: string; merchantPaymentStatus?: BackendOrder['merchantPaymentStatus'] };
   payments: Payment[]; collection?: Collection; bankInfo?: BankInfo; reference?: string;
 }
 export interface CollectionInput { cashAmount: number; transferAmount: number; cashTendered: number; cashChange: number; reason: string }
@@ -108,6 +108,7 @@ export function orderForAdmin(order: BackendOrder, refund?: BackendRefund): Admi
     customerPhone: order.receiverPhone || "", storeId: String(order.storeId), storeName: `Clucky #${order.storeId}`,
     orderType: order.type || "DELIVERY", status, paymentMethod: order.paymentMethod as AdminOrder["paymentMethod"],
     paymentStatus: (order.paymentStatus || "UNKNOWN") as AdminOrder["paymentStatus"],
+    merchantPaymentStatus: order.merchantPaymentStatus,
     items: (order.items || []).map(item => ({ ...item, id: String(item.id), unitPrice: Number(item.unitPrice), lineTotal: Number(item.lineTotal) })),
     subtotal: Number(order.subtotal), discount: Number(order.discountAmount || 0), shippingFee: Number(order.shippingFee || 0),
     total: Number(order.totalAmount), deliveryAddress: order.deliveryAddress, note: order.note, time: order.createdAt,

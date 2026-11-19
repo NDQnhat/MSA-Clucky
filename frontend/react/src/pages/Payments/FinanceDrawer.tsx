@@ -23,6 +23,7 @@ import { ReceiptPicker } from "./ReceiptPicker";
 import { AdminModal } from "../../components/ui/AdminModal";
 import { orderDate, orderLabels, paymentColor, paymentLabels, paymentMethodLabel } from "../Orders/presentation";
 import { buildVietQrUrl } from "../../lib/vietqr";
+import { displayPaymentStatus } from "../../lib/order-fulfillment";
 import "../Orders/admin-orders.css";
 
 type Action = "collection" | "reconcile" | "legacy";
@@ -72,7 +73,7 @@ export function FinanceModal({ orderId, receiptId: initialReceiptId, stores = []
     setLoading(true); setError("");
     void adminFinance.snapshot(orderId, controller.signal).then(async data => {
       if (controller.signal.aborted) return;
-      const state = JSON.stringify([data.order.version, data.order.paymentStatus, data.collection?.status, data.collection?.version]);
+      const state = JSON.stringify([data.order.version, data.order.paymentStatus, data.order.merchantPaymentStatus, data.collection?.status, data.collection?.version]);
       if (lastState.current && lastState.current !== state) changed.current();
       lastState.current = state;
       setSnapshot(data);
@@ -163,6 +164,8 @@ export function FinanceModal({ orderId, receiptId: initialReceiptId, stores = []
   const selectionIssue = receipt && snapshot ? receiptSelectionIssue(receipt, snapshot.order) : '';
 
   const orderMethod = (counterReceipt?.method || snapshot?.order.paymentMethod || "").toUpperCase();
+  const paymentState = snapshot ? displayPaymentStatus(snapshot.order) : 'UNKNOWN';
+  const simulatedAdvance = paymentState === 'PAID_SIMULATED' || paymentState === 'ADVANCE_RETURNED';
   const isPaidOrCollected =
     ["PAID", "COLLECTED"].includes((snapshot?.order.paymentStatus ?? "").toUpperCase()) ||
     counterReceipt?.status === "RECONCILED";
@@ -323,8 +326,8 @@ export function FinanceModal({ orderId, receiptId: initialReceiptId, stores = []
       {operationError && <Alert type="error" showIcon message={operationError} />}
       {snapshot && <>
         <section className="order-section">
-        <div className="finance-summary"><div><small>{t("admin:ui.orderAmountDue")}</small><strong>{money(snapshot.order.amount)}</strong></div>
-          <Space wrap><Tag>{orderLabels[snapshot.order.status] ?? snapshot.order.status}</Tag><Tag color={paymentColor(snapshot.order.paymentStatus)}>{paymentLabels[snapshot.order.paymentStatus] ?? snapshot.order.paymentStatus}</Tag></Space></div>
+        <div className="finance-summary"><div><small>{simulatedAdvance ? t("business:id.total") : t("admin:ui.orderAmountDue")}</small><strong>{money(snapshot.order.amount)}</strong></div>
+          <Space wrap><Tag>{orderLabels[snapshot.order.status] ?? snapshot.order.status}</Tag><Tag color={paymentColor(paymentState)}>{paymentLabels[paymentState] ?? paymentState}</Tag></Space></div>
         <Descriptions column={{ xs: 1, sm: 2 }} layout="vertical" size="small" colon={false} items={[
           { key: "store", label: t("business:stores.store"), children: stores.find(store => store.id === snapshot.order.storeId)?.name ?? t("business:reviews.storeNumber", { value1: snapshot.order.storeId }) },
           { key: "method", label: t("admin:ui.orderPaymentMethod"), children: paymentMethodLabel(counterReceipt?.method || snapshot.order.paymentMethod) },
@@ -332,7 +335,7 @@ export function FinanceModal({ orderId, receiptId: initialReceiptId, stores = []
         ]} />
         </section>
 
-        {isCashOrder && (
+        {isCashOrder && !simulatedAdvance && (
           <section className="order-section finance-method-card">
             <div className="order-section-heading">
               <h3>

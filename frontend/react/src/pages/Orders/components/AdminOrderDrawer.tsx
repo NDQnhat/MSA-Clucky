@@ -11,7 +11,7 @@ import { CatalogImage } from '../../Catalog/ImageField';
 import { actorLabel, catalogItemPath, historyReason, orderDate, orderLabels, paymentColor, paymentLabels, paymentMethodLabel, snapshotLabels } from '../presentation';
 import { formatQueueWithDate } from '../../../utils/orderExcelExport';
 import { ShipmentSimulationPanel } from '../../../components/ShipmentSimulationPanel';
-import { fulfillmentLabel } from '../../../lib/order-fulfillment';
+import { displayPaymentStatus, fulfillmentLabel } from '../../../lib/order-fulfillment';
 
 interface ActionFields { reason: string }
 const requiredText = (max: number) => [{ required: true, whitespace: true, max, pattern: /^[^\x00]*$/, get message() { return i18n.t("admin:ui.enterValidContentUpToCharacters", { value1: max }); } }];
@@ -66,6 +66,7 @@ export function AdminOrderDrawer({ order, refund, loading, error, refundError, s
   const ended = status === 'CANCELLED' || status === 'COMPLETED' || status === 'DELIVERY_FAILED';
   const next = status === 'CONFIRMED' ? 'PREPARING' : status === 'PREPARING' ? 'READY' : status === 'READY' && order?.type === 'PICKUP' ? 'COMPLETED' : undefined;
   const paid = ['PAID', 'COLLECTED'].includes(order?.paymentStatus ?? '');
+  const paymentState = order ? displayPaymentStatus(order) : 'UNKNOWN';
   const history = [...(order?.timeline ?? [])].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
   const pickup = order?.type === 'PICKUP';
   const steps = pickup ? ['CART', 'CONFIRMED', 'PREPARING', 'READY', 'PAYMENT', 'COMPLETED'] : ['PENDING_PAYMENT', 'CONFIRMED', 'PREPARING', 'READY',
@@ -130,7 +131,7 @@ export function AdminOrderDrawer({ order, refund, loading, error, refundError, s
           {order.note && <Alert className="order-customer-note" type="info" showIcon message={t("business:orderdetaildrawer.customerNotes")} description={order.note} />}
         </section>
         <section className="order-section">
-          <div className="order-section-heading"><h3><WalletOutlined /> {t("business:cart.checkout")}</h3><Tag color={paymentColor(order.paymentStatus)}>{paymentLabels[order.paymentStatus ?? 'UNKNOWN'] ?? t("admin:ui.unverified")}</Tag></div>
+          <div className="order-section-heading"><h3><WalletOutlined /> {t("business:cart.checkout")}</h3><Tag color={paymentColor(paymentState)}>{paymentLabels[paymentState] ?? t("admin:ui.unverified")}</Tag></div>
           <dl className="order-receipt">
             <div><dt>{t("business:orderdetaildrawer.method")}</dt><dd>{paymentMethodLabel(order.paymentMethod)}</dd></div>
             <div><dt>{t("business:cart.subtotal")}</dt><dd>{money(Number(order.subtotal))}</dd></div>

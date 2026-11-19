@@ -246,6 +246,7 @@ export interface BackendOrder {
   paymentMethod?: string;
   collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus?: 'PENDING' | 'PAID' | 'COLLECTED' | 'REFUNDED';
+  merchantPaymentStatus?: MerchantPaymentStatus | null;
   subtotal: number;
   discountAmount: number;
   pointsUsed: number;
@@ -403,6 +404,8 @@ export interface PageResponse<T> {
   totalElements: number;
   totalPages: number;
 }
+
+export type MerchantPaymentStatus = 'PAID_SIMULATED' | 'ADVANCE_RETURNED';
 
 export const ordersApi = {
   counterDraftHash: (payload: CreateCounterOrderPayload, signal?: AbortSignal) =>
