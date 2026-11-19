@@ -45,6 +45,7 @@ const routeBreadcrumbMap: Record<string, string> = {
   "/admin/users": "admin:nav.users",
   "/admin/customers": "admin:nav.customers",
   "/admin/email-logs": "admin:nav.emailLogs",
+  "/admin/email-templates": "admin:emailTemplates.title",
   "/admin/audit": "admin:nav.audit",
   "/admin/reports": "admin:nav.reports",
   "/admin/payments": "admin:nav.payments",
@@ -79,6 +80,7 @@ export const AdminLayout: React.FC = () => {
   else if (pathname.includes("/users")) selectedKey = "users";
   else if (pathname.includes("/customers")) selectedKey = "customers";
   else if (pathname.includes("/email-logs")) selectedKey = "email-logs";
+  else if (pathname.includes("/email-templates")) selectedKey = "email-templates";
   else if (pathname.includes("/audit")) selectedKey = "audit";
   else if (pathname.includes("/reviews")) selectedKey = "reviews";
   else if (pathname.includes("/reports")) selectedKey = "reports";
@@ -104,6 +106,7 @@ export const AdminLayout: React.FC = () => {
       "promotions",
       "customers",
       "email-logs",
+      "email-templates",
       "audit",
     ],
     STORE_MANAGER: [
@@ -194,6 +197,12 @@ export const AdminLayout: React.FC = () => {
       icon: <MailOutlined />,
       label: t("admin:nav.emailLogs"),
       onClick: () => navigate("/admin/email-logs"),
+    },
+    {
+      key: "email-templates",
+      icon: <FileTextOutlined />,
+      label: t("admin:emailTemplates.title"),
+      onClick: () => navigate("/admin/email-templates"),
     },
     {
       key: "audit",
