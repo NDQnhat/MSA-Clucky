@@ -16,15 +16,19 @@ public class AdminPointsService {
     private final JdbcTemplate jdbc;
     private final LoyaltyService loyalty;
     private final VoucherAuditOutbox audit;
+    private final AdminCustomerProof customerProof;
 
-    public AdminPointsService(JdbcTemplate jdbc, LoyaltyService loyalty, VoucherAuditOutbox audit) {
+    public AdminPointsService(JdbcTemplate jdbc, LoyaltyService loyalty, VoucherAuditOutbox audit,
+            AdminCustomerProof customerProof) {
         this.jdbc = jdbc;
         this.loyalty = loyalty;
         this.audit = audit;
+        this.customerProof = customerProof;
     }
 
     @Transactional(readOnly = true)
     public Overview overview(long customerId) {
+        customerProof.verify(customerId);
         return snapshot(customerId);
     }
 
@@ -32,6 +36,9 @@ public class AdminPointsService {
     public Overview adjust(long customerId, long actorId, AdjustmentRequest input) {
         String reason = input.reason().trim();
         if (reason.length() < 3 || actorId <= 0) throw new BadRequestException("Adjustment requires a reason and actor");
+        // Verify actual ownership with Identity before creating a wallet. The
+        // promotion DB intentionally has no foreign key to another service.
+        customerProof.verify(customerId);
         // The wallet row serializes adjustment, redemption, refund and claim activity.
         jdbc.update("INSERT INTO promotion_service.member_points(customer_id) VALUES (?) ON CONFLICT (customer_id) DO NOTHING", customerId);
         Map<String, Object> wallet = jdbc.queryForMap("""

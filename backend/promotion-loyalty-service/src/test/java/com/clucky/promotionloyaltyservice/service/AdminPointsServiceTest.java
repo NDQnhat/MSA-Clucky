@@ -2,6 +2,7 @@ package com.clucky.promotionloyaltyservice.service;
 
 import com.clucky.promotionloyaltyservice.dto.AdminPointsData.AdjustmentRequest;
 import com.clucky.promotionloyaltyservice.exception.ConflictException;
+import com.clucky.promotionloyaltyservice.exception.ResourceNotFoundException;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,16 @@ class AdminPointsServiceTest {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
     private final LoyaltyService loyalty = mock(LoyaltyService.class);
     private final VoucherAuditOutbox audit = mock(VoucherAuditOutbox.class);
-    private final AdminPointsService service = new AdminPointsService(jdbc, loyalty, audit);
+    private final AdminCustomerProof proof = mock(AdminCustomerProof.class);
+    private final AdminPointsService service = new AdminPointsService(jdbc, loyalty, audit, proof);
+
+    @Test
+    void rejectsUnknownCustomerBeforeCreatingAnyWallet() {
+        doThrow(new ResourceNotFoundException("Unknown customer")).when(proof).verify(999999L);
+        assertThrows(ResourceNotFoundException.class, () -> service.adjust(999999L, 99L,
+                request(500, 0)));
+        verifyNoInteractions(jdbc, audit);
+    }
 
     @Test
     void cannotRemovePointsReservedForAnOrder() {
