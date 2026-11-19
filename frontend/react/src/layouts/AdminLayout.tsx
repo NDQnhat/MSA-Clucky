@@ -19,6 +19,7 @@ import {
   AuditOutlined,
   UserOutlined,
   KeyOutlined,
+  SafetyCertificateOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -51,6 +52,7 @@ const routeBreadcrumbMap: Record<string, string> = {
   "/admin/payments": "admin:nav.payments",
   "/admin/promotions": "admin:nav.promotions",
   "/admin/transfers": "admin:nav.transfers",
+  "/admin/sessions": "accounts:deviceSessions.myTitle",
 };
 
 export const AdminLayout: React.FC = () => {
@@ -255,6 +257,12 @@ export const AdminLayout: React.FC = () => {
       ),
     },
     { type: "divider" },
+    ...(user.role === 'ADMIN' || user.role === 'STORE_MANAGER' ? [{
+      key: 'my-sessions',
+      label: t('accounts:deviceSessions.myTitle'),
+      icon: <SafetyCertificateOutlined />,
+      onClick: () => navigate('/admin/sessions'),
+    }] : []),
     ...(user.role === 'STORE_MANAGER' || user.role === 'STAFF' ? [{
       key: 'change-password',
       label: t('accounts:changePassword'),
