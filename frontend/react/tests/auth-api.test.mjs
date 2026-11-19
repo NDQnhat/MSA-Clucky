@@ -94,6 +94,26 @@ test('expired admin access cookie refreshes authenticated branch management requ
   assert.equal(app.requests.filter(request => request.url === '/api/auth/refresh').length, 1);
 });
 
+test('expired admin access cookie refreshes own session management requests', async () => {
+  let refreshed = false;
+  const app = load(url => {
+    if (url === '/api/auth/session') {
+      return { ok: false, status: 401, json: async () => ({ code: 'UNAUTHENTICATED' }) };
+    }
+    if (url === '/api/auth/refresh') refreshed = true;
+  });
+  await app.authApi.login({ email: 'admin@example.com', password: 'Password1' });
+  let attempts = 0;
+  app.api.defaults.adapter = async config => {
+    attempts++;
+    if (!refreshed) throw new axios.AxiosError('expired', 'ERR_BAD_REQUEST', config, null, { status: 401, config });
+    return { status: 200, data: { sessions: [] }, headers: {}, config };
+  };
+  await app.api.get('/api/auth/sessions');
+  assert.equal(attempts, 2);
+  assert.equal(app.requests.filter(request => request.url === '/api/auth/refresh').length, 1);
+});
+
 test('public branch challenge does not silently retry a rejected request', async () => {
   const app = load();
   let attempts = 0;

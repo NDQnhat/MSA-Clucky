@@ -12,6 +12,7 @@ import { useLocaleTools } from '../../i18n/hooks';
 interface DeviceSession {
   sessionId: string;
   userAgent: string | null;
+  ipAddress: string | null;
   createdAt: string;
   lastSeenAt: string;
   expiresAt: string;
@@ -104,12 +105,13 @@ export function SessionsPanel({ accountId, accountName }: { accountId?: number; 
           </Popconfirm>)}
       </Space>
       <Table<DeviceSession> rowKey="sessionId" loading={loading || busy} pagination={false}
-        dataSource={overview.sessions} size="small" scroll={{ x: 720 }}
+        dataSource={overview.sessions} size="small" scroll={{ x: 860 }}
         locale={{ emptyText: <Empty description={t('deviceSessions.empty')} /> }} columns={[
           { title: t('deviceSessions.browser'), dataIndex: 'userAgent', render: (agent: string | null, session) => <Space direction="vertical" size={2}>
               <span style={{ overflowWrap: 'anywhere' }}>{agent || t('deviceSessions.unknown')}</span>
               {session.current && <Tag color="processing">{t('deviceSessions.current')}</Tag>}
             </Space> },
+          { title: t('deviceSessions.ipAddress'), dataIndex: 'ipAddress', render: (ip: string | null) => ip || t('deviceSessions.unknownIp') },
           { title: t('deviceSessions.signedIn'), dataIndex: 'createdAt', render: date },
           { title: t('deviceSessions.lastActive'), dataIndex: 'lastSeenAt', render: date },
           { title: t('deviceSessions.expires'), dataIndex: 'expiresAt', render: date },

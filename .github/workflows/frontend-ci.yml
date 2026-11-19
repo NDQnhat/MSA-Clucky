@@ -50,7 +50,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Backend regression tests
         working-directory: backend
-        run: bash gradlew test --continue --no-daemon --max-workers=2
+        run: |
+          set -euo pipefail
+          test_log="$(mktemp)"
+          trap 'rm -f "$test_log"' EXIT
+          for attempt in 1 2 3; do
+            args=(test --continue --no-daemon --max-workers=2)
+            if (( attempt > 1 )); then args+=(--refresh-dependencies); fi
+            echo "Gradle backend test attempt $attempt/3"
+            if bash gradlew "${args[@]}" 2>&1 | tee "$test_log"; then
+              exit 0
+            fi
+            if (( attempt == 3 )) || ! grep -Eq 'Could not resolve|Could not find .*\.(pom|jar)|Could not download|Read timed out|Connection reset|UnknownHostException' "$test_log"; then
+              echo "::error title=Backend regression tests failed::Gradle test task failed (attempt $attempt/3)"
+              exit 1
+            fi
+            echo "::warning title=Retrying Maven artifact resolution::Retrying backend tests with --refresh-dependencies"
+            sleep "$((attempt * 10))"
+          done
       - name: Deployment configuration tests
         run: |
           python3 -m unittest discover -s deploy -p test_images.py
@@ -97,7 +114,7 @@ jobs:
         run: node ../../scripts/generate-errors.mjs --check
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: bash ../../scripts/npm-ci-retry.sh
 
       - name: ESLint
         run: npm run lint
@@ -135,10 +152,10 @@ jobs:
             frontend/react/package-lock.json
 
       - name: Install customer dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: bash ../../scripts/npm-ci-retry.sh
 
       - name: Install admin dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund
+        run: bash ../../scripts/npm-ci-retry.sh
         working-directory: frontend/react
 
       # The existing Playwright suite starts Next.js in production mode,

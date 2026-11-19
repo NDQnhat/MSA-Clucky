@@ -195,6 +195,11 @@ public class AuthService {
 
     @Transactional
     public AuthResult login(LoginRequest request, String userAgent) {
+        return login(request, userAgent, null);
+    }
+
+    @Transactional
+    public AuthResult login(LoginRequest request, String userAgent, String ipAddress) {
         String identifier = request.email() == null ? null : request.email().trim();
         boolean phoneLogin = identifier != null && (identifier.startsWith("+") || identifier.matches("0[0-9]{9}"));
         User user = (phoneLogin
@@ -230,7 +235,7 @@ public class AuthService {
             throw new ApiException(ErrorCode.EMAIL_NOT_VERIFIED);
         }
 
-        return issueSession(user, userAgent);
+        return issueSession(user, userAgent, ipAddress);
     }
 
     @Transactional
@@ -420,14 +425,18 @@ public class AuthService {
     }
 
     AuthResult issueSession(User user) {
-        return issueSession(user, null);
+        return issueSession(user, null, null);
     }
 
     AuthResult issueSession(User user, String userAgent) {
+        return issueSession(user, userAgent, null);
+    }
+
+    AuthResult issueSession(User user, String userAgent, String ipAddress) {
         requireSessionAllowed(user);
         String sid = UUID.randomUUID().toString();
         Instant expiry = Instant.now().plus(authProperties.refreshTtl());
-        if (authSessions != null) authSessions.issue(user, sid, expiry, userAgent);
+        if (authSessions != null) authSessions.issue(user, sid, expiry, userAgent, ipAddress);
         String accessToken = jwtIssuer.issueAccessToken(user.getId(), user.getRole(), user.getStoreId(), sid);
         String refreshToken = jwtIssuer.issueRefreshToken(user.getId(), sid, UUID.randomUUID().toString());
         if (authSessions == null) {
