@@ -73,11 +73,6 @@ export function ConsentField({ state, id }: { state: ConsentState; id: string })
         {state.terms && <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="font-bold text-[#8F1216] underline">{t("terms")}</a>}
         {state.terms && state.privacy && <> {t("and")} </>}
         {state.privacy && <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="font-bold text-[#8F1216] underline">{t("privacy")}</a>}
-        <div className="mt-1 text-xs text-[#76665B]">
-          {state.terms && <span>{t("terms")}: {t("version", { version: state.terms.version })}</span>}
-          {state.terms && state.privacy && <span> / </span>}
-          {state.privacy && <span>{t("privacy")}: {t("version", { version: state.privacy.version })}</span>}
-        </div>
       </div>
     </div>}
   </div>;

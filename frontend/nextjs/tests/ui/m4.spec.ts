@@ -34,11 +34,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function expectNoOverflow(page: Page) {
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= innerWidth + 1,
-    ),
-  ).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
 }
 async function a11y(page: Page, selector: string) {
   const result = await new AxeBuilder({ page })
@@ -204,36 +200,12 @@ test("Google registration failure restarts safely and never stores pending token
 });
 
 for (const role of ["ADMIN", "STORE_MANAGER", "STAFF"]) {
-  test(`payment screens enforce role scope: ${role}`, async ({ page }) => {
+  test(`legacy Payments URL redirects to the canonical role page: ${role}`, async ({ page }) => {
     await page.route("**/api/auth/session", route => route.fulfill({ json: { ...adminSession, role, storeId: role === "ADMIN" ? null : 1 } }));
     await seedPayments(page);
-    const mutations: string[] = [];
-    const paymentReads: string[] = [];
-    page.on("request", request => {
-      if (new URL(request.url()).pathname.startsWith("/api/") && !["GET", "HEAD"].includes(request.method())) mutations.push(request.url());
-      if (new URL(request.url()).pathname.startsWith("/api/payments/") && request.method() === "GET") paymentReads.push(new URL(request.url()).pathname);
-    });
     await page.goto(admin + "/admin/payments");
-    if (role === "ADMIN") {
-      await expect(page.getByRole("tab", { name: "Giao dịch", exact: true })).toHaveAttribute("aria-selected", "true");
-      await expect(page.getByRole("table")).toBeVisible();
-      await expect(page.getByRole("button", { name: "Thêm tài khoản", exact: true })).toBeHidden();
-      await page.getByRole("tab", { name: "Tài khoản nhận tiền", exact: true }).click();
-      await expect(page.getByRole("button", { name: "Thêm tài khoản", exact: true })).toBeEnabled();
-      await expect(page.getByRole("region", { name: "Tài khoản nhận tiền", exact: true }).getByRole("row").filter({ hasText: bankInfo.accountNo })).toContainText(bankInfo.accountName);
-      expect(paymentReads).toEqual(expect.arrayContaining(["/api/payments/bank-config", "/api/payments/transactions"]));
-    }
-    if (role !== "ADMIN") {
-      await expect(page.getByRole("table")).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Nhật ký thanh toán", exact: true })).toBeVisible();
-      await expect(page.getByRole("spinbutton", { name: "ID đơn hàng", exact: true })).toHaveCount(0);
-      await expect(page.getByRole("tab", { name: "Tài khoản nhận tiền", exact: true })).toHaveCount(0);
-      await expect(page.getByRole("button", { name: "Thêm tài khoản", exact: true })).toHaveCount(0);
-      await expect(page.getByRole("combobox", { name: "Chi nhánh", exact: true })).toHaveCount(0);
-      expect(paymentReads).toEqual(["/api/payments/transactions"]);
-    }
-    await expect(page.locator("body")).not.toContainText(/CLUCKY-241026|MB-20261026/);
-    expect(mutations).toEqual([]);
+    await expect(page).toHaveURL(role === "STAFF" ? /\/admin\/orders$/ : /\/admin\/transfers$/);
+    await expect(page.getByRole("menuitem", { name: /Thanh toán & Đối soát|Payments & reconciliation/ })).toHaveCount(0);
   });
 }
 
@@ -259,35 +231,11 @@ for (const width of [320, 375, 768, 1440]) {
       path: testInfo.outputPath("payment-shipping.png"),
       fullPage: true,
     });
-    await page.goto(admin + "/admin/payments");
-    await expect(page.getByRole("tab", { name: "Giao dịch", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("table")).toBeVisible();
-    await expectNoOverflow(page);
-    const transactions = page.getByRole("region", { name: "Giao dịch", exact: true });
-    await transactions.focus();
-    await expect(transactions).toBeFocused();
-    if (width < 900) {
-      await transactions.press("ArrowRight");
-      await expect.poll(() => transactions.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
-    }
-    await page.screenshot({
-      path: testInfo.outputPath("admin-payments.png"),
-      fullPage: true,
-    });
-    await a11y(page, "main");
-    const transactionsTab = page.getByRole("tab", { name: "Giao dịch", exact: true });
-    await transactionsTab.focus();
-    await page.keyboard.press("ArrowRight");
-    await expect(page.getByRole("tab", { name: /Thu tiền \/ đối soát \/ legacy$/ })).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    await expect(page.getByRole("tab", { name: /Hoàn tiền$/ })).toBeFocused();
-    await page.keyboard.press("ArrowRight");
-    const accountsTab = page.getByRole("tab", { name: /Tài khoản nhận tiền$/ });
-    await expect(accountsTab).toBeFocused();
-    await expect(accountsTab).toBeInViewport();
-    await page.keyboard.press("Enter");
-    await expect(accountsTab).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByRole("region", { name: "Tài khoản nhận tiền", exact: true }).getByRole("row").filter({ hasText: bankInfo.accountNo })).toBeVisible();
+    await page.goto(admin + "/admin/stores");
+    const accountsTab = page.getByRole("tab", { name: "Tài khoản nhận tiền", exact: true });
+    await expect(accountsTab).toBeVisible();
+    await accountsTab.click();
+    await expect(page.getByRole("button", { name: "Thêm tài khoản", exact: true })).toBeVisible();
     await expectNoOverflow(page);
     await a11y(page, "main");
     await page.screenshot({ path: testInfo.outputPath("admin-bank-accounts.png"), fullPage: true });

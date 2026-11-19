@@ -1,7 +1,7 @@
 import { message } from "../../components/feedback";
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useTranslation } from "react-i18next";
-import { Alert, Button, ConfigProvider, Modal, Space, Tag, Tooltip, Form, Input, Select, TimePicker, Radio } from "antd";
+import { Alert, Button, ConfigProvider, Modal, Space, Tag, Tooltip, Form, Input, Select, TimePicker, Radio, Tabs } from "antd";
 import { TableColumnsType } from "antd";
 import dayjs from 'dayjs';
 import {
@@ -26,6 +26,7 @@ import { catalogAdministration } from '../../lib/catalog-administration';
 import { ShippingSettings, StoreDeliverySettings } from './ShippingSettings';
 import { StoreReadiness } from './StoreReadiness';
 import { AdminStores, AdminStoreFields } from './AdminStores';
+import { ReceivingAccounts } from './ReceivingAccounts';
 import { storeTime } from './presentation';
 
 export const StoresPage: React.FC = () => {
@@ -357,10 +358,14 @@ export const StoresPage: React.FC = () => {
         <p>{t("admin:ui.theBranchBecomesInactiveAndStopsAcceptingNew")}</p>
         {deactivationError && <Alert type="error" showIcon title={deactivationError} description={t("admin:ui.ifTheVersionHasChangedCloseTheDialog")} />}
       </Modal>
-      {isAdmin ? <AdminStores stores={stores} loading={loading} busy={saving || savingLocation} onCreate={handleOpenCreateModal}
-        onEdit={handleOpenEditModal} onLocation={store => { setLocationError(''); setLocationStore(store); setLocationPoint({ latitude: store.latitude ?? null, longitude: store.longitude ?? null }); }}
-        onStatus={handleQuickStatusChange} onDeactivate={store => { setDeactivationError(''); setDeactivation(store); }}
-        onUpdated={saved => setStores(current => current.map(store => store.id === saved.id ? saved : store))} /> : <>
+      {isAdmin ? <Tabs defaultActiveKey="stores" destroyOnHidden={false} items={[
+        { key: 'stores', label: t('admin:nav.stores'), children:
+          <AdminStores stores={stores} loading={loading} busy={saving || savingLocation} onCreate={handleOpenCreateModal}
+            onEdit={handleOpenEditModal} onLocation={store => { setLocationError(''); setLocationStore(store); setLocationPoint({ latitude: store.latitude ?? null, longitude: store.longitude ?? null }); }}
+            onStatus={handleQuickStatusChange} onDeactivate={store => { setDeactivationError(''); setDeactivation(store); }}
+            onUpdated={saved => setStores(current => current.map(store => store.id === saved.id ? saved : store))} /> },
+        { key: 'receiving-accounts', label: t('admin:receivingAccounts.tab'), children: <ReceivingAccounts stores={stores} /> },
+      ]} /> : <>
       <div
         style={{
           display: 'flex',

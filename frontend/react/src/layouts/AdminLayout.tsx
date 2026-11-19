@@ -49,7 +49,6 @@ const routeBreadcrumbMap: Record<string, string> = {
   "/admin/email-templates": "admin:emailTemplates.title",
   "/admin/audit": "admin:nav.audit",
   "/admin/reports": "admin:nav.reports",
-  "/admin/payments": "admin:nav.payments",
   "/admin/promotions": "admin:nav.promotions",
   "/admin/transfers": "admin:nav.transfers",
   "/admin/legal": "legal:nav",
@@ -87,7 +86,6 @@ export const AdminLayout: React.FC = () => {
   else if (pathname.includes("/audit")) selectedKey = "audit";
   else if (pathname.includes("/reviews")) selectedKey = "reviews";
   else if (pathname.includes("/reports")) selectedKey = "reports";
-  else if (pathname.includes("/payments")) selectedKey = "payments";
   else if (pathname.includes("/promotions")) selectedKey = "promotions";
   else if (pathname.includes("/transfers")) selectedKey = "transfers";
   else if (pathname.includes("/legal")) selectedKey = "legal";
@@ -105,7 +103,6 @@ export const AdminLayout: React.FC = () => {
       "users",
       "reviews",
       "reports",
-      "payments",
       "transfers",
       "promotions",
       "customers",
@@ -124,10 +121,9 @@ export const AdminLayout: React.FC = () => {
       "users",
       "reviews",
       "reports",
-      "payments",
       "transfers",
     ],
-    STAFF: ["inventory", "orders", "reviews", "payments"],
+    STAFF: ["inventory", "orders", "reviews"],
   };
 
   const navItems: MenuProps["items"] = [
@@ -220,12 +216,6 @@ export const AdminLayout: React.FC = () => {
       icon: <AuditOutlined />,
       label: t("admin:nav.audit"),
       onClick: () => navigate("/admin/audit"),
-    },
-    {
-      key: "payments",
-      icon: <BarChartOutlined />,
-      label: t("admin:nav.payments"),
-      onClick: () => navigate("/admin/payments"),
     },
     {
       key: "promotions",

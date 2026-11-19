@@ -69,6 +69,7 @@ for (const publishedType of [terms, privacy]) {
     const message = page.locator('label[for="clucky-phone-consent"]').locator("..");
     await expect(message.locator('a[href="/terms-of-service"]')).toHaveCount(publishedType === terms ? 1 : 0);
     await expect(message.locator('a[href="/privacy-policy"]')).toHaveCount(publishedType === privacy ? 1 : 0);
+    await expect(message).not.toContainText(/legal\.version|Phiên bản|Version\s+\d+/i);
     await page.getByRole("button", { name: "Đăng ký", exact: true }).click();
     expect(submitted).toHaveLength(0);
     await consent.check();

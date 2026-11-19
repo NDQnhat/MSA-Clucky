@@ -15,6 +15,86 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.*;
 
 class EmailTemplateRendererTest {
+    private static final String FULL_HTML = """
+            <!doctype html>
+            <html lang="vi"><head><meta charset="utf-8"><title>{{subject}}</title>
+            <style>
+              .card { border-collapse:collapse; width:100%; }
+              @media screen and (max-width:600px) { .card { width:100%!important; } }
+            </style></head>
+            <body><table class="card" role="presentation" style="width:100%;background-color:#fff">
+              <tr><td><h1>{{title}}</h1><p>{{content}}</p><strong>{{customerName}}</strong></td></tr>
+              <tr><td>{{details}}</td></tr>
+              {{action}}
+              <tr><td>{{notice}}</td></tr>
+              <tr><td>{{footer}}</td></tr>
+            </table></body></html>
+            """;
+
+    @Test
+    void fullDocumentKeepsHeadStylesTablesAndStructuralActionSlot() throws Exception {
+        var renderer = new EmailTemplateRenderer("https://clucky.example");
+        var rendered = renderer.render("ORDER_CONFIRMED", "Đơn {{orderCode}}", "Xin chào",
+                FULL_HTML, Map.of("orderCode", "CL-27", "customerName", "<img src=x onerror=alert(1)>",
+                        "orderId", "27", "orderItems", "[]"), "id", null);
+        String html = rendered.get("html");
+        assertTrue(html.toLowerCase().contains("<!doctype html>"), html);
+        assertTrue(html.contains("<head>"), html);
+        assertTrue(html.contains("<style>"), html);
+        assertTrue(html.contains("@media screen and (max-width:600px)"), html);
+        assertTrue(html.contains("border-collapse:collapse"), html);
+        assertTrue(html.contains("style=\"width:100%;background-color:#fff\""), html);
+        assertTrue(html.contains("&lt;img src=x onerror=alert(1)&gt;"), html);
+        assertTrue(html.contains("href=\"https://clucky.example/orders/27\""), html);
+        assertTrue(html.indexOf("href=\"https://clucky.example/orders/27\"") < html.indexOf("Đây là thông báo giao dịch"), html);
+        assertTrue(html.contains("MÃ ĐƠN HÀNG"), html);
+        assertFalse(html.contains("{{"), html);
+        assertEquals(1, html.split("<html", -1).length - 1, html);
+    }
+
+    @Test
+    void fullSecurityDocumentMustDisplayOtpWarningAndFooter() throws Exception {
+        var renderer = new EmailTemplateRenderer("https://clucky.example", "https://admin.clucky.example");
+        var result = renderer.render("BRANCH_RESET", "Reset", "Nội dung",
+                FULL_HTML.replace("{{customerName}}", "{{roleLabel}}"),
+                Map.of("otp", "12345678", "login", "manager", "role", "STORE_MANAGER",
+                        "accountId", "14", "challengeId", "challenge14"), "id.primary",
+                Instant.parse("2026-11-19T10:10:00Z"));
+        assertTrue(result.get("html").contains("12345678"));
+        assertTrue(result.get("html").contains("Không chia sẻ mã"));
+        assertTrue(result.get("html").contains("vui lòng không trả lời"));
+        assertFalse(result.get("html").contains("href="));
+        assertThrows(IllegalArgumentException.class, () -> renderer.render("BRANCH_RESET", "Reset", "Nội dung",
+                FULL_HTML.replace("{{details}}", "hidden"),
+                Map.of("otp", "12345678", "login", "manager", "role", "STORE_MANAGER",
+                        "accountId", "14", "challengeId", "challenge14"), "id.primary",
+                Instant.parse("2026-11-19T10:10:00Z")));
+    }
+
+    @Test
+    void htmlDocumentSanitizerRemovesScriptsEventsUnsafeLinksAndCss() throws Exception {
+        var renderer = new EmailTemplateRenderer("https://clucky.example");
+        String unsafe = FULL_HTML.replace("<style>", "<style>@import url(https://attacker.example/malicious.css);")
+                .replace("<body>", "<body onload=\"alert(1)\"><iframe src=\"https://attacker.example\">BAD</iframe>"
+                        + "<script>alert(2)</script><a href=\"javascript:alert(3)\" onclick=\"alert(4)\">No link</a>"
+                        + "<img src=\"data:image/svg+xml;base64,AAA\" onerror=\"alert(5)\">"
+                        + "<p style=\"color:#123456;background-image:url(https://attacker.example/pixel)\">Safe</p>");
+        String sanitized = EmailTemplateRenderer.sanitizeHtml(unsafe);
+        assertFalse(sanitized.contains("<script"));
+        assertFalse(sanitized.contains("<iframe"));
+        assertFalse(sanitized.contains("javascript:"));
+        assertFalse(sanitized.contains("data:image"));
+        assertFalse(sanitized.contains("onload"));
+        assertFalse(sanitized.contains("onclick"));
+        assertFalse(sanitized.contains("onerror"));
+        assertFalse(sanitized.contains("@import"));
+        assertFalse(sanitized.contains("attacker.example"));
+        assertTrue(sanitized.contains("color:#123456"), sanitized);
+        assertTrue(sanitized.contains("<table"), sanitized);
+        assertTrue(sanitized.contains("{{action}}"), sanitized);
+        assertTrue(renderer.defaultLayout().contains("<!doctype html>"));
+    }
+
     @Test
     void adminRichTextIsSanitizedAndDynamicValuesCannotInjectHtml() throws Exception {
         var renderer = new EmailTemplateRenderer("https://clucky.example");

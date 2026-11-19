@@ -34,6 +34,8 @@ public class MailTemplateManagementService {
             Map.entry("REFUND_WAITING_BANK_DETAILS", Set.of("orderCode", "customerName", "reason")),
             Map.entry("REFUND_PROCESSED", Set.of("orderCode", "customerName", "amount")));
     private static final Set<String> BRANCH_VARIABLES = Set.of("channelInstruction", "login", "roleLabel");
+    private static final Set<String> DOCUMENT_VARIABLES = Set.of(
+            "subject", "title", "eyebrow", "content", "details", "action", "notice", "footer");
     private final JdbcTemplate jdbc;
     private final MailTemplateRepository templates;
     private final EmailTemplateRenderer renderer;
@@ -50,6 +52,12 @@ public class MailTemplateManagementService {
             long actorId, Instant createdAt, Instant publishedAt) {}
     public record Detail(Summary template, Revision published, Revision draft, List<Revision> history) {}
     public record Preview(String subject, String text, String html) {}
+    public record Layout(String html) {}
+
+    @Transactional(readOnly = true)
+    public Layout layout() {
+        return new Layout(renderer.defaultLayout());
+    }
 
     @Transactional(readOnly = true)
     public List<Summary> list() {
@@ -174,21 +182,34 @@ public class MailTemplateManagementService {
                 || (html != null && html.length() > 100000)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid template size or subject");
         }
+        validateVariables(key, subject, text, html);
+        String cleaned;
+        try {
+            cleaned = EmailTemplateRenderer.sanitizeHtml(html);
+            EmailTemplateRenderer.requireFullDocumentSlots(cleaned);
+        } catch (IllegalArgumentException invalid) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, invalid.getMessage());
+        }
+        if (html != null && (cleaned == null || cleaned.isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email HTML body is empty");
+        }
+        validateVariables(key, subject, text, cleaned);
+        return cleaned;
+    }
+
+    private static void validateVariables(String key, String subject, String text, String html) {
         Set<String> allowed = key.startsWith("BRANCH_") ? BRANCH_VARIABLES
                 : TRANSACTION_VARIABLES.getOrDefault(key, Set.of());
+        boolean document = EmailHtmlSanitizer.isFullDocument(html);
         for (String value : List.of(subject, text, html == null ? "" : html)) {
             var tokens = VARIABLE.matcher(value);
             while (tokens.find()) {
-                if (!allowed.contains(tokens.group(1))) {
+                if (!allowed.contains(tokens.group(1))
+                        && !(document && value.equals(html) && DOCUMENT_VARIABLES.contains(tokens.group(1)))) {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported email variable");
                 }
             }
         }
-        String cleaned = EmailTemplateRenderer.sanitizeHtml(html);
-        if (html != null && (cleaned == null || cleaned.isBlank())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Email HTML body is empty");
-        }
-        return cleaned;
     }
 
     private static ResponseStatusException conflict() {

@@ -38,6 +38,9 @@ public class MailTemplateManagementController {
     @GetMapping
     public List<Summary> list() { return service.list(); }
 
+    @GetMapping("/layout")
+    public MailTemplateManagementService.Layout layout() { return service.layout(); }
+
     @GetMapping("/{key}")
     public Detail get(@PathVariable @NotBlank @Size(max=100) String key) { return service.get(key); }
 

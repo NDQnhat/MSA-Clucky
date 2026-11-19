@@ -25,8 +25,6 @@ import { BranchAccessPage } from "./pages/Auth/BranchAccessPage";
 import { BranchChangePasswordPage } from "./pages/Auth/BranchChangePasswordPage";
 import { BranchAccountsPage } from "./pages/Users/BranchAccountsPage";
 import { MySessionsPage } from "./components/sessions/SessionsPanel";
-import { PaymentsPage } from "./pages/Payments";
-import { AdminPaymentsPage } from "./pages/Payments/AdminPaymentsPage";
 import { CustomersPage } from "./pages/Customers";
 import { EmailLogsPage } from "./pages/EmailLogs";
 import AuditLogPage from "./pages/AuditLog";
@@ -42,9 +40,9 @@ function OrdersRoute() {
   return isAdmin ? <AdminOrdersPage /> : isStaff ? <StaffOrdersPage /> : <OrdersPage />;
 }
 
-function PaymentsRoute() {
-  const { isAdmin } = useAuth();
-  return isAdmin ? <AdminPaymentsPage /> : <PaymentsPage />;
+function LegacyPaymentsRedirect() {
+  const { isAdmin, isStoreManager } = useAuth();
+  return <Navigate to={isAdmin || isStoreManager ? "/admin/transfers" : "/admin/orders"} replace />;
 }
 
 function RoleHome() {
@@ -220,16 +218,7 @@ export const App: React.FC = () => {
                         </ProtectedRoute>
                       }
                     />
-                    <Route
-                      path="payments"
-                      element={
-                        <ProtectedRoute
-                          allowedRoles={["ADMIN", "STORE_MANAGER", "STAFF"]}
-                        >
-                          <PaymentsRoute />
-                        </ProtectedRoute>
-                      }
-                    />
+                    <Route path="payments" element={<LegacyPaymentsRedirect />} />
                     <Route
                       path="customers"
                       element={<ProtectedRoute allowedRoles={["ADMIN"]}><CustomersPage /></ProtectedRoute>}
