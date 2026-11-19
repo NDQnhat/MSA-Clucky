@@ -151,8 +151,9 @@ public class OrderService {
         if ((request.voucherCode() != null && !request.voucherCode().isBlank() || request.voucherInstanceId() != null)
                 && !voucher.valid()) throw new ApiException(ErrorCode.VOUCHER_INACTIVE);
         BigDecimal afterVoucher = subtotal.subtract(voucher.discountAmount()).max(BigDecimal.ZERO);
+        int counterPointsRequested = afterVoucher.compareTo(BigDecimal.ZERO) <= 0 ? 0 : request.pointsUsed();
         LoyaltyClient.CounterQuote points = request.loyaltySubject() != null
-                ? loyaltyClient.counterPreview(request.loyaltySubject(), request.loyaltyScanProof(), request.pointsUsed(),
+                ? loyaltyClient.counterPreview(request.loyaltySubject(), request.loyaltyScanProof(), counterPointsRequested,
                         afterVoucher, CurrentActor.require().userId(), storeId, draftHash)
                 : null;
         if (points == null && request.pointsUsed() > 0)
@@ -320,28 +321,27 @@ public class OrderService {
                 request.voucherCode(), request.voucherInstanceId(), storeId, subtotal);
         BigDecimal discountAmount = voucherCalc.discountAmount();
 
+        // Check merchandise amount remaining after voucher. If voucher covers all merchandise, points cannot be used.
+        BigDecimal merchandiseAfterVoucher = subtotal.subtract(discountAmount).max(BigDecimal.ZERO);
+        int pointsRequested = request.pointsUsed() != null ? request.pointsUsed() : 0;
+        int pointsToPreview = merchandiseAfterVoucher.compareTo(BigDecimal.ZERO) <= 0 ? 0 : pointsRequested;
+
         // Validate loyalty points with Promotion Service (P1-02)
         LoyaltyClient.Quote loyaltyCalc = loyaltyClient.preview(
-                request.pointsUsed(),
-                subtotal.subtract(discountAmount).max(BigDecimal.ZERO)
+                pointsToPreview,
+                merchandiseAfterVoucher
         );
         discountAmount = discountAmount.add(loyaltyCalc.tierDiscount());
         int pointsUsed = loyaltyCalc.pointsUsed();
         BigDecimal pointsAmount = loyaltyCalc.pointsAmount();
 
-        BigDecimal beforePoints = subtotal.subtract(discountAmount).add(shippingFee);
-        if (beforePoints.compareTo(BigDecimal.ZERO) < 0) {
-            beforePoints = BigDecimal.ZERO;
+        // Points and tier discount can ONLY reduce the merchandise amount, NEVER shipping fee!
+        BigDecimal merchandiseRemaining = subtotal.subtract(discountAmount).max(BigDecimal.ZERO);
+        if (pointsAmount.compareTo(merchandiseRemaining) > 0) {
+            pointsAmount = merchandiseRemaining;
         }
-
-        if (pointsAmount.compareTo(beforePoints) > 0) {
-            pointsAmount = beforePoints;
-        }
-
-        BigDecimal totalAmount = beforePoints.subtract(pointsAmount);
-        if (totalAmount.compareTo(BigDecimal.ZERO) < 0) {
-            totalAmount = BigDecimal.ZERO;
-        }
+        BigDecimal merchandiseAfterPoints = merchandiseRemaining.subtract(pointsAmount).max(BigDecimal.ZERO);
+        BigDecimal totalAmount = merchandiseAfterPoints.add(shippingFee != null ? shippingFee : BigDecimal.ZERO);
 
         return new OrderPreviewResponse(
                 subtotal,
@@ -456,28 +456,27 @@ public class OrderService {
         }
         BigDecimal discountAmount = voucherCalc.discountAmount();
 
+        // Check merchandise amount remaining after voucher. If voucher covers all merchandise, points cannot be used.
+        BigDecimal merchandiseAfterVoucher = subtotal.subtract(discountAmount).max(BigDecimal.ZERO);
+        int pointsRequested = request.pointsUsed() != null ? request.pointsUsed() : 0;
+        int pointsToPreview = merchandiseAfterVoucher.compareTo(BigDecimal.ZERO) <= 0 ? 0 : pointsRequested;
+
         // Validate loyalty points with Promotion Service (P1-02: Verified reservation)
         LoyaltyClient.Quote loyaltyCalc = loyaltyClient.preview(
-                request.pointsUsed(),
-                subtotal.subtract(discountAmount).max(BigDecimal.ZERO)
+                pointsToPreview,
+                merchandiseAfterVoucher
         );
         discountAmount = discountAmount.add(loyaltyCalc.tierDiscount());
         int pointsUsed = loyaltyCalc.pointsUsed();
         BigDecimal pointsAmount = loyaltyCalc.pointsAmount();
 
-        BigDecimal beforePoints = subtotal.subtract(discountAmount).add(shippingFee);
-        if (beforePoints.compareTo(BigDecimal.ZERO) < 0) {
-            beforePoints = BigDecimal.ZERO;
+        // Points and tier discount can ONLY reduce the merchandise amount, NEVER shipping fee!
+        BigDecimal merchandiseRemaining = subtotal.subtract(discountAmount).max(BigDecimal.ZERO);
+        if (pointsAmount.compareTo(merchandiseRemaining) > 0) {
+            pointsAmount = merchandiseRemaining;
         }
-
-        if (pointsAmount.compareTo(beforePoints) > 0) {
-            pointsAmount = beforePoints;
-        }
-
-        BigDecimal totalAmount = beforePoints.subtract(pointsAmount);
-        if (totalAmount.compareTo(BigDecimal.ZERO) < 0) {
-            totalAmount = BigDecimal.ZERO;
-        }
+        BigDecimal merchandiseAfterPoints = merchandiseRemaining.subtract(pointsAmount).max(BigDecimal.ZERO);
+        BigDecimal totalAmount = merchandiseAfterPoints.add(shippingFee != null ? shippingFee : BigDecimal.ZERO);
 
         if (request.expectedTotal() != null && totalAmount.compareTo(request.expectedTotal()) != 0) {
             throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
@@ -489,7 +488,8 @@ public class OrderService {
         if (totalAmount.signum() == 0) paymentMethod = "COD";
         // QR is prepaid by the customer before preparation, including DELIVERY.
         // COD delivery is instead funded by a simulated rider advance at pickup.
-        String initialStatus = "COD".equalsIgnoreCase(paymentMethod)
+        // If order total is 0, no payment needed -> confirmed immediately.
+        String initialStatus = "COD".equalsIgnoreCase(paymentMethod) || totalAmount.signum() == 0
                 ? OrderStatus.CONFIRMED.name()
                 : OrderStatus.PENDING_PAYMENT.name();
 
@@ -787,9 +787,10 @@ public class OrderService {
         if (wantsVoucher && !counterVoucher.valid())
             throw new ApiException(ErrorCode.VOUCHER_INACTIVE, "Voucher không còn áp dụng được");
         BigDecimal merchandiseAfterVoucher = subtotal.subtract(counterVoucher.discountAmount()).max(BigDecimal.ZERO);
+        int counterPointsRequested = merchandiseAfterVoucher.compareTo(BigDecimal.ZERO) <= 0 ? 0 : request.pointsUsed();
         LoyaltyClient.CounterQuote counterLoyalty = request.loyaltySubject() == null
                 ? null : loyaltyClient.counterPreview(request.loyaltySubject(), request.loyaltyScanProof(),
-                    request.pointsUsed(), merchandiseAfterVoucher, actor.userId(), effectiveStoreId, draftHash);
+                    counterPointsRequested, merchandiseAfterVoucher, actor.userId(), effectiveStoreId, draftHash);
         if (counterLoyalty == null && request.pointsUsed() > 0)
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Chỉ QR Loyalty mới được dùng điểm");
         BigDecimal tierDiscount = counterLoyalty == null ? BigDecimal.ZERO : counterLoyalty.tierDiscount();

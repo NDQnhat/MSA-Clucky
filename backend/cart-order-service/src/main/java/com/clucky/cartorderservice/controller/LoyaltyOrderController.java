@@ -50,10 +50,12 @@ public class LoyaltyOrderController {
         // delivery or a COD-only simulated completion does not settle real money.
         // This projection deliberately keeps those simulated orders out of rewards,
         // including the periodic reconciliation path that queries this endpoint.
+        boolean isCodPaid = java.util.Set.of("PAID", "COLLECTED").contains(order.getPaymentStatus())
+                || "PAID_SIMULATED".equals(order.getMerchantPaymentStatus());
         boolean virtualCodCompletion = "DELIVERY".equals(order.getType())
                 && "COD".equals(order.getPaymentMethod())
                 && "COMPLETED".equals(order.getStatus())
-                && !java.util.Set.of("PAID", "COLLECTED").contains(order.getPaymentStatus());
+                && !isCodPaid;
         boolean uncollectedCompletion = "COMPLETED".equals(order.getStatus())
                 && !java.util.Set.of("PAID", "COLLECTED").contains(order.getPaymentStatus());
         String loyaltyState = "DELIVERY_FAILED".equals(order.getStatus()) || virtualCodCompletion

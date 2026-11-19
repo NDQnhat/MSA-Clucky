@@ -274,9 +274,22 @@ export default function CheckoutPage() {
   }, [myVouchers, selectedStore, subtotal, formatPrice, vouchersText]);
   const selectedVoucher = voucherOptions.find(option => option.eligible && option.voucher.instanceId === selectedVoucherId)?.voucher ?? null;
   const bestVoucherId = voucherOptions.find(option => option.eligible && option.discount > 0)?.voucher.instanceId;
+  const estimatedVoucherDiscount = selectedVoucher ? (voucherOptions.find(option => option.voucher.instanceId === selectedVoucher.instanceId)?.discount ?? 0) : 0;
+  const merchandiseAfterVoucher = Math.max(0, subtotal - estimatedVoucherDiscount);
+  const maxPointsNeeded = Math.max(0, Math.ceil(merchandiseAfterVoucher / 1000));
+  const maxInputPoints = Math.min(availablePoints ?? 0, maxPointsNeeded);
+
   useEffect(() => {
     if (selectedVoucherId && !selectedVoucher) setSelectedVoucherId("");
   }, [selectedVoucherId, selectedVoucher]);
+
+  useEffect(() => {
+    if (merchandiseAfterVoucher <= 0 && usePoints) {
+      setUsePoints(false);
+      setRequestedPoints(0);
+    }
+  }, [merchandiseAfterVoucher, usePoints]);
+
   useEffect(() => {
     let active = true;
     setLoyaltyBalance(null); setLoyaltyError(false); setUsePoints(false); setRequestedPoints(0);
@@ -313,22 +326,25 @@ export default function CheckoutPage() {
   const previewPayload = useMemo(() => ({
     storeId: Number(selectedStore), type: orderType, items: payloadItems ?? [],
     voucherInstanceId: selectedVoucher?.instanceId,
-    pointsUsed: usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
+    pointsUsed: merchandiseAfterVoucher > 0 && usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
     receiverAddress: orderType === "DELIVERY" ? deliveryAddress.trim() : undefined,
     latitude: orderType === "DELIVERY" ? effectiveDeliveryPoint?.latitude : undefined,
     longitude: orderType === "DELIVERY" ? effectiveDeliveryPoint?.longitude : undefined,
-  }), [selectedStore, orderType, payloadItems, selectedVoucher?.instanceId, usePoints, requestedPoints, availablePoints, deliveryAddress, effectiveDeliveryPoint]);
+  }), [selectedStore, orderType, payloadItems, selectedVoucher?.instanceId, usePoints, requestedPoints, availablePoints, deliveryAddress, effectiveDeliveryPoint, merchandiseAfterVoucher]);
   const previewKey = JSON.stringify([userId, previewPayload, previewReload]);
   const [quote, setQuote] = useState<{ key: string; data: OrderPreviewResult } | null>(null);
   const [deliveryQuote, setDeliveryQuote] = useState<{ key: string; data: ShippingQuote } | null>(null);
   const deliveryCheck = deliveryQuote?.key === previewKey ? deliveryQuote.data : undefined;
   const previewData = quote?.key === previewKey ? quote.data : null;
   const shippingFee = orderType === "PICKUP" ? 0 : (previewData?.shippingFee ?? 0);
-  const voucherDiscount = previewData ? Math.max(0, previewData.discountAmount - (previewData.tierDiscount ?? 0)) : 0;
-  const pointsDiscount = previewData?.pointsAmount ?? (usePoints ? 5000 : 0);
-  const calculatedTotal = Math.max(0, subtotal + shippingFee - voucherDiscount - pointsDiscount);
+  const voucherDiscount = previewData ? Math.max(0, previewData.discountAmount - (previewData.tierDiscount ?? 0)) : estimatedVoucherDiscount;
+  const tierDiscount = previewData?.tierDiscount ?? 0;
+  const merchandiseRemaining = Math.max(0, subtotal - voucherDiscount - tierDiscount);
+  const pointsDiscount = Math.min(previewData?.pointsAmount ?? 0, merchandiseRemaining);
+  const merchandiseAfterPoints = Math.max(0, merchandiseRemaining - pointsDiscount);
+  const calculatedTotal = merchandiseAfterPoints + shippingFee;
   const totalAmount = previewData?.totalAmount ?? (orderType === "PICKUP" ? calculatedTotal : null);
-  const noPayment = previewData?.totalAmount === 0;
+  const noPayment = previewData?.totalAmount === 0 || totalAmount === 0;
   const needsDeliveryAddress = orderType === "DELIVERY" && deliveryAddress.trim().length < 8;
   const needsDeliveryPoint = orderType === "DELIVERY" && !effectiveDeliveryPoint;
   const orderBlockReason = !ready || !session.ready ? loyaltyText("cartLoading")
@@ -390,7 +406,7 @@ export default function CheckoutPage() {
       paymentMethod: paymentMethod,
       items: payloadItems,
       voucherInstanceId: selectedVoucher?.instanceId,
-      pointsUsed: usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
+      pointsUsed: merchandiseAfterVoucher > 0 && usePoints ? Math.min(requestedPoints, availablePoints ?? 0) : 0,
       receiverName: receiverName.trim(),
       receiverPhone: receiverPhone.trim(),
       deliveryAddress:
@@ -863,12 +879,17 @@ export default function CheckoutPage() {
                       aria-labelledby="clucky-points-label"
                       aria-describedby="clucky-points-balance"
                       checked={usePoints}
-                      disabled={!availablePoints || loyaltyError}
-                      onChange={(e) => { setUsePoints(e.target.checked); setRequestedPoints(availablePoints ?? 0); }}
+                      disabled={!availablePoints || loyaltyError || merchandiseAfterVoucher <= 0}
+                      onChange={(e) => { setUsePoints(e.target.checked); setRequestedPoints(maxInputPoints); }}
                     />
                     <span aria-hidden="true" />
                   </label>
                   </div>
+                  {merchandiseAfterVoucher <= 0 && selectedVoucher && (
+                    <p className={styles.pointsHint} style={{ color: "#d97706", marginTop: 4 }}>
+                      Voucher đã giảm hết tiền hàng, không thể áp dụng thêm điểm thưởng.
+                    </p>
+                  )}
                   {loyaltyError && <button type="button" className={styles.loyaltyRetry} onClick={() => setLoyaltyReload(value => value + 1)}><RefreshCw size={15} aria-hidden="true" />{loyaltyText("retry")}</button>}
                   {usePoints && (
                     <div className={styles.pointsDetails}>
@@ -880,11 +901,11 @@ export default function CheckoutPage() {
                             type="number"
                             inputMode="numeric"
                             min={0}
-                            max={availablePoints ?? 0}
+                            max={maxInputPoints}
                             step={1}
                             value={requestedPoints}
                             aria-describedby="checkout-points-hint"
-                            onChange={event => setRequestedPoints(Math.min(availablePoints ?? 0, Math.max(0, Math.floor(Number(event.target.value) || 0))))}
+                            onChange={event => setRequestedPoints(Math.min(maxInputPoints, Math.max(0, Math.floor(Number(event.target.value) || 0))))}
                           />
                           <span aria-hidden="true">{loyaltyText("points")}</span>
                         </div>

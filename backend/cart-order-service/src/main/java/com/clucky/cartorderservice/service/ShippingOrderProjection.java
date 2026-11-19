@@ -137,7 +137,14 @@ public class ShippingOrderProjection {
             if (!cod && !paid) {
                 throw new IllegalStateException("QR customer has not completed real prepayment");
             }
-            if (pendingCod && advanceConfirmed) recordMerchantPayment(order, "PAID_SIMULATED");
+            if (pendingCod && advanceConfirmed) {
+                recordMerchantPayment(order, "PAID_SIMULATED");
+                order.setPaymentStatus("COLLECTED");
+                order.setCollectionMethod("CASH");
+                order.setCollectedCash(order.getTotalAmount());
+                orders.saveAndFlush(order);
+                paid = true;
+            }
             change(order, "COMPLETED", "Giao hàng thành công (mô phỏng)", false);
             publisher.publishSimulatedDeliveryCompleted(order, items.findByOrderIdOrderByIdAsc(orderId), paid || noPayment);
         } else if ("shipping.resolved".equals(event.eventType())) {
