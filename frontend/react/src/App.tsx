@@ -24,6 +24,7 @@ import { LoginPage } from "./pages/Auth/LoginPage";
 import { BranchAccessPage } from "./pages/Auth/BranchAccessPage";
 import { BranchChangePasswordPage } from "./pages/Auth/BranchChangePasswordPage";
 import { BranchAccountsPage } from "./pages/Users/BranchAccountsPage";
+import { MySessionsPage } from "./components/sessions/SessionsPanel";
 import { PaymentsPage } from "./pages/Payments";
 import { AdminPaymentsPage } from "./pages/Payments/AdminPaymentsPage";
 import { CustomersPage } from "./pages/Customers";
@@ -32,6 +33,9 @@ import AuditLogPage from "./pages/AuditLog";
 
 import { OrderProvider } from "./context/OrderContext";
 import { PageLoadingProvider } from "./components/ui-loader/page-loading";
+
+const EmailTemplatesPage = React.lazy(() => import("./pages/EmailTemplates").then(module => ({ default: module.EmailTemplatesPage })));
+
 function OrdersRoute() {
   const { isAdmin, isStaff } = useAuth();
   return isAdmin ? <AdminOrdersPage /> : isStaff ? <StaffOrdersPage /> : <OrdersPage />;
@@ -130,6 +134,7 @@ export const App: React.FC = () => {
                       index
                       element={<RoleHome />}
                     />
+                    <Route path="sessions" element={<ProtectedRoute allowedRoles={["ADMIN", "STORE_MANAGER"]}><MySessionsPage /></ProtectedRoute>} />
                     <Route path="change-password" element={
                       <ProtectedRoute allowedRoles={["STORE_MANAGER", "STAFF"]}>
                         <BranchChangePasswordPage />
@@ -229,6 +234,10 @@ export const App: React.FC = () => {
                       path="email-logs"
                       element={<ProtectedRoute allowedRoles={["ADMIN", "STORE_MANAGER"]}><EmailLogsPage /></ProtectedRoute>}
                     />
+                    <Route path="email-templates"
+                      element={<ProtectedRoute allowedRoles={["ADMIN"]}>
+                        <React.Suspense fallback={<div role="status" aria-busy="true" />}><EmailTemplatesPage /></React.Suspense>
+                      </ProtectedRoute>} />
                     <Route
                       path="audit"
                       element={<ProtectedRoute allowedRoles={["ADMIN"]}><AuditLogPage /></ProtectedRoute>}
