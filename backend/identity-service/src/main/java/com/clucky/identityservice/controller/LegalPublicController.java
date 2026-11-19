@@ -18,6 +18,11 @@ public class LegalPublicController {
     public record PublicDocument(String type, int version, String titleVi, String titleEn,
                                  String htmlVi, String htmlEn, Instant publishedAt) {}
 
+    @GetMapping("/status")
+    public LegalDocumentService.PublicStatus status() {
+        return service.publicStatus();
+    }
+
     @GetMapping("/{type}")
     public PublicDocument published(@PathVariable String type) {
         LegalDocumentService.Revision r = service.published(type);

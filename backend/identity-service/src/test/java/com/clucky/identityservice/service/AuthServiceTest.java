@@ -81,7 +81,8 @@ class AuthServiceTest {
                     }
                 }, properties, challenges);
         var legal = mock(LegalDocumentService.class);
-        when(legal.requireCurrentConsent(any())).thenReturn(new LegalDocumentService.Approved(1L, 2L));
+        when(legal.requireCurrentConsent(nullable(com.clucky.identityservice.dto.auth.LegalConsentRequest.class)))
+                .thenReturn(new LegalDocumentService.Approved(1L, 2L));
         org.springframework.test.util.ReflectionTestUtils.setField(service, "legalDocuments", legal);
     }
 

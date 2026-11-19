@@ -28,10 +28,10 @@ public record RegisterRequest(
         @Valid LegalConsentRequest consent
 ) {
     public RegisterRequest(String fullName, String phone, String password) {
-        this(fullName, null, phone, password, new LegalConsentRequest(true, 1, 1));
+        this(fullName, null, phone, password, null);
     }
     public RegisterRequest(String fullName, String email, String phone, String password) {
-        this(fullName, email, phone, password, new LegalConsentRequest(true, 1, 1));
+        this(fullName, email, phone, password, null);
     }
     @com.fasterxml.jackson.annotation.JsonAnySetter
     public void rejectUnknown(String field, Object value) { throw new IllegalArgumentException("Unsupported field"); }

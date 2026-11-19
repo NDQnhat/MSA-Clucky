@@ -19,6 +19,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @Service
 public class LegalDocumentService {
@@ -46,11 +47,25 @@ public class LegalDocumentService {
     public record Revision(long id, String type, int version, String titleVi, String titleEn,
                            String htmlVi, String htmlEn, Instant createdAt, Long createdBy,
                            Instant publishedAt) {}
-    public record Overview(String type, Integer draftVersion, Integer publishedVersion,
+    public record Overview(String type, int latestRevision, Integer draftVersion, Integer publishedVersion,
                            Revision draft, Revision published) {}
-    public record DraftInput(String titleVi, String titleEn, String htmlVi, String htmlEn) {}
+    public record DraftInput(String titleVi, String titleEn, String htmlVi, String htmlEn,
+                             Integer expectedDraftVersion, Integer expectedRevision) {}
     public record PublishedRequest(int version) {}
+    public record RestoreRequest(Integer expectedDraftVersion, Integer expectedRevision) {}
     public record Approved(long termsId, long privacyId) {}
+    public record PublicStatus(boolean consentRequired, boolean documentsPublished) {}
+
+    /** Public, read-only rollout hint; the server still independently validates every consent. */
+    @Transactional(readOnly = true)
+    public PublicStatus publicStatus() {
+        Integer published = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM identity_service.legal_documents d "
+                + "JOIN identity_service.legal_revisions r ON r.id=d.published_revision_id "
+                + "WHERE d.document_type IN (?,?) AND r.published_at IS NOT NULL",
+                Integer.class, TERMS, PRIVACY);
+        return new PublicStatus(consentRequired, published != null && published == 2);
+    }
 
     private static String documentType(String type) {
         if (!TERMS.equals(type) && !PRIVACY.equals(type)) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
@@ -101,13 +116,14 @@ public class LegalDocumentService {
         requireAdmin();
         String checked = documentType(type);
         Map<String, Object> current = jdbc.queryForMap(
-                "SELECT draft_revision_id, published_revision_id FROM identity_service.legal_documents WHERE document_type=?",
+                "SELECT revision_counter, draft_revision_id, published_revision_id FROM identity_service.legal_documents WHERE document_type=?",
                 checked);
         Long draft = number(current.get("draft_revision_id"));
         Long published = number(current.get("published_revision_id"));
         Revision draftValue = draft == null ? null : one(checked, draft);
         Revision publicValue = published == null ? null : one(checked, published);
-        return new Overview(checked, draftValue == null ? null : draftValue.version(),
+        return new Overview(checked, ((Number) current.get("revision_counter")).intValue(),
+                draftValue == null ? null : draftValue.version(),
                 publicValue == null ? null : publicValue.version(), draftValue, publicValue);
     }
 
@@ -152,11 +168,15 @@ public class LegalDocumentService {
     }
 
     private Revision insertDraft(String type, DraftInput input) {
-        var actor = CurrentActor.require();
         // Serializes version counter, restore, draft replacement and publish.
-        Integer next = jdbc.queryForObject("SELECT revision_counter FROM identity_service.legal_documents "
-                + "WHERE document_type=? FOR UPDATE", Integer.class, type);
-        if (next == null) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
+        Map<String, Object> locked = jdbc.queryForMap("SELECT d.revision_counter, r.version AS draft_version "
+                + "FROM identity_service.legal_documents d LEFT JOIN identity_service.legal_revisions r "
+                + "ON r.id=d.draft_revision_id WHERE d.document_type=? FOR UPDATE OF d", type);
+        int next = ((Number) locked.get("revision_counter")).intValue();
+        Integer draftVersion = locked.get("draft_version") == null
+                ? null : ((Number) locked.get("draft_version")).intValue();
+        requireExpectedDraft(input.expectedRevision(), input.expectedDraftVersion(), next, draftVersion);
+        var actor = CurrentActor.require();
         long id = jdbc.queryForObject("INSERT INTO identity_service.legal_revisions "
                 + "(document_type,version,title_vi,title_en,html_vi,html_en,created_by) "
                 + "VALUES (?,?,?,?,?,?,?) RETURNING id", Long.class, type, next + 1,
@@ -169,6 +189,16 @@ public class LegalDocumentService {
         return one(type, id);
     }
 
+    /** Compare-and-set *after* obtaining the document row lock: no stale Admin tab may replace a newer draft. */
+    static void requireExpectedDraft(Integer expectedRevision, Integer expectedDraftVersion,
+                                     int currentRevision, Integer currentDraftVersion) {
+        if (expectedRevision == null || expectedRevision < 0
+                || expectedRevision != currentRevision
+                || !Objects.equals(expectedDraftVersion, currentDraftVersion)) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("draft", "OUTDATED"));
+        }
+    }
+
     @Transactional
     public Revision saveDraft(String type, DraftInput input) {
         requireAdmin();
@@ -177,12 +207,14 @@ public class LegalDocumentService {
     }
 
     @Transactional
-    public Revision restore(String type, int sourceVersion) {
+    public Revision restore(String type, int sourceVersion, RestoreRequest request) {
         requireAdmin();
+        if (request == null) throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("draft", "OUTDATED"));
         String checked = documentType(type);
         Revision old = version(checked, sourceVersion);
         Revision restored = insertDraft(checked,
-                new DraftInput(old.titleVi(), old.titleEn(), old.htmlVi(), old.htmlEn()));
+                new DraftInput(old.titleVi(), old.titleEn(), old.htmlVi(), old.htmlEn(),
+                        request.expectedDraftVersion(), request.expectedRevision()));
         CurrentActor actor = CurrentActor.require();
         audit.record(actor.userId(), actor.role().name(), null, null, "LEGAL_VERSION_RESTORED",
                 restored.id(), "LegalRevision", Map.of("type", checked, "sourceVersion", sourceVersion,

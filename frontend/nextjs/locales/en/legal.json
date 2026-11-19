@@ -4,6 +4,7 @@
   "consentPrompt": "I have read and agree to the",
   "and": "and",
   "required": "You must review and accept the Terms of Service and Privacy Policy before registering.",
+  "transitionNotice": "Clucky is preparing its legal documents. During this temporary rollout stage, agreement is neither required nor recorded. Please review the policies once published.",
   "loading": "Loading the latest published legal documents…",
   "unavailable": "Legal documents are not ready. Please return after Clucky publishes both policies.",
   "outdated": "The terms or privacy policy has just changed. Review the latest version and confirm again.",

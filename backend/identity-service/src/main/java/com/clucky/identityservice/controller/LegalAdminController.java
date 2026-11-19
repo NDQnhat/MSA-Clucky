@@ -42,7 +42,8 @@ public class LegalAdminController {
     }
 
     @PostMapping("/{type}/restore/{version}")
-    public LegalDocumentService.Revision restore(@PathVariable String type, @PathVariable int version) {
-        return service.restore(type, version);
+    public LegalDocumentService.Revision restore(@PathVariable String type, @PathVariable int version,
+            @Valid @RequestBody LegalDocumentService.RestoreRequest request) {
+        return service.restore(type, version, request);
     }
 }

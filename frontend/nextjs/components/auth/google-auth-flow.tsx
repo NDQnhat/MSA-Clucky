@@ -60,7 +60,7 @@ export function GoogleAuthFlow({ children }: { children: ReactNode }) {
     }
   }
 
-  async function complete(password: string, consent: LegalConsentInput) {
+  async function complete(password: string, consent?: LegalConsentInput) {
     if (!pending || loading) return;
     const task = startAction();
     setLoading(true);

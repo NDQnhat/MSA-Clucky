@@ -97,4 +97,27 @@ class LegalDocumentServiceTest {
         legal.recordAcceptance(9L, null, "PHONE_REGISTER");
         verifyNoInteractions(jdbc);
     }
+
+    @Test
+    void publicReadinessReflectsRolloutFlagAndBothPublishedDocuments() {
+        when(jdbc.queryForObject(startsWith("SELECT COUNT(*) FROM identity_service.legal_documents"),
+                eq(Integer.class), eq("TERMS_OF_SERVICE"), eq("PRIVACY_POLICY"))).thenReturn(0, 2);
+        assertEquals(new LegalDocumentService.PublicStatus(true, false), legal.publicStatus());
+        legal.setConsentRequired(false);
+        assertEquals(new LegalDocumentService.PublicStatus(false, true), legal.publicStatus());
+    }
+
+    @Test
+    void staleAdminDraftCannotOverwriteNewerDraftEvenWhenRevisionCounterAdvanced() {
+        assertDoesNotThrow(() -> LegalDocumentService.requireExpectedDraft(5, 5, 5, 5));
+        ApiException overwritten = assertThrows(ApiException.class,
+                () -> LegalDocumentService.requireExpectedDraft(5, 5, 6, 6));
+        assertEquals(ErrorCode.RESOURCE_CONFLICT, overwritten.getCode());
+        assertEquals("OUTDATED", overwritten.getFieldErrors().get("draft"));
+        assertEquals(ErrorCode.RESOURCE_CONFLICT, assertThrows(ApiException.class,
+                () -> LegalDocumentService.requireExpectedDraft(5, null, 5, 5)).getCode());
+        assertEquals(ErrorCode.RESOURCE_CONFLICT, assertThrows(ApiException.class,
+                () -> LegalDocumentService.requireExpectedDraft(null, null, 0, null)).getCode());
+        assertDoesNotThrow(() -> LegalDocumentService.requireExpectedDraft(0, null, 0, null));
+    }
 }

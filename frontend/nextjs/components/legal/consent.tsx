@@ -8,13 +8,24 @@ export function useLegalConsent() {
   const [terms, setTerms] = useState<PublicLegalDocument | null>(null);
   const [privacy, setPrivacy] = useState<PublicLegalDocument | null>(null);
   const [accepted, setAccepted] = useState(false);
+  const [transitional, setTransitional] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const refresh = useCallback(async () => {
     setLoading(true);
     setAccepted(false);
+    setTransitional(false);
     setError(false);
     try {
+      const status = await legalApi.status();
+      if (!status.consentRequired) {
+        // Rollout-only compatibility mode: the backend does not record an
+        // acceptance while enforcement is off. Never show a fake checkbox.
+        setTransitional(true);
+        setTerms(null);
+        setPrivacy(null);
+        return;
+      }
       const [termsVersion, privacyVersion] = await Promise.all([
         legalApi.published("TERMS_OF_SERVICE"), legalApi.published("PRIVACY_POLICY"),
       ]);
@@ -29,7 +40,7 @@ export function useLegalConsent() {
   useEffect(() => { void refresh(); }, [refresh]);
   const consent: LegalConsentInput | null = !loading && !error
     ? consentForPublished(terms, privacy, accepted) : null;
-  return { terms, privacy, accepted, setAccepted, loading, error, consent, refresh };
+  return { terms, privacy, accepted, setAccepted, loading, error, transitional, consent, refresh };
 }
 
 type ConsentState = ReturnType<typeof useLegalConsent>;
@@ -41,7 +52,7 @@ export function ConsentField({ state, id }: { state: ConsentState; id: string })
         {t("unavailable")}{' '}
         <button type="button" onClick={() => void state.refresh()} className="underline">{t("reload")}</button>
       </div>
-    ) : <div className="flex items-start gap-3">
+    ) : state.transitional ? <p role="status">{t("transitionNotice")}</p> : <div className="flex items-start gap-3">
       <input id={id} type="checkbox" checked={state.accepted} onChange={e => state.setAccepted(e.target.checked)}
         required className="mt-1 h-4 w-4 shrink-0 accent-[#8F1216]" />
       <div>

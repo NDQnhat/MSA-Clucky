@@ -13,7 +13,7 @@ export interface GoogleCompletePasswordProps {
   /** Email Google đã xác thực — hiển thị cho user biết đang tạo mật khẩu cho tài khoản nào */
   email: string;
   /** Gọi khi submit hợp lệ; parent xử lý POST /api/auth/google/complete với pendingToken + password */
-  onSubmit?: (password: string, consent: LegalConsentInput) => void | Promise<void>;
+  onSubmit?: (password: string, consent?: LegalConsentInput) => void | Promise<void>;
   loading?: boolean;
   className?: string;
 }
@@ -50,12 +50,12 @@ export function GoogleCompletePassword({
       setError("auth.validation.passwordMismatch");
       return;
     }
-    if (!legal.consent) {
+    if (!legal.consent && !legal.transitional) {
       setError("legal.required");
       return;
     }
     setError("");
-    await onSubmit?.(password, legal.consent);
+    await onSubmit?.(password, legal.consent ?? undefined);
   };
 
   return (

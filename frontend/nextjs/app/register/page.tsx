@@ -78,7 +78,7 @@ export default function RegisterPage() {
       focusField.current = firstInvalid;
       return;
     }
-    if (!legal.consent) { setConsentError(true); return; }
+    if (!legal.consent && !legal.transitional) { setConsentError(true); return; }
     setConsentError(false);
     setLoading(true);
     try {
@@ -87,7 +87,7 @@ export default function RegisterPage() {
         fullName: fullName.trim(),
         phone: normalizedPhone,
         password,
-        consent: legal.consent,
+        ...(legal.consent ? { consent: legal.consent } : {}),
       });
       if (!result.challengeId) throw new Error(t("auth.validation.missingChallenge"));
       if (task.isCurrent()) router.push(`/verify-otp?phone=${encodeURIComponent(normalizedPhone)}&challengeId=${encodeURIComponent(result.challengeId)}`);
@@ -201,7 +201,7 @@ export default function RegisterPage() {
             ))}
           </ul>
           <ConsentField state={legal} id="clucky-phone-consent" />
-          {consentError && !legal.consent && <p className="form-error" role="alert">{t("legal.required")}</p>}
+          {consentError && !legal.consent && !legal.transitional && <p className="form-error" role="alert">{t("legal.required")}</p>}
           <button
             type="submit"
             className="btn-primary btn-block"

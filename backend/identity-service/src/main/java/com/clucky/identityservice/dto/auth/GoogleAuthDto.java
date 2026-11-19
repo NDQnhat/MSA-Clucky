@@ -19,7 +19,7 @@ public final class GoogleAuthDto {
             @Valid LegalConsentRequest consent
     ) {
         public Complete(String pendingToken, String password) {
-            this(pendingToken, password, new LegalConsentRequest(true, 1, 1));
+            this(pendingToken, password, null);
         }
         @com.fasterxml.jackson.annotation.JsonAnySetter
         public void rejectUnknown(String field, Object value) { throw new IllegalArgumentException("Unsupported field"); }

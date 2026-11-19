@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -6,6 +6,7 @@ import { Alert, Button, Card, Col, Input, Modal, Popconfirm, Row, Segmented, Spa
 import { CheckOutlined, EyeOutlined, FileTextOutlined, HistoryOutlined, ReloadOutlined, RollbackOutlined, SaveOutlined } from '@ant-design/icons';
 import { api, getErrorMessage } from '../../lib/api';
 import legalTemplates from './legal-templates.json' with { type: 'json' };
+import { LegalRequestScope } from './legal-request-scope';
 import './legal-content.css';
 
 type LegalType = 'TERMS_OF_SERVICE' | 'PRIVACY_POLICY';
@@ -24,6 +25,7 @@ interface Revision {
 }
 interface Overview {
   type: LegalType;
+  latestRevision: number;
   draftVersion: number | null;
   publishedVersion: number | null;
   draft: Revision | null;
@@ -34,15 +36,19 @@ const empty: Editing = { titleVi: '', titleEn: '', htmlVi: '<p></p>', htmlEn: '<
 
 const outlines: Record<LegalType, Editing> = legalTemplates;
 
-function RichEditor({ initial, onUpdate, language }: { initial: string; onUpdate: (value: string) => void; language: Language }) {
+function RichEditor({ initial, onUpdate, language, disabled }: {
+  initial: string; onUpdate: (value: string) => void; language: Language; disabled: boolean;
+}) {
   const { t } = useTranslation('legal');
   const editor = useEditor({
     extensions: [StarterKit.configure({ link: { openOnClick: false, HTMLAttributes: { rel: 'noopener noreferrer' } } })],
     content: initial,
+    editable: !disabled,
     immediatelyRender: false,
     onUpdate: ({ editor: instance }) => onUpdate(instance.getHTML()),
     editorProps: { attributes: { 'aria-label': t('editor'), lang: language } },
   });
+  useEffect(() => { editor?.setEditable(!disabled); }, [disabled, editor]);
   if (!editor) return null;
   const link = () => {
     const address = window.prompt(t('linkPrompt'), editor.getAttributes('link').href || 'https://');
@@ -52,15 +58,15 @@ function RichEditor({ initial, onUpdate, language }: { initial: string; onUpdate
   };
   return <div className="legal-rich-editor">
     <div className="legal-editor-toolbar">
-      <Button size="small" type={editor.isActive('bold') ? 'primary' : 'default'} aria-label={t('bold')}
+      <Button size="small" disabled={disabled} type={editor.isActive('bold') ? 'primary' : 'default'} aria-label={t('bold')}
         onClick={() => editor.chain().focus().toggleBold().run()}><strong>B</strong></Button>
-      <Button size="small" type={editor.isActive('italic') ? 'primary' : 'default'} aria-label={t('italic')}
+      <Button size="small" disabled={disabled} type={editor.isActive('italic') ? 'primary' : 'default'} aria-label={t('italic')}
         onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></Button>
-      <Button size="small" type={editor.isActive('heading', { level: 2 }) ? 'primary' : 'default'} aria-label={t('heading2')}
+      <Button size="small" disabled={disabled} type={editor.isActive('heading', { level: 2 }) ? 'primary' : 'default'} aria-label={t('heading2')}
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</Button>
-      <Button size="small" type={editor.isActive('bulletList') ? 'primary' : 'default'} aria-label={t('bullet')}
+      <Button size="small" disabled={disabled} type={editor.isActive('bulletList') ? 'primary' : 'default'} aria-label={t('bullet')}
         onClick={() => editor.chain().focus().toggleBulletList().run()}>•</Button>
-      <Button size="small" aria-label={t('link')} onClick={link}>{t('link')}</Button>
+      <Button size="small" disabled={disabled} aria-label={t('link')} onClick={link}>{t('link')}</Button>
     </div>
     <EditorContent editor={editor} />
   </div>;
@@ -80,14 +86,21 @@ export function LegalContentPage() {
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const requestsRef = useRef<LegalRequestScope | null>(null);
+  if (!requestsRef.current) requestsRef.current = new LegalRequestScope(type);
+  const requests = requestsRef.current;
+  // Synchronous invalidation on render (before passive effect cleanup).
+  requests.activate(type);
   const base = `/api/legal/admin/${type}`;
   const dirty = useMemo(() => JSON.stringify(editing) !== JSON.stringify(baseline), [editing, baseline]);
 
   const refresh = useCallback(async () => {
+    const token = requests.start(type);
     const [doc, revisions] = await Promise.all([
       api.get<Overview>(`/api/legal/admin/${type}`),
       api.get<Revision[]>(`/api/legal/admin/${type}/history`),
     ]);
+    if (!requests.current(token, type) || doc.data.type !== type) return false;
     setOverview(doc.data);
     setHistory(revisions.data);
     const latest = doc.data.draft || doc.data.published;
@@ -97,26 +110,30 @@ export function LegalContentPage() {
     setEditing(content);
     setBaseline(content);
     setEditorRevision(n => n + 1);
-  }, [type]);
+    return true;
+  }, [type, requests]);
 
   useEffect(() => {
     let live = true;
+    setOverview(null); setHistory([]); setEditing(empty); setBaseline(empty); setPreview(null);
     setLoading(true); setError(''); setNotice('');
-    void refresh().catch(failure => { if (live) setError(getErrorMessage(failure)); })
-      .finally(() => { if (live) setLoading(false); });
-    return () => { live = false; };
-  }, [refresh]);
+    void refresh().catch(failure => { if (live && requests.isType(type)) setError(getErrorMessage(failure)); })
+      .finally(() => { if (live && requests.isType(type)) setLoading(false); });
+    return () => { live = false; requests.invalidate(); };
+  }, [refresh, requests, type]);
 
   async function perform(task: () => Promise<Revision>, kind: 'save' | 'publish' | 'restore') {
-    if (busy) return;
+    if (busy || !overview || overview.type !== type || loading) return;
+    const activeType = type;
     setBusy(true); setError(''); setNotice('');
     try {
       const result = await task();
-      await refresh();
+      const applied = await refresh();
+      if (!applied || !requests.isType(activeType)) return;
       setNotice(t(kind === 'save' ? 'saveSuccess' : kind === 'publish' ? 'publishSuccess' : 'restoreSuccess',
         { version: result.version }));
     } catch (failure) {
-      setError(getErrorMessage(failure));
+      if (requests.isType(activeType)) setError(getErrorMessage(failure));
     } finally {
       setBusy(false);
     }
@@ -154,29 +171,32 @@ export function LegalContentPage() {
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <Row gutter={12}>
               <Col xs={24} md={12}><Typography.Text strong>{t('titleVi')}</Typography.Text>
-                <Input value={editing.titleVi} maxLength={160} onChange={e => setEditing(value => ({ ...value, titleVi: e.target.value }))} /></Col>
+                <Input disabled={busy || loading} value={editing.titleVi} maxLength={160} onChange={e => setEditing(value => ({ ...value, titleVi: e.target.value }))} /></Col>
               <Col xs={24} md={12}><Typography.Text strong>{t('titleEn')}</Typography.Text>
-                <Input value={editing.titleEn} maxLength={160} onChange={e => setEditing(value => ({ ...value, titleEn: e.target.value }))} /></Col>
+                <Input disabled={busy || loading} value={editing.titleEn} maxLength={160} onChange={e => setEditing(value => ({ ...value, titleEn: e.target.value }))} /></Col>
             </Row>
-            <Segmented<Language> block value={language} onChange={setLanguage}
+            <Segmented<Language> block value={language} disabled={busy || loading} onChange={setLanguage}
               options={[{ label: t('languageVi'), value: 'vi' }, { label: t('languageEn'), value: 'en' }]} />
-            <RichEditor key={`${type}:${language}:${editorRevision}`} language={language}
+            <RichEditor key={`${type}:${language}:${editorRevision}`} language={language} disabled={busy || loading}
               initial={editing[language === 'vi' ? 'htmlVi' : 'htmlEn']} onUpdate={updateHtml} />
             <Typography.Paragraph type="secondary">{t('editorHint')}</Typography.Paragraph>
             {dirty && <Alert showIcon type="info" message={t('dirty')} />}
             <Space wrap>
-              <Button icon={<EyeOutlined />} onClick={() => setPreview('editing')}>{t('preview')}</Button>
+              <Button icon={<EyeOutlined />} disabled={busy || loading} onClick={() => setPreview('editing')}>{t('preview')}</Button>
               <Popconfirm title={t('templateConfirm')} onConfirm={() => {
                 setEditing(outlines[type]); setEditorRevision(n => n + 1);
-              }}><Button>{t('template')}</Button></Popconfirm>
-              <Button type="primary" icon={<SaveOutlined />} disabled={busy || !dirty}
-                onClick={() => void perform(() => api.post<Revision>(`${base}/draft`, editing).then(res => res.data), 'save')}>
+              }}><Button disabled={busy || loading}>{t('template')}</Button></Popconfirm>
+              <Button type="primary" icon={<SaveOutlined />} disabled={busy || loading || !dirty || overview?.type !== type}
+                onClick={() => void perform(() => api.post<Revision>(`${base}/draft`, {
+                  ...editing, expectedDraftVersion: overview?.draftVersion,
+                  expectedRevision: overview?.latestRevision,
+                }).then(res => res.data), 'save')}>
                 {t('saveDraft')}</Button>
               <Popconfirm title={t('confirmPublish')} onConfirm={() => {
                 if (overview?.draftVersion) void perform(
                   () => api.post<Revision>(`${base}/publish`, { version: overview.draftVersion }).then(res => res.data), 'publish');
               }}>
-                <Button icon={<CheckOutlined />} disabled={busy || dirty || !overview?.draftVersion}>{t('publish')}</Button>
+                <Button icon={<CheckOutlined />} disabled={busy || loading || dirty || overview?.type !== type || !overview?.draftVersion}>{t('publish')}</Button>
               </Popconfirm>
             </Space>
           </Space>
@@ -195,8 +215,10 @@ export function LegalContentPage() {
               { title: t('actions'), render: (_, revision) => <Space direction="vertical">
                 <Button size="small" icon={<EyeOutlined />} onClick={() => setPreview(revision)}>{t('preview')}</Button>
                 <Popconfirm title={t('confirmRestore')} onConfirm={() => void perform(
-                  () => api.post<Revision>(`${base}/restore/${revision.version}`).then(res => res.data), 'restore')}>
-                  <Button size="small" icon={<RollbackOutlined />} disabled={busy || dirty}>{t('restore')}</Button>
+                  () => api.post<Revision>(`${base}/restore/${revision.version}`, {
+                    expectedDraftVersion: overview?.draftVersion, expectedRevision: overview?.latestRevision,
+                  }).then(res => res.data), 'restore')}>
+                  <Button size="small" icon={<RollbackOutlined />} disabled={busy || loading || dirty || overview?.type !== type}>{t('restore')}</Button>
                 </Popconfirm>
               </Space> },
             ]} />

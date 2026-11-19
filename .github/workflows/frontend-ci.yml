@@ -189,6 +189,44 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      # Legal documents are not seeded with fabricated terms. The first
+      # enforcement release must be staged manually: deploy Identity/Admin,
+      # publish approved documents, then switch Customer UI and require consent.
+      # A normal main push cannot perform this sequence atomically.
+      - name: Require staged legal-content production rollout
+        env:
+          LEGAL_CONTENT_ROLLOUT_STAGE: ${{ vars.LEGAL_CONTENT_ROLLOUT_STAGE }}
+          BACKEND_ENV_JSON: ${{ secrets.BACKEND_ENV_JSON }}
+          PUBLIC_API_URL: ${{ vars.FRONTEND_API_URL }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f backend/identity-service/src/main/resources/db/migration/V15__legal_documents_and_consents.sql ]]; then
+            exit 0
+          fi
+          if [[ "$LEGAL_CONTENT_ROLLOUT_STAGE" != 'bootstrap' && "$LEGAL_CONTENT_ROLLOUT_STAGE" != 'enforce' ]]; then
+            echo '::error title=Legal rollout requires approval::Set production variable LEGAL_CONTENT_ROLLOUT_STAGE=bootstrap for temporary compatibility, then publish both legally reviewed documents and switch to enforce. See backend/identity-service/LEGAL_CONTENT_ROLLOUT.md. No production changes were made.'
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json, os, sys
+          try:
+              settings = json.loads(os.environ['BACKEND_ENV_JSON'])
+              expected = 'false' if os.environ['LEGAL_CONTENT_ROLLOUT_STAGE'] == 'bootstrap' else 'true'
+              if settings.get('LEGAL_CONSENT_REQUIRED', 'true') != expected:
+                  raise ValueError()
+          except (ValueError, TypeError, KeyError):
+              sys.exit('LEGAL_CONSENT_REQUIRED in BACKEND_ENV_JSON must match the approved rollout stage (bootstrap=false, enforce=true).')
+          PY
+          if [[ "$LEGAL_CONTENT_ROLLOUT_STAGE" == 'enforce' ]]; then
+            # Public status is read-only; enforce may only start after two
+            # approved documents are published on the currently running stack.
+            [[ "$PUBLIC_API_URL" =~ ^https?://[^/?#]+(/api)?/?$ ]] || { echo 'Invalid FRONTEND_API_URL for public legal readiness check.' >&2; exit 1; }
+            origin="${PUBLIC_API_URL%/}"
+            origin="${origin%/api}"
+            curl --fail --silent --show-error --connect-timeout 5 --max-time 15 "$origin/api/legal/public/status" | \
+              python3 -c 'import json,sys; status=json.load(sys.stdin); sys.exit(0 if status.get("documentsPublished") is True else "Publish BOTH legally approved documents before enabling registration consent.")'
+          fi
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
