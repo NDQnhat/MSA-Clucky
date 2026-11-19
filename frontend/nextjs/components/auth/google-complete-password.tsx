@@ -50,7 +50,7 @@ export function GoogleCompletePassword({
       setError("auth.validation.passwordMismatch");
       return;
     }
-    if (!legal.consent && !legal.transitional) {
+    if (!legal.canProceed) {
       setError("legal.required");
       return;
     }

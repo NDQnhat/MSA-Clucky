@@ -2,6 +2,7 @@ package com.clucky.identityservice.controller;
 
 import com.clucky.identityservice.service.LegalDocumentService;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -39,6 +40,13 @@ public class LegalAdminController {
     public LegalDocumentService.Revision publish(@PathVariable String type,
             @Valid @RequestBody LegalDocumentService.PublishedRequest request) {
         return service.publish(type, request.version());
+    }
+
+    @PostMapping("/{type}/unpublish")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unpublish(@PathVariable String type,
+            @Valid @RequestBody LegalDocumentService.PublishedRequest request) {
+        service.unpublish(type, request.version());
     }
 
     @PostMapping("/{type}/restore/{version}")

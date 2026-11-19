@@ -78,7 +78,7 @@ export default function RegisterPage() {
       focusField.current = firstInvalid;
       return;
     }
-    if (!legal.consent && !legal.transitional) { setConsentError(true); return; }
+    if (!legal.canProceed) { setConsentError(true); return; }
     setConsentError(false);
     setLoading(true);
     try {
@@ -201,7 +201,7 @@ export default function RegisterPage() {
             ))}
           </ul>
           <ConsentField state={legal} id="clucky-phone-consent" />
-          {consentError && !legal.consent && !legal.transitional && <p className="form-error" role="alert">{t("legal.required")}</p>}
+          {consentError && !legal.canProceed && !legal.loading && !legal.error && <p className="form-error" role="alert">{t("legal.required")}</p>}
           <button
             type="submit"
             className="btn-primary btn-block"

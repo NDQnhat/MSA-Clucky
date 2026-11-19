@@ -8,7 +8,6 @@ import com.clucky.identityservice.exception.ErrorCode;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.safety.Safelist;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,21 +26,10 @@ public class LegalDocumentService {
     public static final String PRIVACY = "PRIVACY_POLICY";
     private final JdbcTemplate jdbc;
     private final IdentityAuditService audit;
-    private boolean consentRequired = true;
 
     public LegalDocumentService(JdbcTemplate jdbc, IdentityAuditService audit) {
         this.jdbc = jdbc;
         this.audit = audit;
-    }
-
-    /**
-     * Safe two-phase rollout: temporarily set LEGAL_CONSENT_REQUIRED=false,
-     * publish BOTH legally reviewed revisions, then enable this flag. Default
-     * true: no signup bypass in a normal deployment.
-     */
-    @Value("${clucky.legal.consent-required:true}")
-    public void setConsentRequired(boolean consentRequired) {
-        this.consentRequired = consentRequired;
     }
 
     public record Revision(long id, String type, int version, String titleVi, String titleEn,
@@ -53,18 +41,29 @@ public class LegalDocumentService {
                              Integer expectedDraftVersion, Integer expectedRevision) {}
     public record PublishedRequest(int version) {}
     public record RestoreRequest(Integer expectedDraftVersion, Integer expectedRevision) {}
-    public record Approved(long termsId, long privacyId) {}
-    public record PublicStatus(boolean consentRequired, boolean documentsPublished) {}
+    /** At least one revision must be present; the other may be absent until Admin publishes it. */
+    public record Approved(Long termsId, Long privacyId) {}
+    public record PublicStatus(boolean consentRequired, boolean termsPublished,
+                               boolean privacyPublished, boolean documentsPublished) {}
 
-    /** Public, read-only rollout hint; the server still independently validates every consent. */
+    /** Read-only publication state. Registration validates again under transaction-scoped row locks. */
     @Transactional(readOnly = true)
     public PublicStatus publicStatus() {
-        Integer published = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM identity_service.legal_documents d "
-                + "JOIN identity_service.legal_revisions r ON r.id=d.published_revision_id "
-                + "WHERE d.document_type IN (?,?) AND r.published_at IS NOT NULL",
-                Integer.class, TERMS, PRIVACY);
-        return new PublicStatus(consentRequired, published != null && published == 2);
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT d.document_type, (d.published_revision_id IS NOT NULL AND r.id IS NOT NULL "
+                + "AND r.published_at IS NOT NULL) AS published "
+                + "FROM identity_service.legal_documents d "
+                + "LEFT JOIN identity_service.legal_revisions r "
+                + "ON r.id=d.published_revision_id AND r.document_type=d.document_type "
+                + "WHERE d.document_type IN (?,?) ORDER BY d.document_type", TERMS, PRIVACY);
+        if (rows.size() != 2) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        boolean terms = false, privacy = false;
+        for (Map<String, Object> row : rows) {
+            if (TERMS.equals(row.get("document_type"))) terms = Boolean.TRUE.equals(row.get("published"));
+            else if (PRIVACY.equals(row.get("document_type"))) privacy = Boolean.TRUE.equals(row.get("published"));
+            else throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        }
+        return new PublicStatus(terms || privacy, terms, privacy, terms && privacy);
     }
 
     private static String documentType(String type) {
@@ -245,43 +244,90 @@ public class LegalDocumentService {
     }
 
     /**
-     * SELECT FOR SHARE holds both published pointers stable until the surrounding
-     * registration transaction commits; concurrent publish must wait.
+     * Admin-only, compare-and-set unpublish. The document row lock also
+     * serializes with concurrent signup's FOR SHARE OF d and publish/draft.
+     * History remains immutable and no revision is deleted.
+     */
+    @Transactional
+    public void unpublish(String type, int expectedVersion) {
+        requireAdmin();
+        String checked = documentType(type);
+        if (expectedVersion < 1) throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        Map<String, Object> locked = jdbc.queryForMap(
+                "SELECT d.published_revision_id, r.version AS published_version "
+                + "FROM identity_service.legal_documents d LEFT JOIN identity_service.legal_revisions r "
+                + "ON r.id=d.published_revision_id AND r.document_type=d.document_type "
+                + "WHERE d.document_type=? FOR UPDATE OF d", checked);
+        Long currentId = number(locked.get("published_revision_id"));
+        Object currentVersion = locked.get("published_version");
+        if (currentId != null && currentVersion == null)
+            throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        if (currentId == null || ((Number) currentVersion).intValue() != expectedVersion)
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("published", "OUTDATED"));
+        jdbc.update("UPDATE identity_service.legal_documents SET published_revision_id=NULL, updated_at=now() "
+                + "WHERE document_type=?", checked);
+        CurrentActor actor = CurrentActor.require();
+        audit.record(actor.userId(), actor.role().name(), null, null, "LEGAL_VERSION_UNPUBLISHED",
+                currentId, "LegalRevision", Map.of("type", checked, "version", expectedVersion), null);
+    }
+
+    /**
+     * Lock BOTH document rows, including unpublished ones, until the enclosing
+     * registration transaction commits. A concurrent publish waits rather than
+     * changing which revisions require consent mid-signup.
      */
     @Transactional
     public Approved requireCurrentConsent(LegalConsentRequest accepted) {
-        if (!consentRequired) return null;
-        if (accepted == null || !Boolean.TRUE.equals(accepted.accepted())
-                || accepted.termsVersion() == null || accepted.privacyVersion() == null
-                || accepted.termsVersion() < 1 || accepted.privacyVersion() < 1) {
-            throw new ApiException(ErrorCode.VALIDATION_ERROR, Map.of("consent", "REQUIRED"));
-        }
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT d.document_type, r.id, r.version FROM identity_service.legal_documents d "
-                + "JOIN identity_service.legal_revisions r ON r.id=d.published_revision_id "
-                + "WHERE d.document_type IN (?,?) ORDER BY d.document_type FOR SHARE",
+                "SELECT d.document_type, d.published_revision_id AS id, r.version, r.published_at "
+                + "FROM identity_service.legal_documents d "
+                + "LEFT JOIN identity_service.legal_revisions r "
+                + "ON r.id=d.published_revision_id AND r.document_type=d.document_type "
+                + "WHERE d.document_type IN (?,?) ORDER BY d.document_type FOR SHARE OF d",
                 TERMS, PRIVACY);
-        if (rows.size() != 2) throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("consent", "NOT_PUBLISHED"));
-        long termsId = -1, privacyId = -1;
+        // Missing document rows or dangling/unpublished pointers are an invalid
+        // backend state, never a reason to silently allow registration.
+        if (rows.size() != 2) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        Long termsId = null, privacyId = null;
+        Integer termsVersion = null, privacyVersion = null;
         for (Map<String, Object> row : rows) {
+            Object id = row.get("id");
+            Object version = row.get("version");
+            Object publishedAt = row.get("published_at");
+            if (id != null && (version == null || publishedAt == null))
+                throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
             if (TERMS.equals(row.get("document_type"))) {
-                if (((Number) row.get("version")).intValue() != accepted.termsVersion())
-                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("consent", "OUTDATED"));
-                termsId = ((Number) row.get("id")).longValue();
-            } else {
-                if (((Number) row.get("version")).intValue() != accepted.privacyVersion())
-                    throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("consent", "OUTDATED"));
-                privacyId = ((Number) row.get("id")).longValue();
-            }
+                termsId = number(id);
+                termsVersion = version == null ? null : ((Number) version).intValue();
+            } else if (PRIVACY.equals(row.get("document_type"))) {
+                privacyId = number(id);
+                privacyVersion = version == null ? null : ((Number) version).intValue();
+            } else throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         }
-        if (termsId <= 0 || privacyId <= 0) throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
+        if (termsId == null && privacyId == null) {
+            // A caller may omit consent while there are no published documents.
+            // A purported acceptance/version is synthetic and must not be saved.
+            if (accepted != null) throw new ApiException(ErrorCode.VALIDATION_ERROR,
+                    Map.of("consent", "NOT_REQUIRED"));
+            return null;
+        }
+        if (accepted == null || !Boolean.TRUE.equals(accepted.accepted()))
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, Map.of("consent", "REQUIRED"));
+        if ((termsVersion != null && accepted.termsVersion() == null)
+                || (privacyVersion != null && accepted.privacyVersion() == null))
+            throw new ApiException(ErrorCode.VALIDATION_ERROR, Map.of("consent", "REQUIRED"));
+        if (!Objects.equals(termsVersion, accepted.termsVersion())
+                || !Objects.equals(privacyVersion, accepted.privacyVersion()))
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("consent", "OUTDATED"));
         return new Approved(termsId, privacyId);
     }
 
     @Transactional
     public void recordAcceptance(long userId, Approved approved, String source) {
-        if (approved == null && !consentRequired) return;
-        if (approved == null || (!"PHONE_REGISTER".equals(source) && !"GOOGLE_COMPLETE".equals(source)))
+        if (approved == null) return; // No published documents at the locked signup snapshot.
+        if (!"PHONE_REGISTER".equals(source) && !"GOOGLE_COMPLETE".equals(source))
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        if (approved.termsId() == null && approved.privacyId() == null)
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         jdbc.update("INSERT INTO identity_service.legal_consents "
                 + "(user_id,terms_revision_id,privacy_revision_id,source) VALUES (?,?,?,?)",

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Alert, Button, Card, Col, Input, Modal, Popconfirm, Row, Segmented, Space, Table, Tag, Typography } from 'antd';
-import { CheckOutlined, EyeOutlined, FileTextOutlined, HistoryOutlined, ReloadOutlined, RollbackOutlined, SaveOutlined } from '@ant-design/icons';
+import { CheckOutlined, EyeOutlined, FileTextOutlined, HistoryOutlined, ReloadOutlined, RollbackOutlined, SaveOutlined, StopOutlined } from '@ant-design/icons';
 import { api, getErrorMessage } from '../../lib/api';
 import legalTemplates from './legal-templates.json' with { type: 'json' };
 import { LegalRequestScope } from './legal-request-scope';
@@ -106,9 +106,11 @@ export function LegalContentPage() {
     const latest = doc.data.draft || doc.data.published;
     const content = latest ? {
       titleVi: latest.titleVi, titleEn: latest.titleEn, htmlVi: latest.htmlVi, htmlEn: latest.htmlEn,
-    } : empty;
+    } : outlines[type];
     setEditing(content);
-    setBaseline(content);
+    // Offer a full sample as an unsaved draft for a new document.
+    // The admin still needs to save and explicitly publish it.
+    setBaseline(latest ? content : empty);
     setEditorRevision(n => n + 1);
     return true;
   }, [type, requests]);
@@ -122,7 +124,7 @@ export function LegalContentPage() {
     return () => { live = false; requests.invalidate(); };
   }, [refresh, requests, type]);
 
-  async function perform(task: () => Promise<Revision>, kind: 'save' | 'publish' | 'restore') {
+  async function perform(task: () => Promise<Revision | undefined>, kind: 'save' | 'publish' | 'restore' | 'unpublish') {
     if (busy || !overview || overview.type !== type || loading) return;
     const activeType = type;
     setBusy(true); setError(''); setNotice('');
@@ -130,8 +132,10 @@ export function LegalContentPage() {
       const result = await task();
       const applied = await refresh();
       if (!applied || !requests.isType(activeType)) return;
-      setNotice(t(kind === 'save' ? 'saveSuccess' : kind === 'publish' ? 'publishSuccess' : 'restoreSuccess',
-        { version: result.version }));
+      setNotice(kind === 'unpublish' ? t('unpublishSuccess') : t(
+        kind === 'save' ? 'saveSuccess' : kind === 'publish' ? 'publishSuccess' : 'restoreSuccess',
+        { version: result?.version },
+      ));
     } catch (failure) {
       if (requests.isType(activeType)) setError(getErrorMessage(failure));
     } finally {
@@ -162,6 +166,8 @@ export function LegalContentPage() {
     {error && <Alert type="error" showIcon message={error} />}
     {notice && <Alert type="success" showIcon message={notice} />}
     {!loading && !overview?.published && <Alert showIcon type="warning" message={t('initialNotice')} />}
+    {!loading && overview && !overview.draft && !overview.published &&
+      <Alert showIcon type="info" message={t('templateReview')} />}
     <Row gutter={[16, 16]}>
       <Col xs={24} xl={16}>
         <Card loading={loading} title={<Space><FileTextOutlined /> {t('editor')}</Space>}
@@ -198,6 +204,10 @@ export function LegalContentPage() {
               }}>
                 <Button icon={<CheckOutlined />} disabled={busy || loading || dirty || overview?.type !== type || !overview?.draftVersion}>{t('publish')}</Button>
               </Popconfirm>
+              {overview?.publishedVersion && <Popconfirm title={t('confirmUnpublish')} onConfirm={() => void perform(
+                () => api.post<void>(`${base}/unpublish`, { version: overview.publishedVersion }).then(() => undefined), 'unpublish')}>
+                <Button danger icon={<StopOutlined />} disabled={busy || loading || dirty || overview?.type !== type}>{t('unpublish')}</Button>
+              </Popconfirm>}
             </Space>
           </Space>
         </Card>
