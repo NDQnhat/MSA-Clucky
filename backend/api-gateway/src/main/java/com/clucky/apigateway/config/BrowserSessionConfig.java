@@ -21,6 +21,12 @@ import org.springframework.web.server.WebFilter;
 @Configuration(proxyBeanMethods = false)
 public class BrowserSessionConfig {
     private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
+    private static final Set<String> PUBLIC_AUTH_POST_PATHS = Set.of(
+            "/api/auth/register", "/api/auth/resend-otp", "/api/auth/verify-otp",
+            "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
+            "/api/auth/forgot-password", "/api/auth/reset-password",
+            "/api/auth/google", "/api/auth/google/complete",
+            "/api/auth/branch/challenge", "/api/auth/branch/finish");
     private final List<String> customerOrigins;
     private final List<String> adminOrigins;
 
@@ -68,6 +74,8 @@ public class BrowserSessionConfig {
             var cookie = request.getCookies().getFirst(cookieName);
             boolean authMutation = path.startsWith("/api/auth/")
                     && !SAFE_METHODS.contains(request.getMethod().name());
+            boolean publicAuthMutation = "POST".equals(request.getMethod().name())
+                    && PUBLIC_AUTH_POST_PATHS.contains(path);
             boolean cookieMutation = !SAFE_METHODS.contains(request.getMethod().name())
                     && request.getCookies().keySet().stream().anyMatch(name -> name.startsWith("clucky_"));
             String origin = request.getHeaders().getOrigin();
@@ -95,7 +103,10 @@ public class BrowserSessionConfig {
                 headers.remove("X-Clucky-Client-IP");
                 if (clientIp != null && !clientIp.isBlank()) headers.set("X-Clucky-Client-IP", clientIp);
                 if (authMutation || client != null) headers.remove(HttpHeaders.AUTHORIZATION);
-                if (!authMutation && client != null && cookie != null) headers.setBearerAuth(cookie.getValue());
+                // Auth mutations still need the access cookie when the endpoint is
+                // protected (for example, changing a session limit). Only public
+                // login/OTP/refresh/logout endpoints must remain cookie-only.
+                if (!publicAuthMutation && client != null && cookie != null) headers.setBearerAuth(cookie.getValue());
                 if (!path.startsWith("/api/auth/")) headers.remove(HttpHeaders.COOKIE);
             }).build();
             return chain.filter(exchange.mutate().request(forwarded).build());
