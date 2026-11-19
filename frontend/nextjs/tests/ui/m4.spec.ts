@@ -25,6 +25,12 @@ test.beforeEach(async ({ page }) => {
   await page.route("**/api/auth/session", route => route.fulfill({
     json: route.request().headers()["x-clucky-client"] === "admin" ? adminSession : customerSession,
   }));
+  // This suite tests Google auth without publishing legal content. The API
+  // status must explicitly say so; a missing/failed status correctly blocks
+  // new-account completion rather than silently bypassing consent.
+  await page.route("**/api/legal/public/status", route => route.fulfill({ json: {
+    consentRequired: false, termsPublished: false, privacyPublished: false, documentsPublished: false,
+  } }));
 });
 
 async function expectNoOverflow(page: Page) {
