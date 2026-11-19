@@ -49,7 +49,7 @@ export interface RegisterPayload {
   fullName: string;
   phone: string;
   password: string;
-  /** Omitted only while the backend explicitly runs staged-rollout mode. */
+  /** Omitted when the admin has not published any legal document. */
   consent?: LegalConsentInput;
 }
 export type LegalType = "TERMS_OF_SERVICE" | "PRIVACY_POLICY";
@@ -62,8 +62,18 @@ export interface PublicLegalDocument {
   htmlEn: string;
   publishedAt: string;
 }
-export interface PublicLegalStatus { consentRequired: boolean; documentsPublished: boolean }
-export interface LegalConsentInput { accepted: true; termsVersion: number; privacyVersion: number }
+export interface PublicLegalStatus {
+  consentRequired: boolean;
+  termsPublished: boolean;
+  privacyPublished: boolean;
+  /** Compatibility field retained by some backend versions. */
+  documentsPublished?: boolean;
+}
+export interface LegalConsentInput {
+  accepted: true;
+  termsVersion?: number;
+  privacyVersion?: number;
+}
 export const legalApi = {
   status: () => request<PublicLegalStatus>('/api/legal/public/status'),
   published: (type: LegalType) => request<PublicLegalDocument>(`/api/legal/public/${type}`),

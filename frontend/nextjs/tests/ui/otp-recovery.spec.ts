@@ -67,7 +67,7 @@ test("invalid password login displays only the neutral localized error", async (
 test("phone-first registration requires SMS OTP and verifies its challenge", async ({ page }) => {
   const submitted: unknown[] = [];
   await page.route("**/api/legal/public/status", route => route.fulfill({ json: {
-    consentRequired: true, documentsPublished: true,
+    consentRequired: true, termsPublished: true, privacyPublished: true, documentsPublished: true,
   } }));
   for (const type of ["TERMS_OF_SERVICE", "PRIVACY_POLICY"]) {
     await page.route(`**/api/legal/public/${type}`, route => route.fulfill({ json: {

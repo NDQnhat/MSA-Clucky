@@ -239,7 +239,7 @@ Clucky/
 
 ## Tài liệu và CI/CD
 
-> **Lưu ý triển khai điều khoản pháp lý:** Việc bổ sung trang điều khoản và yêu cầu khách hàng xác nhận cần phát hành theo hai giai đoạn `bootstrap` và `enforce`. Chỉ bật bắt buộc chấp thuận sau khi đã xuất bản đủ hai văn bản được duyệt. Xem [hướng dẫn chuyển đổi không gián đoạn đăng ký](backend/identity-service/LEGAL_CONTENT_ROLLOUT.md) trước khi triển khai bản này lên production.
+> **Nội dung pháp lý:** Admin có thể xuất bản hoặc gỡ xuất bản từng tài liệu độc lập. Khách hàng chỉ cần xác nhận phiên bản hiện hành của những tài liệu đang được công bố; chưa có tài liệu nào được công bố thì không yêu cầu xác nhận. Không tự công bố văn bản mẫu. Xem [hướng dẫn vận hành nội dung pháp lý](backend/identity-service/LEGAL_CONTENT_ROLLOUT.md).
 
 - [Thiết kế kiến trúc hệ thống](architechture/docs/Kiến%20trúc%20hệ%20thống.md) và [các sơ đồ nghiệp vụ](architechture/diagrams/).
 - [Đặc tả yêu cầu phần mềm (SRS)](architechture/docs/SRS.md), [Backlog](architechture/docs/backlog.md) và [Quy chuẩn thương hiệu](architechture/docs/Brand_Guidelines.md).
