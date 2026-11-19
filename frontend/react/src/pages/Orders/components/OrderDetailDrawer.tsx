@@ -31,7 +31,7 @@ import { getErrorMessage, vietQrApi, type VietQrBank, type ShipmentSimulationTra
 import styles from "../orders.module.css";
 import { CodEvidencePanel } from "./CodEvidencePanel";
 import { ShipmentSimulationPanel } from "../../../components/ShipmentSimulationPanel";
-import { fulfillmentLabel, getFulfillmentMode } from "../../../lib/order-fulfillment";
+import { displayPaymentStatus, fulfillmentLabel, getFulfillmentMode } from "../../../lib/order-fulfillment";
 
 interface Props {
   order: AdminOrder | null;
@@ -91,6 +91,7 @@ export function OrderDetailDrawer({
     return () => { active = false; };
   }, [createRefundOpen, banks.length]);
   if (!order) return null;
+  const paymentState = displayPaymentStatus(order, tracking?.merchantPaymentStatus);
   return (
     <>
       <Drawer
@@ -272,11 +273,10 @@ export function OrderDetailDrawer({
             </div>
             <div>
               <dt>{t("business:catalog.status")}</dt>
-              <dd data-paid={["PAID", "COLLECTED"].includes(order.paymentStatus) || tracking?.merchantPaymentStatus === 'PAID_SIMULATED'}>
-                {order.orderType === 'DELIVERY' && order.paymentMethod === 'COD'
-                  && tracking?.merchantPaymentStatus === 'PAID_SIMULATED'
-                  ? i18n.t("shipping:ui.riderPaidOnCollectionSimulationCustomerPaysCodOnDelivery")
-                  : t(`admin:paymentStates.${order.paymentStatus}`)}
+              <dd data-paid={["PAID", "COLLECTED", "PAID_SIMULATED"].includes(paymentState)}>
+                {paymentState === 'PAID_SIMULATED' ? t("shipping:ui.riderAdvanceReceivedSimulation")
+                  : paymentState === 'ADVANCE_RETURNED' ? t("shipping:ui.riderAdvanceReturnedSimulation")
+                    : t(`admin:paymentStates.${order.paymentStatus}`)}
               </dd>
             </div>
             <div>

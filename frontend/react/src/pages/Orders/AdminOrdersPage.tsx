@@ -30,7 +30,8 @@ import {
 } from "../../utils/orderExcelExport";
 import { AdminOrderDrawer } from "./components/AdminOrderDrawer";
 import { FinanceModal } from "../Payments/FinanceDrawer";
-import { orderDate, paymentColor, paymentMethodLabel } from "./presentation";
+import { orderDate, paymentColor, paymentLabels, paymentMethodLabel } from "./presentation";
+import { displayPaymentStatus } from "../../lib/order-fulfillment";
 import "./admin-orders.css";
 import { useOrderAlerts } from "../../hooks/useOrderAlerts";
 import { OrderSoundButton } from "../../components/ui/OrderSoundButton";
@@ -161,7 +162,10 @@ export function AdminOrdersPage() {
     { title: t("admin:nav.customers"), width: 175, render: (_: unknown, order: AdminOrder) => <div className="order-cell"><strong>{order.customerName}</strong><small>{order.customerPhone || t("admin:ui.noPhoneNumberProvided")}</small></div> },
     { title: t("admin:ui.branchFulfillment"), width: 220, render: (_: unknown, order: AdminOrder) => <div className="order-cell"><span>{stores.find(store => store.id === Number(order.storeId))?.name || order.storeName}</span><small>{order.orderType === 'DELIVERY' ? i18n.t("shipping:ui.delivery") : order.diningOption === 'DINE_IN' ? i18n.t("shipping:ui.dineInCustomerCollectsAtTheCounter2") : order.diningOption === 'TAKE_AWAY' || order.orderSource === 'WEB' ? i18n.t("shipping:ui.takeAway") : i18n.t("shipping:ui.storePickup")}</small></div> },
     { title: t("accounts:status"), width: 155, render: (_: unknown, order: AdminOrder) => <OrderStatusBadge status={order.status} /> },
-    { title: t("business:cart.checkout"), width: 185, render: (_: unknown, order: AdminOrder) => <div className="order-cell"><Tag color={paymentColor(order.paymentStatus)}>{t(`admin:paymentStates.${order.paymentStatus ?? 'UNKNOWN'}`, { defaultValue: t("admin:paymentStates.UNKNOWN") })}</Tag><small>{paymentMethodLabel(order.paymentMethod)}</small></div> },
+    { title: t("business:cart.checkout"), width: 185, render: (_: unknown, order: AdminOrder) => {
+      const paymentState = displayPaymentStatus(order);
+      return <div className="order-cell"><Tag color={paymentColor(paymentState)}>{paymentLabels[paymentState] ?? t("admin:paymentStates.UNKNOWN")}</Tag><small>{paymentMethodLabel(order.paymentMethod)}</small></div>;
+    } },
     { title: t("business:id.total"), width: 130, align: 'right' as const, dataIndex: "total", render: (amount: number) => <strong className="order-amount">{money(amount)}</strong> },
     { title: t("accounts:action"), width: 125, fixed: 'right' as const, render: (_: unknown, order: AdminOrder) => <Space direction="vertical" size={0}><Button type="link" size="small" onClick={() => openDetail(order.id)}>{t("business:orderdetaildrawer.details")}</Button>
       <Button type="text" size="small" icon={<WalletOutlined />} onClick={() => setFinanceId(Number(order.id))}>{t("admin:ui.finance")}</Button></Space> },

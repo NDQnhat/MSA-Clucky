@@ -41,7 +41,13 @@ public class PaymentFlow {
             BigDecimal amount, String status, String paymentMethod, Instant expiresAt) {}
     public record Context(long orderId, String orderCode, Long customerId, Long storeId, BigDecimal amount,
             String status, String paymentMethod, String paymentStatus, Instant expiresAt, Instant version,
-            String orderSource, String orderType) {
+            String orderSource, String orderType, String merchantPaymentStatus) {
+        public Context(long orderId, String orderCode, Long customerId, Long storeId, BigDecimal amount,
+                String status, String paymentMethod, String paymentStatus, Instant expiresAt, Instant version,
+                String orderSource, String orderType) {
+            this(orderId, orderCode, customerId, storeId, amount, status, paymentMethod, paymentStatus,
+                    expiresAt, version, orderSource, orderType, null);
+        }
         public Context(long orderId, String orderCode, Long customerId, Long storeId, BigDecimal amount,
                 String status, String paymentMethod, String paymentStatus, Instant expiresAt, Instant version,
                 String orderSource) {

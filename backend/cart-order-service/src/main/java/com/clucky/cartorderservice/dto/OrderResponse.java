@@ -33,7 +33,8 @@ public record OrderResponse(
         String diningOption,
         Integer queueNumber,
         Long version,
-        String collectionMethod
+        String collectionMethod,
+        String merchantPaymentStatus
 ) {
     public OrderResponse(
             Long id, String orderCode, Long customerId, Long storeId, String type,
@@ -50,7 +51,7 @@ public record OrderResponse(
                 pointsUsed, pointsAmount, shippingFee, totalAmount, voucherCode, receiverName,
                 receiverPhone, deliveryAddress, note, scheduledAt, createdAt, updatedAt,
                 paymentMethod, items, timeline, paymentStatus, orderSource, diningOption,
-                queueNumber, version, null);
+                queueNumber, version, null, null);
     }
     public OrderResponse(
             Long id,

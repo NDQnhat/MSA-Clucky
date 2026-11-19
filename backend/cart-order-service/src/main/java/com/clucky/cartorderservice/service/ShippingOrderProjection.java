@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 /** Receives authenticated-by-origin domain events; never trusts a client status flag. */
 @Service
@@ -59,11 +60,16 @@ public class ShippingOrderProjection {
                 Integer.class, orderId);
         if (lastAttempt != null && attempt < lastAttempt) return;
 
+        String resolution = payload.path("resolution").asText();
         String phase = switch (event.eventType()) {
             case "shipping.started" -> "SHIPPING";
             case "shipping.delivered" -> "DELIVERED";
             case "shipping.failed" -> "FAILED";
-            case "shipping.resolved" -> "CLOSED";
+            case "shipping.resolved" -> switch (resolution) {
+                case "RETURNED" -> "RETURNED";
+                case "CLOSED_UNDELIVERABLE" -> "CLOSED";
+                default -> throw new IllegalArgumentException("Unexpected shipping resolution");
+            };
             default -> throw new IllegalArgumentException("Unexpected shipping event type");
         };
         int inserted = jdbc.update("""
@@ -74,14 +80,30 @@ public class ShippingOrderProjection {
 
         String current = order.getStatus();
         if ("CANCELLED".equals(current) || "COMPLETED".equals(current) || "DELIVERY_FAILED".equals(current)) return;
+        boolean cod = "COD".equals(order.getPaymentMethod());
+        boolean paid = List.of("PAID", "COLLECTED").contains(order.getPaymentStatus());
+        boolean pendingCod = cod && "PENDING".equals(order.getPaymentStatus());
+        boolean advanceConfirmed = payload.path("simulatedAdvanceConfirmed").asBoolean(false);
+
+        if ("RETURNED".equals(phase)) {
+            if (pendingCod && "ADVANCE_RETURNED".equals(payload.path("merchantPaymentStatus").asText())) {
+                recordMerchantPayment(order, "ADVANCE_RETURNED");
+            }
+            return; // Return and retry do not finish the order.
+        }
+        if (pendingCod && ("SHIPPING".equals(phase) || "DELIVERED".equals(phase))
+                && Boolean.TRUE.equals(jdbc.queryForObject("""
+                    SELECT EXISTS (SELECT 1 FROM order_service.mock_delivery_receipts
+                        WHERE order_id = ? AND attempt_number = ? AND phase IN ('RETURNED', 'CLOSED'))
+                    """, Boolean.class, orderId, attempt))) return;
+
         if ("shipping.started".equals(event.eventType())) {
             // Real QR is customer prepaid. For unpaid COD, pickup first records
             // a simulated rider settlement to the merchant, not customer cash.
-            if ("COD".equals(order.getPaymentMethod())
-                    && !List.of("PAID", "COLLECTED").contains(order.getPaymentStatus())
-                    && !payload.path("simulatedAdvanceConfirmed").asBoolean(false)) {
+            if (cod && !paid && !advanceConfirmed) {
                 throw new IllegalArgumentException("Rider mock merchant advance is missing");
             }
+            if (pendingCod && advanceConfirmed) recordMerchantPayment(order, "PAID_SIMULATED");
             if ("READY".equals(current)) change(order, "SHIPPING", "Shipper giả lập đã nhận hàng");
             else if (!"SHIPPING".equals(current)) throw new IllegalStateException("Order is not ready for shipping");
             return;
@@ -107,24 +129,29 @@ public class ShippingOrderProjection {
             if (!payload.path("proofRecorded").asBoolean(false)) {
                 throw new IllegalArgumentException("Mock delivery has no proof");
             }
-            boolean cod = "COD".equals(order.getPaymentMethod());
-            boolean paid = List.of("PAID", "COLLECTED").contains(order.getPaymentStatus());
             boolean noPayment = "NO_PAYMENT".equals(order.getCollectionMethod())
                     && order.getTotalAmount().signum() == 0;
-            if (cod && !paid && !payload.path("simulatedAdvanceConfirmed").asBoolean(false)) {
+            if (cod && !paid && !advanceConfirmed) {
                 throw new IllegalArgumentException("COD rider mock merchant settlement is missing");
             }
             if (!cod && !paid) {
                 throw new IllegalStateException("QR customer has not completed real prepayment");
             }
+            if (pendingCod && advanceConfirmed) recordMerchantPayment(order, "PAID_SIMULATED");
             change(order, "COMPLETED", "Giao hàng thành công (mô phỏng)", false);
             publisher.publishSimulatedDeliveryCompleted(order, items.findByOrderIdOrderByIdAsc(orderId), paid || noPayment);
         } else if ("shipping.resolved".equals(event.eventType())) {
-            if (!"CLOSED_UNDELIVERABLE".equals(payload.path("resolution").asText())) {
-                return; // Return and retry never finish the order.
+            if (pendingCod && "ADVANCE_RETURNED".equals(payload.path("merchantPaymentStatus").asText())) {
+                recordMerchantPayment(order, "ADVANCE_RETURNED");
             }
             change(order, "DELIVERY_FAILED", "Đã đóng xử lý giao hàng thất bại");
         }
+    }
+
+    private void recordMerchantPayment(Order order, String status) {
+        if (Objects.equals(order.getMerchantPaymentStatus(), status)) return;
+        order.setMerchantPaymentStatus(status);
+        orders.saveAndFlush(order);
     }
 
     private void change(Order order, String target, String reason) {

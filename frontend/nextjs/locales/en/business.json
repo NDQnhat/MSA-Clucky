@@ -229,7 +229,7 @@
     "amountDue": "Amount due",
     "payInCashWhenYouReceiveYourMeal": "Pay in cash when you receive your meal.",
     "scanTheCodeBelowToCompletePayment": "Scan the code below to complete payment.",
-    "codSimulatedPaid": "Paid (simulation only)",
+    "codSimulatedPaid": "Store collected from rider (simulation)",
     "codSimulatedPaidMessage": "The rider has collected the food and a simulated store payment is recorded. You still pay the rider in cash on delivery; Clucky cannot verify that collection.",
     "codCollectionOutside": "Cash collected by the rider is outside Clucky and remains unverified.",
     "orderValue": "Order value",

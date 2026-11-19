@@ -213,6 +213,7 @@ export function mapBackendOrderToAdminOrder(be: BackendOrder, images: OrderItemI
     status,
     paymentMethod: (be.paymentMethod as AdminOrder["paymentMethod"]) || (status === "PENDING_PAYMENT" ? "BANK_TRANSFER" : "COD"),
     paymentStatus: be.paymentStatus ?? "UNKNOWN",
+    merchantPaymentStatus: be.merchantPaymentStatus,
     items,
     subtotal: Number(be.subtotal),
     discount: Number(be.discountAmount || 0),

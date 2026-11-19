@@ -229,7 +229,7 @@
     "amountDue": "Số tiền cần thanh toán",
     "payInCashWhenYouReceiveYourMeal": "Bạn thanh toán bằng tiền mặt khi nhận món.",
     "scanTheCodeBelowToCompletePayment": "Quét mã bên dưới để hoàn tất thanh toán.",
-    "codSimulatedPaid": "Đã thanh toán (mô phỏng)",
+    "codSimulatedPaid": "Quán đã thu từ shipper (mô phỏng)",
     "codSimulatedPaidMessage": "Shipper đã nhận món, quán được ghi nhận thanh toán mô phỏng. Bạn vẫn trả tiền mặt cho shipper khi nhận hàng; Clucky không xác minh khoản thu từ khách.",
     "codCollectionOutside": "Tiền mặt khách trả shipper là giao dịch ngoài hệ thống, chưa được Clucky xác minh.",
     "orderValue": "Giá trị đơn hàng",

@@ -267,7 +267,9 @@ export function ShipmentSimulationPanel({ orderId, onChanged }: { orderId: strin
           : cod
           ? tracking.merchantPaymentStatus === 'PAID_SIMULATED'
             ? i18n.t("shipping:ui.theRiderHasPaidTheStoreSimulationTheCustomerPaysCodToTheRiderUponDelivery")
-            : i18n.t("shipping:ui.codCustomerPaysTheRiderUponDeliveryOutsideThePlatform")
+            : tracking.merchantPaymentStatus === 'ADVANCE_RETURNED'
+              ? i18n.t("shipping:ui.riderAdvanceReturnedSimulation")
+              : i18n.t("shipping:ui.codCustomerPaysTheRiderUponDeliveryOutsideThePlatform")
           : tracking.paymentMethod === 'BANK_TRANSFER'
             ? i18n.t("shipping:ui.customerPrepaidByQrCodeTheRiderOnlyDeliversTheOrder")
             : i18n.t("shipping:ui.paymentMethodNeedsVerification", { method: tracking.paymentMethod || i18n.t("shipping:ui.unknown") })}</p>

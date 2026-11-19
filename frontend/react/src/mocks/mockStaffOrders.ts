@@ -1,4 +1,5 @@
 import type { AdminOrderStatus } from "../types/order";
+import type { MerchantPaymentStatus } from "../lib/api";
 
 export type OrderSource = "COUNTER" | "WEB";
 export type DiningOption = "DINE_IN" | "TAKE_AWAY";
@@ -32,6 +33,7 @@ export interface StaffOrder {
   paymentMethod: PaymentMethod;
   collectionMethod?: 'NO_PAYMENT' | 'CASH' | 'BANK_TRANSFER' | 'MIXED' | 'UNVERIFIED' | null;
   paymentStatus: PaymentStatus;
+  merchantPaymentStatus?: MerchantPaymentStatus | null;
   items: StaffOrderItem[];
   subtotal: number;
   discount: number;

@@ -143,6 +143,7 @@ export function fromBackendOrderToStaffOrder(
     paymentMethod: (bo.paymentMethod || "CASH") as PaymentMethod,
     collectionMethod: bo.collectionMethod,
     paymentStatus: (bo.paymentStatus || "PENDING") as PaymentStatus,
+    merchantPaymentStatus: bo.merchantPaymentStatus,
     items: staffItems,
     subtotal: bo.subtotal || bo.totalAmount || 0,
     discount: bo.discountAmount || 0,
@@ -915,6 +916,7 @@ export function StaffOrdersPage() {
           ? "COD"
           : found.paymentMethod === "SPLIT" ? "SPLIT" : "BANK_TRANSFER",
       paymentStatus: found.paymentStatus,
+      merchantPaymentStatus: found.merchantPaymentStatus,
       items: found.items.map((it) => ({
         id: it.id,
         itemName: it.itemName,

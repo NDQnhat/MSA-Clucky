@@ -5,6 +5,8 @@ export const orderLabels: Record<string, string> = {
 };
 
 export const paymentLabels: Record<string, string> = {
+  get PAID_SIMULATED() { return i18n.t("shipping:ui.riderAdvanceReceivedSimulation"); },
+  get ADVANCE_RETURNED() { return i18n.t("shipping:ui.riderAdvanceReturnedSimulation"); },
   get PENDING() { return i18n.t("admin:paymentStates.PENDING"); }, get PAID() { return i18n.t("admin:paymentStates.PAID"); }, get COLLECTED() { return i18n.t("business:stafforderspage.paymentCollected"); }, get REFUNDED() { return i18n.t("admin:paymentStates.REFUNDED"); },
   get FAILED() { return i18n.t("business:orderdetaildrawer.failed"); }, get EXPIRED() { return i18n.t("business:paymentstatusbadge.expired"); }, get CANCELLED() { return i18n.t("business:orders.cancelled"); }, get UNKNOWN() { return i18n.t("admin:ui.unverified"); },
 };
@@ -14,7 +16,7 @@ export function paymentMethodLabel(method?: string) {
 }
 
 export function paymentColor(status?: string) {
-  if (['PAID', 'COLLECTED', 'REFUNDED'].includes(status ?? '')) return 'success';
+  if (['PAID', 'COLLECTED', 'REFUNDED', 'PAID_SIMULATED'].includes(status ?? '')) return 'success';
   if (['FAILED', 'EXPIRED', 'CANCELLED'].includes(status ?? '')) return 'error';
   return status === 'PENDING' ? 'gold' : 'default';
 }

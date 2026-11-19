@@ -85,6 +85,12 @@ public class Order {
     @Column(name = "payment_status", nullable = false, length = 20)
     private String paymentStatus = "PENDING";
 
+    @Column(name = "merchant_payment_status", length = 24)
+    private String merchantPaymentStatus;
+
+    public String getMerchantPaymentStatus() { return merchantPaymentStatus; }
+    public void setMerchantPaymentStatus(String status) { this.merchantPaymentStatus = status; }
+
     @Column(name = "counter_payment_started", nullable = false)
     private boolean counterPaymentStarted;
 

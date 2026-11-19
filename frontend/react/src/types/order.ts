@@ -1,4 +1,4 @@
-import type { BackendRefund } from "../lib/api";
+import type { BackendRefund, MerchantPaymentStatus } from "../lib/api";
 
 export type AdminOrderStatus =
   | "PENDING_PAYMENT"
@@ -39,6 +39,7 @@ export interface AdminOrder {
   status: AdminOrderStatus;
   paymentMethod: AdminPaymentMethod;
   paymentStatus: AdminPaymentStatus;
+  merchantPaymentStatus?: MerchantPaymentStatus | null;
   items: AdminOrderItem[];
   subtotal: number;
   discount: number;

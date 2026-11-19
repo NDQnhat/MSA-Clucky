@@ -50,7 +50,8 @@ public final class DomainMapper {
                 entity.getDiningOption(),
                 entity.getQueueNumber(),
                 entity.getVersion(),
-                entity.getCollectionMethod()
+                entity.getCollectionMethod(),
+                entity.getMerchantPaymentStatus()
         );
     }
 

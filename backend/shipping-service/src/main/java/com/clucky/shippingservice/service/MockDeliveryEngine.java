@@ -265,6 +265,7 @@ public class MockDeliveryEngine {
                 CurrentActor.require().userId(), request == null ? null : request.note(),
                 request == null ? null : request.idempotencyKey(), orderId, number);
         changeShipment(shipment, "FAILED", "SIMULATED_RETURNED_TO_STORE");
+        emit("shipping.resolved", shipment, attempt, "RETURNED", false, "RETURNED");
         return tracking(orderId);
     }
 

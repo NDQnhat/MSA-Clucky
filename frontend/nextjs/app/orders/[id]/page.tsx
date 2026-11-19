@@ -206,7 +206,8 @@ export default function OrderTrackingPage({
   const terminal = ["COMPLETED", "CANCELLED"].includes(order.status);
   const currentShipment = shipmentTracking?.orderId === Number(order.id) ? shipmentTracking : null;
   const codMockPaid = order.type === "DELIVERY" && order.paymentMethod === "COD"
-    && currentShipment?.merchantPaymentStatus === "PAID_SIMULATED";
+    && order.paymentStatus === "PENDING"
+    && (order.merchantPaymentStatus ?? currentShipment?.merchantPaymentStatus) === "PAID_SIMULATED";
   const paymentCopy = {
     COLLECTED: {
       label: t("business.paymentstatusbadge.codCollected"),
