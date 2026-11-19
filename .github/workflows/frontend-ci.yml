@@ -271,7 +271,28 @@ jobs:
         run: |
           set -euo pipefail
           cd backend
-          bash gradlew ":$SERVICE:bootJar" --no-daemon --max-workers=2 --build-cache
+          # Gradle may restore cached negative Maven Central artifact lookups.
+          # Only retry dependency-resolution failures, forcing a fresh lookup;
+          # genuine compilation errors still fail immediately.
+          build_log="$(mktemp)"
+          for attempt in 1 2 3; do
+            args=(":$SERVICE:bootJar" --no-daemon --max-workers=2 --build-cache)
+            if (( attempt > 1 )); then
+              args+=(--refresh-dependencies)
+            fi
+            echo "Gradle build attempt $attempt/3 for $SERVICE"
+            if bash gradlew "${args[@]}" 2>&1 | tee "$build_log"; then
+              rm -f "$build_log"
+              break
+            fi
+            if (( attempt == 3 )) || ! grep -Eq 'Could not resolve|Could not find .*\.jar|Could not download|Read timed out|Connection reset' "$build_log"; then
+              echo "::error title=Gradle image build failed::Unable to build $SERVICE (attempt $attempt/3)"
+              rm -f "$build_log"
+              exit 1
+            fi
+            echo "::warning title=Retrying Maven artifact resolution::Retrying $SERVICE with --refresh-dependencies"
+            sleep "$((attempt * 10))"
+          done
           mkdir -p ../image-context
           cp "$SERVICE/build/libs/$SERVICE-0.1.0-SNAPSHOT.jar" ../image-context/app.jar
       - uses: docker/setup-buildx-action@v3
