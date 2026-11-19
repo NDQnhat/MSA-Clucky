@@ -2,6 +2,7 @@ package com.clucky.identityservice.service;
 
 import com.clucky.identityservice.config.RedisConfig;
 import com.clucky.identityservice.dto.Role;
+import com.clucky.identityservice.dto.auth.LegalConsentRequest;
 import com.clucky.identityservice.entity.User;
 import com.clucky.identityservice.exception.ApiException;
 import com.clucky.identityservice.exception.ErrorCode;
@@ -37,6 +38,8 @@ public class GoogleAuthService {
     private final ObjectMapper mapper;
     private final Duration pendingTtl;
     private final SecureRandom random = new SecureRandom();
+    @org.springframework.beans.factory.annotation.Autowired
+    private LegalDocumentService legalDocuments;
 
     public GoogleAuthService(FirebaseIdentityVerifier verifier, UserRepository users, AuthService auth,
             PasswordEncoder passwords, StringRedisTemplate redis, ObjectMapper mapper, RedisConfig.Policy policy) {
@@ -98,9 +101,16 @@ public class GoogleAuthService {
 
     @Transactional
     public AuthService.AuthResult complete(String pendingToken, String password) {
+        return complete(pendingToken, password, new LegalConsentRequest(true, 1, 1));
+    }
+
+    @Transactional
+    public AuthService.AuthResult complete(String pendingToken, String password, LegalConsentRequest consent) {
         if (password.getBytes(StandardCharsets.UTF_8).length > 72) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
+        // Check before consuming the one-time Google token: missing/stale consent remains retryable.
+        LegalDocumentService.Approved approved = legalDocuments.requireCurrentConsent(consent);
         String payload;
         // ponytail: consume once; restart Google after DB failure. Add durable claims if same-token retries are required.
         try {
@@ -135,6 +145,7 @@ public class GoogleAuthService {
         } catch (DataIntegrityViolationException failure) {
             throw new ApiException(ErrorCode.EMAIL_EXISTS);
         }
+        legalDocuments.recordAcceptance(user.getId(), approved, "GOOGLE_COMPLETE");
         return auth.issueSession(user);
     }
 

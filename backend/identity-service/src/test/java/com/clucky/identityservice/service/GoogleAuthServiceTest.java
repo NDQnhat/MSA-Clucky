@@ -72,6 +72,10 @@ class GoogleAuthServiceTest {
         auth = new AuthService(users, passwords, issuer, otp, refresh, email, properties);
         google = new GoogleAuthService(verifier, users, auth, passwords, redis, new ObjectMapper(),
                 new RedisConfig.Policy(Map.of("google-pending", Duration.ofMinutes(10))));
+        var legal = mock(LegalDocumentService.class);
+        when(legal.requireCurrentConsent(any())).thenReturn(new LegalDocumentService.Approved(1L, 2L));
+        org.springframework.test.util.ReflectionTestUtils.setField(google, "legalDocuments", legal);
+        org.springframework.test.util.ReflectionTestUtils.setField(auth, "legalDocuments", legal);
     }
 
     @Test
@@ -103,6 +107,20 @@ class GoogleAuthServiceTest {
                 () -> auth.register(new RegisterRequest("Other Name", user.getEmail(), "0901234567", "Different123"))).getCode(),
                 "Email cannot be supplied at phone-first registration");
         verifyNoInteractions(email);
+    }
+
+    @Test
+    void missingOrStaleGoogleConsentDoesNotConsumePendingRegistrationToken() {
+        var initial = google.login("google-token");
+        var legal = (LegalDocumentService) org.springframework.test.util.ReflectionTestUtils
+                .getField(google, "legalDocuments");
+        when(legal.requireCurrentConsent(any())).thenThrow(new ApiException(ErrorCode.RESOURCE_CONFLICT));
+        assertEquals(ErrorCode.RESOURCE_CONFLICT,
+                assertThrows(ApiException.class, () -> google.complete(initial.pendingToken(), "Password123",
+                        new com.clucky.identityservice.dto.auth.LegalConsentRequest(true, 4, 8))).getCode());
+        verify(values, never()).getAndDelete(anyString());
+        assertTrue(storedUsers.isEmpty());
+        assertFalse(pending.isEmpty());
     }
 
     @Test

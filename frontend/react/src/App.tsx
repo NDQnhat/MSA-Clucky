@@ -29,6 +29,7 @@ import { AdminPaymentsPage } from "./pages/Payments/AdminPaymentsPage";
 import { CustomersPage } from "./pages/Customers";
 import { EmailLogsPage } from "./pages/EmailLogs";
 import AuditLogPage from "./pages/AuditLog";
+import { LegalContentPage } from "./pages/Legal/LegalContentPage";
 
 import { OrderProvider } from "./context/OrderContext";
 import { PageLoadingProvider } from "./components/ui-loader/page-loading";
@@ -134,6 +135,9 @@ export const App: React.FC = () => {
                       <ProtectedRoute allowedRoles={["STORE_MANAGER", "STAFF"]}>
                         <BranchChangePasswordPage />
                       </ProtectedRoute>
+                    } />
+                    <Route path="legal" element={
+                      <ProtectedRoute allowedRoles={["ADMIN"]}><LegalContentPage /></ProtectedRoute>
                     } />
                     <Route
                       path="dashboard"
