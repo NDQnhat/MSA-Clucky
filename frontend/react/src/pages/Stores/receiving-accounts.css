@@ -1,0 +1,23 @@
+.stores-admin-page .ant-tabs,
+.stores-admin-page .ant-tabs-content-holder,
+.stores-admin-page .ant-tabs-content,
+.stores-admin-page .ant-tabs-tabpane { min-width: 0; max-width: 100%; }
+.stores-receiving-accounts { display: grid; gap: 18px; width: 100%; min-width: 0; padding: 8px 0 24px; }
+.stores-receiving-accounts > .ant-typography { margin-bottom: 0; color: #6b6259; }
+.stores-receiving-accounts > .ant-card { width: 100%; min-width: 0; }
+.stores-receiving-accounts .ant-card-body { min-width: 0; }
+.stores-receiving-accounts .ant-select-placeholder { color: #6b6259 !important; }
+.stores-receiving-accounts .ant-card-extra > .ant-btn-primary { color: #fff; background: #8f1216; border-color: #8f1216; }
+.stores-receiving-table { width: 100%; max-width: 100%; min-width: 0; overflow-x: auto; }
+.stores-receiving-filters { display: grid; grid-template-columns: minmax(220px, 2fr) minmax(160px, 1fr) minmax(180px, 1.5fr); gap: 12px; margin-bottom: 16px; }
+.stores-receiving-filters > * { min-width: 0; width: 100%; }
+.stores-receiving-muted { display: block; margin-top: 5px; font-size: 12px; color: #6b6259; }
+.stores-receiving-table:focus-visible { outline: 3px solid #8f1216; outline-offset: 3px; }
+@media (max-width: 800px) {
+  .stores-receiving-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stores-receiving-filters > :first-child { grid-column: 1 / -1; }
+}
+@media (max-width: 520px) {
+  .stores-receiving-filters { grid-template-columns: 1fr; }
+  .stores-receiving-filters > :first-child { grid-column: auto; }
+}

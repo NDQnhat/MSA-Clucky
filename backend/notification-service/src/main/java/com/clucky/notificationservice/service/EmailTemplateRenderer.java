@@ -19,8 +19,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.jsoup.Jsoup;
-import org.jsoup.safety.Safelist;
 
 @Component
 public class EmailTemplateRenderer {
@@ -43,6 +41,10 @@ public class EmailTemplateRenderer {
     // Retain the standalone renderer constructor for callers without the admin application URL.
     public EmailTemplateRenderer(String customerUrl) throws IOException {
         this(customerUrl, null);
+    }
+
+    public String defaultLayout() {
+        return layout;
     }
 
     public static String templateKey(String requested, Map<String, String> variables) {
@@ -193,13 +195,26 @@ public class EmailTemplateRenderer {
         text.append("\n\n").append(notice).append("\n\nClucky — Crispy outside. Happy inside.\n").append(footer);
         String eyebrow = security ? "register-otp".equals(key) ? "CHÀO MỪNG ĐẾN VỚI CLUCKY" : "BẢO MẬT TÀI KHOẢN"
                 : key.startsWith("ORDER_") ? "CẢM ƠN BẠN ĐÃ CHỌN CLUCKY" : "THÔNG TIN GIAO DỊCH";
-        String htmlBody = htmlTemplate == null ? lines(body) : sanitizeHtml(substitute(htmlTemplate,
-                values.entrySet().stream().filter(entry -> entry.getValue() != null)
-                        .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey,
-                        entry -> escape(entry.getValue())))));
-        String html = substitute(layout, Map.of("subject", escape(subject), "title", escape(heading(key, subject)),
-                "eyebrow", eyebrow, "content", htmlBody, "details", details.toString(), "action", action,
-                "notice", lines(notice), "footer", lines(footer)));
+        String cleaned = sanitizeHtml(htmlTemplate);
+        Map<String, String> eventHtmlValues = values.entrySet().stream()
+                .filter(entry -> entry.getValue() != null)
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> escape(entry.getValue())));
+        Map<String, String> layoutValues = Map.of(
+                "subject", escape(subject), "title", escape(heading(key, subject)), "eyebrow", eyebrow,
+                "content", lines(body), "details", details.toString(), "action", action,
+                "notice", lines(notice), "footer", lines(footer));
+        String html;
+        if (EmailHtmlSanitizer.isFullDocument(cleaned)) {
+            requireFullDocumentSlots(cleaned);
+            var substitutions = new HashMap<>(eventHtmlValues);
+            substitutions.putAll(layoutValues);
+            html = substitute(cleaned, substitutions);
+        } else {
+            String htmlBody = cleaned == null ? lines(body) : substitute(cleaned, eventHtmlValues);
+            var substitutions = new HashMap<>(layoutValues);
+            substitutions.put("content", htmlBody);
+            html = substitute(layout, substitutions);
+        }
         return Map.of("subject", subject, "body", text.toString(), "html", html);
     }
 
@@ -328,10 +343,16 @@ public class EmailTemplateRenderer {
     }
 
     public static String sanitizeHtml(String html) {
-        if (html == null || html.isBlank()) return null;
-        Safelist allowed = Safelist.basic().addTags("h1", "h2", "h3", "blockquote", "div", "span")
-                .removeProtocols("a", "href", "http", "ftp", "mailto");
-        return Jsoup.clean(html, allowed);
+        return EmailHtmlSanitizer.sanitize(html);
+    }
+
+    public static void requireFullDocumentSlots(String html) {
+        if (!EmailHtmlSanitizer.isFullDocument(html)) return;
+        for (String token : new String[]{"{{details}}", "{{action}}", "{{notice}}", "{{footer}}"}) {
+            if (!html.contains(token)) {
+                throw new IllegalArgumentException("Full email HTML must contain " + token);
+            }
+        }
     }
 
     private static String escape(String text) { return HtmlUtils.htmlEscape(text, "UTF-8"); }

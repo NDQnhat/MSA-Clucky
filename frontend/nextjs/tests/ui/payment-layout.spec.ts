@@ -43,16 +43,16 @@ test("admin separates transactions and bank settings without technical banners",
     const responses: Record<string, unknown> = {
       "/api/auth/session": { userId: 2, role: "ADMIN", fullName: "Admin" },
       "/api/payments/bank-config": { accounts: [], assignments: [], sepayKeyConfigured: true, reconciliationAvailable: true },
-      "/api/payments/transactions": { page: { content: [], totalElements: 0 }, lastReceivedAt: null },
+      "/api/stores": [{ id: 1, name: "Clucky Test", address: "Test street", status: "OPEN", phone: "0900000000", openTime: "08:00", closeTime: "22:00" }],
     };
     return route.fulfill({ json: responses[path] ?? [] });
   });
-  await page.goto("http://127.0.0.1:4173/admin/payments");
-  await expect(page.getByRole("tab", { name: "Giao dịch", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByRole("button", { name: "Thêm tài khoản", exact: true })).toBeHidden();
-  await expect(page.getByText(/Đang mở: QR Customer/)).toHaveCount(0);
-  await page.getByRole("tab", { name: "Tài khoản nhận tiền", exact: true }).click();
+  await page.goto("http://127.0.0.1:4173/admin/stores");
+  const accountsTab = page.getByRole("tab", { name: "Tài khoản nhận tiền", exact: true });
+  await expect(accountsTab).toBeVisible();
+  await accountsTab.click();
   await expect(page.getByRole("button", { name: "Thêm tài khoản", exact: true })).toBeVisible();
+  await expect(page.getByText(/Đang mở: QR Customer/)).toHaveCount(0);
   await expect(page.getByRole("searchbox", { name: "Tìm tên, mã hoặc địa chỉ chi nhánh", exact: true })).toBeVisible();
   await expect(page.getByText("Hướng dẫn & lưu ý", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("tab", { name: "Thu quầy & đối soát", exact: true })).toHaveCount(0);

@@ -40,6 +40,7 @@ const path = (key: string) => `/api/notifications/email-templates/${encodeURICom
 
 export const mailTemplatesApi = {
   list: (signal?: AbortSignal) => api.get<MailTemplateSummary[]>('/api/notifications/email-templates', { signal }).then(r => r.data),
+  layout: (signal?: AbortSignal) => api.get<{ html: string }>('/api/notifications/email-templates/layout', { signal }).then(r => r.data),
   get: (key: string, signal?: AbortSignal) => api.get<MailTemplateDetail>(path(key), { signal }).then(r => r.data),
   preview: (key: string, body: MailDraftInput) => api.post<MailPreview>(`${path(key)}/preview`, body).then(r => r.data),
   saveDraft: (key: string, body: MailDraftInput) => api.post<MailTemplateDetail>(`${path(key)}/drafts`, body).then(r => r.data),

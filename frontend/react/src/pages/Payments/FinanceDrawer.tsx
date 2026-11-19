@@ -1,5 +1,5 @@
 import i18n from "../../i18n/index.ts";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isAxiosError } from "axios";
 import { useTranslation } from "react-i18next";
 import {
@@ -648,36 +648,4 @@ export function ReceiptConflictList({ receiptId, disabled = false, onReady }: { 
     <Space><Button disabled={disabled || loading || page === 0} onClick={() => { onReady?.(false); setPage(value => value - 1); }}>{t("admin:ui.previousPage")}</Button>
       <span>Trang {page + 1}</span><Button disabled={disabled || loading || conflicts.length < 20} onClick={() => { onReady?.(false); setPage(value => value + 1); }}>Trang sau</Button></Space>
   </Space>;
-}
-
-export function FinanceLookup({ receiptId, initialCode, onChanged }: { receiptId?: string; initialCode?: string; onChanged: () => void }) {
-  const { t } = useTranslation();
-  const formName = useId();
-  const [orderId, setOrderId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const lookup = useRef<AbortController | null>(null);
-  useEffect(() => () => lookup.current?.abort(), []);
-  async function find(values: { orderCode: string }) {
-    lookup.current?.abort();
-    const controller = new AbortController(); lookup.current = controller;
-    setLoading(true); setError("");
-    try {
-      const code = values.orderCode.trim();
-      const order = await adminFinance.orderByCode(code, controller.signal);
-      if (controller.signal.aborted) return;
-      setOrderId(order.id);
-    } catch (failure) { if (!controller.signal.aborted) setError(getErrorMessage(failure)); }
-    finally { if (!controller.signal.aborted) setLoading(false); }
-  }
-  return <>
-    <Form name={formName} layout="vertical" initialValues={{ orderCode: initialCode }} onFinish={values => void find(values)}>
-      <Form.Item name="orderCode" label={t("admin:ui.orderIdForCollectionReconciliationLegacyAdoption")} rules={[{ required: true, whitespace: true, max: 80 }]}>
-        <Input maxLength={80} onChange={() => { lookup.current?.abort(); setLoading(false); setError(""); }} />
-      </Form.Item>
-      <Button htmlType="submit" loading={loading}>{t("admin:ui.openOrderFinances")}</Button>
-    </Form>
-    {error && <Alert type="error" message={error} />}
-    {orderId !== null && <FinanceModal key={`${orderId}-${receiptId || ''}`} orderId={orderId} receiptId={receiptId} onClose={() => setOrderId(null)} onChanged={onChanged} />}
-  </>;
 }
