@@ -96,6 +96,30 @@ public class BankAccountService {
         return result;
     }
 
+    @Transactional
+    public Account delete(long id, UUID key) {
+        CurrentActor actor = requireAdmin();
+        String hash = hash("account-delete:" + id, id);
+        lock();
+        Account replay = replay(actor, key, hash, Account.class);
+        if (replay != null) return replay;
+
+        Account existing = account(id);
+        List<Long> assignedStores = jdbc.queryForList(
+                "SELECT store_id FROM payment_service.store_bank_accounts WHERE bank_account_id=? ORDER BY store_id",
+                Long.class, id);
+        if (!assignedStores.isEmpty()) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT,
+                    "Không thể xóa tài khoản nhận tiền vì tài khoản vẫn đang được gán cho chi nhánh. "
+                            + "Hãy gỡ gán hoặc chuyển các chi nhánh sang tài khoản khác trước khi xóa.");
+        }
+
+        jdbc.update("DELETE FROM payment_service.bank_accounts_config WHERE id=?", id);
+        record(actor, key, hash, existing, "BANK_ACCOUNT_DELETED", "BANK_ACCOUNT",
+                existing.id(), null, existing.version(), null);
+        return existing;
+    }
+
     public List<Bank> banks() {
         requireAdmin();
         try {

@@ -29,7 +29,7 @@ import static org.mockito.Mockito.*;
 
 class BankAccountServiceTest {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
     private final DiscoveryClient discovery = mock(DiscoveryClient.class);
     private final BankAccountService service = new BankAccountService(jdbc, mapper, discovery, RestClient.builder(), "");
     private final Details request = new Details("Test bank", "TEST", "0012345", "Test holder", true, 0L);
@@ -44,6 +44,7 @@ class BankAccountServiceTest {
             assertThrows(AccessDeniedException.class, service::list);
             assertThrows(AccessDeniedException.class, service::banks);
             assertThrows(AccessDeniedException.class, () -> service.save(null, request, UUID.randomUUID()));
+            assertThrows(AccessDeniedException.class, () -> service.delete(1, UUID.randomUUID()));
             assertThrows(AccessDeniedException.class, () -> service.assign(1, new AssignmentRequest(1L, 0L), UUID.randomUUID()));
         }
         verifyNoInteractions(jdbc, discovery);
@@ -92,6 +93,45 @@ class BankAccountServiceTest {
         ApiException failure = assertThrows(ApiException.class, () -> service.save(null, request, key));
         assertEquals(ErrorCode.RESOURCE_CONFLICT, failure.getCode());
         verify(jdbc, never()).update(anyString(), any(Object[].class));
+    }
+
+    @Test
+    void refusesToDeleteAnAccountThatIsAssignedToAnyStore() {
+        actor("ADMIN");
+        long accountId = 9L;
+        UUID key = UUID.randomUUID();
+        Account existing = new Account(accountId, "Test bank", "TEST", "0012345", "Test holder", true, 2L);
+        when(jdbc.queryForList(anyString(), eq(7L), eq(key))).thenReturn(List.of());
+        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(accountId)))
+                .thenReturn(List.of(existing));
+        when(jdbc.queryForList(anyString(), eq(Long.class), eq(accountId))).thenReturn(List.of(1L, 3L));
+
+        ApiException failure = assertThrows(ApiException.class, () -> service.delete(accountId, key));
+
+        assertEquals(ErrorCode.RESOURCE_CONFLICT, failure.getCode());
+        assertTrue(failure.getMessage().contains("đang được gán"));
+        verify(jdbc, never()).update(startsWith("DELETE FROM payment_service.bank_accounts_config"), any(Object[].class));
+    }
+
+    @Test
+    void deletesAnUnassignedAccountAndRecordsTheOperation() {
+        actor("ADMIN");
+        long accountId = 9L;
+        UUID key = UUID.randomUUID();
+        Account existing = new Account(accountId, "Test bank", "TEST", "0012345", "Test holder", true, 2L);
+        when(jdbc.queryForList(anyString(), eq(7L), eq(key))).thenReturn(List.of());
+        when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(accountId)))
+                .thenReturn(List.of(existing));
+        when(jdbc.queryForList(anyString(), eq(Long.class), eq(accountId))).thenReturn(List.of());
+        when(jdbc.update(startsWith("DELETE FROM payment_service.bank_accounts_config"), any(Object[].class))).thenReturn(1);
+        when(jdbc.update(startsWith("INSERT INTO payment_service.bank_operations"), any(Object[].class))).thenReturn(1);
+        when(jdbc.update(startsWith("INSERT INTO payment_service.bank_audit_outbox"), any(Object[].class))).thenReturn(1);
+
+        assertEquals(existing, service.delete(accountId, key));
+
+        verify(jdbc).update(startsWith("DELETE FROM payment_service.bank_accounts_config"), any(Object[].class));
+        verify(jdbc).update(startsWith("INSERT INTO payment_service.bank_operations"), any(Object[].class));
+        verify(jdbc).update(startsWith("INSERT INTO payment_service.bank_audit_outbox"), any(Object[].class));
     }
 
     @Test

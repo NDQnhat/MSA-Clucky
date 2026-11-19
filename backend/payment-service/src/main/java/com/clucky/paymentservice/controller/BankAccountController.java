@@ -34,6 +34,12 @@ public class BankAccountController {
         return service.save(id, request, key);
     }
 
+    @DeleteMapping("/{id}")
+    public Account delete(@Positive @PathVariable long id,
+            @RequestHeader("Idempotency-Key") UUID key) {
+        return service.delete(id, key);
+    }
+
     @PutMapping("/stores/{storeId}")
     public Assignment assign(@Positive @PathVariable long storeId, @Valid @RequestBody AssignmentRequest request,
             @RequestHeader("Idempotency-Key") UUID key) {
