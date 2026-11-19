@@ -6,6 +6,7 @@ import com.clucky.cartorderservice.cart.CartService;
 import com.clucky.cartorderservice.config.AccessGuard;
 import com.clucky.cartorderservice.dto.CreateOrderRequest;
 import com.clucky.cartorderservice.dto.DomainEvent;
+import com.clucky.cartorderservice.dto.OrderPreviewRequest;
 import com.clucky.cartorderservice.entity.OutboxEvent;
 import com.clucky.cartorderservice.exception.ApiException;
 import com.clucky.cartorderservice.exception.ErrorCode;
@@ -43,6 +44,54 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
 class CheckoutRegressionTest {
+    @Test
+    void previewKeepsDeliveryFeeAfterPointsCoverMerchandiseAndIgnoresPointsWhenVoucherCoversIt() {
+        UUID voucherInstanceId = UUID.fromString("12345678-1234-4123-8123-1234567890ad");
+        var catalog = mock(CatalogClient.class);
+        var promotion = mock(PromotionClient.class);
+        var shipping = mock(ShippingClient.class);
+        var loyalty = mock(LoyaltyClient.class);
+        var item = new CartItemDto(1L, null, "Chicken", 1, BigDecimal.valueOf(17_000), List.of(), List.of(), null, 1L);
+        when(catalog.validateItems(eq(1L), anyList())).thenReturn(new CatalogClient.CatalogValidationResponse(
+                true, true, null, BigDecimal.valueOf(17_000), List.of(), java.util.Map.of()));
+        when(shipping.calculateShippingFee(eq("DELIVERY"), eq(1L), any(), any())).thenReturn(
+                new ShippingClient.ShippingFeeResult(true, BigDecimal.valueOf(10_000), "OK", 1.0,
+                        BigDecimal.TEN, 1L));
+        when(promotion.validateVoucher(isNull(), eq(voucherInstanceId), eq(1L), eq(BigDecimal.valueOf(17_000))))
+                .thenReturn(new PromotionClient.VoucherResult(true, null, BigDecimal.valueOf(1_000), voucherInstanceId, 41L, 2L),
+                        new PromotionClient.VoucherResult(true, null, BigDecimal.valueOf(17_000), voucherInstanceId, 41L, 2L));
+        when(loyalty.preview(18, BigDecimal.valueOf(16_000))).thenReturn(
+                new LoyaltyClient.Quote(1, 18, 8, BigDecimal.valueOf(16_000), 0, "MEMBER", BigDecimal.ZERO));
+        when(loyalty.preview(0, BigDecimal.ZERO)).thenReturn(
+                new LoyaltyClient.Quote(1, 18, 0, BigDecimal.ZERO, 0, "MEMBER", BigDecimal.ZERO));
+        var service = new OrderService(mock(OrderRepository.class), mock(OrderItemRepository.class),
+                mock(OrderStatusHistoryRepository.class), mock(CartService.class), new AccessGuard(),
+                new ObjectMapper(), mock(OrderEventPublisher.class), catalog, promotion, shipping,
+                loyalty, null, mock(VoucherCheckoutRecovery.class), mock(CustomerProfileClient.class),
+                mock(org.springframework.jdbc.core.JdbcTemplate.class));
+        var jwt = Jwt.withTokenValue("test").header("alg", "HS256").subject("1").claim("role", "CUSTOMER").build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt, List.of()));
+        try {
+            var request = new OrderPreviewRequest(1L, "DELIVERY", null, 18, "Delivery address",
+                    10.0, 106.0, List.of(item), voucherInstanceId);
+
+            var pointsApplied = service.previewOrder(request, null);
+            assertEquals(8, pointsApplied.pointsUsed());
+            assertEquals(new BigDecimal("16000"), pointsApplied.pointsAmount());
+            assertEquals(new BigDecimal("10000"), pointsApplied.shippingFee());
+            assertEquals(new BigDecimal("10000"), pointsApplied.totalAmount());
+
+            var voucherCovered = service.previewOrder(request, null);
+            assertEquals(0, voucherCovered.pointsUsed());
+            assertEquals(BigDecimal.ZERO, voucherCovered.pointsAmount());
+            assertEquals(new BigDecimal("10000"), voucherCovered.shippingFee());
+            assertEquals(new BigDecimal("10000"), voucherCovered.totalAmount());
+            verify(loyalty).preview(0, BigDecimal.ZERO);
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
     @Test
     void checkoutTracksReservationBeforeCallingPromotionWithExactVoucherDiscount() {
         UUID voucherInstanceId = UUID.fromString("12345678-1234-4123-8123-1234567890ab");

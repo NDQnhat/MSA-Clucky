@@ -38,7 +38,8 @@ public class CounterLoyaltyService {
     private final String identityUrl;
 
     public record CounterQuote(long policyVersion, long availablePoints, int pointsUsed, BigDecimal pointsAmount,
-            long pointsToEarn, String tier, BigDecimal tierDiscount, boolean redeemAllowed, Long walletId) {}
+            long pointsToEarn, String tier, BigDecimal tierDiscount, boolean redeemAllowed, Long walletId,
+            int maxRedeemablePoints) {}
     public record Lookup(String loyaltySubject, boolean redeemAllowed, String maskedAccount) {}
     public record ClaimStatus(String status, long claimedPoints, int verifiedPhones,
                               int claimedWallets) {}
@@ -260,6 +261,12 @@ public class CounterLoyaltyService {
         try {
             Quote raw = LoyaltyMath.quote(available, lifetime, requested, merchandise, policy);
             if (raw.pointsUsed() != requested) throw new ConflictException("Points or eligible amount changed");
+            BigDecimal merchandiseAfterTier = merchandise.subtract(raw.tierDiscount()).max(BigDecimal.ZERO);
+            long maxRedeemable = Math.min(available, merchandiseAfterTier
+                    .divide(BigDecimal.valueOf(policy.pointValue()), 0, java.math.RoundingMode.DOWN)
+                    .longValueExact());
+            int maxRedeemablePoints = redeemAllowed
+                    ? Math.toIntExact(Math.min(Integer.MAX_VALUE, maxRedeemable)) : 0;
             long earned = raw.pointsToEarn();
             if (policy.maxEarnPerOrder() > 0) earned = Math.min(earned, policy.maxEarnPerOrder());
             if (wallet != null) {
@@ -278,7 +285,7 @@ public class CounterLoyaltyService {
             }
             return new CounterQuote(policy.version(), redeemAllowed ? raw.availablePoints() : 0, requested,
                     raw.pointsAmount(), earned, raw.tier(), raw.tierDiscount(), redeemAllowed,
-                    wallet == null ? null : wallet.id());
+                    wallet == null ? null : wallet.id(), maxRedeemablePoints);
         } catch (ArithmeticException | IllegalArgumentException failure) {
             throw new BadRequestException("Invalid loyalty quote");
         }
@@ -289,7 +296,8 @@ public class CounterLoyaltyService {
         if (request.amount() == null || request.amount().signum() < 0 || request.storeId() <= 0
                 || request.staffId() <= 0) throw new BadRequestException("Invalid counter quote");
         if (request.loyaltySubject() == null && request.pointsUsed() == 0)
-            return new CounterQuote(loyalty.policy().version(), 0, 0, BigDecimal.ZERO, 0, "MEMBER", BigDecimal.ZERO, false, null);
+            return new CounterQuote(loyalty.policy().version(), 0, 0, BigDecimal.ZERO, 0, "MEMBER",
+                    BigDecimal.ZERO, false, null, 0);
         var subject = sessions.resolveSubject(request.loyaltySubject());
         boolean isQr = "QR".equals(subject.kind());
         if (isQr) {

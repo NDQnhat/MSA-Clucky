@@ -386,6 +386,7 @@ export interface CounterOrderPreview {
   pointsAmount: number;
   pointsToEarn: number;
   availablePoints: number;
+  maxRedeemablePoints: number;
   totalAmount: number;
   redeemAllowed: boolean;
   voucherValid: boolean;

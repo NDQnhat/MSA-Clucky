@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -47,7 +48,7 @@ class ShippingOrderProjectionTest {
     }
 
     @Test
-    void riderAdvanceAppearsAtPickupAndSurvivesDeliveryWithoutRealCashSettlement() {
+    void riderAdvanceAllowsRewardSettlementWithoutClaimingCustomerCashWasCollected() {
         projection.apply(event("shipping.started", null, true));
 
         assertEquals("SHIPPING", order.getStatus());
@@ -59,7 +60,25 @@ class ShippingOrderProjectionTest {
         assertEquals("COMPLETED", order.getStatus());
         assertEquals("PAID_SIMULATED", DomainMapper.toResponse(order).merchantPaymentStatus());
         assertEquals("PENDING", order.getPaymentStatus());
-        verify(publisher).publishSimulatedDeliveryCompleted(order, List.of(), false);
+        assertNull(order.getCollectionMethod());
+        assertNull(order.getCollectedCash());
+        verify(publisher).publishSimulatedDeliveryCompleted(order, List.of(), true);
+    }
+
+    @Test
+    void zeroValueDeliveryCompletesWithoutCollectingPaymentAndCanSettleLoyalty() {
+        order.setTotalAmount(BigDecimal.ZERO);
+        order.setPaymentStatus("COLLECTED");
+        order.setCollectionMethod("NO_PAYMENT");
+        order.setCollectedCash(BigDecimal.ZERO);
+
+        projection.apply(event("shipping.started", null, false));
+        projection.apply(event("shipping.delivered", null, false));
+
+        assertEquals("COMPLETED", order.getStatus());
+        assertEquals("COLLECTED", order.getPaymentStatus());
+        assertEquals("NO_PAYMENT", order.getCollectionMethod());
+        verify(publisher).publishSimulatedDeliveryCompleted(order, List.of(), true);
     }
 
     @Test

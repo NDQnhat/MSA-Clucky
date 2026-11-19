@@ -113,9 +113,7 @@ public class LoyaltyService {
     }
     private Quote calculate(Balance balance, int points, BigDecimal amount, Policy policy) {
         try {
-            Quote quote = LoyaltyMath.quote(balance.availablePoints(), balance.lifetimePoints(), points, amount, policy);
-            if (quote.pointsUsed() != points) throw new BadRequestException("Insufficient points or amount");
-            return quote;
+            return LoyaltyMath.quote(balance.availablePoints(), balance.lifetimePoints(), points, amount, policy);
         }
         catch (BadRequestException failure) { throw failure; }
         catch (ArithmeticException | IllegalArgumentException failure) { throw new BadRequestException("Invalid loyalty amount"); }

@@ -71,5 +71,6 @@
   "sourceWalletAfter": "Số dư ví nguồn: {points}",
   "orderRef": "Đơn #{id}", "after": "Số dư: {points}", "pagination": "Phân trang lịch sử", "previous": "Trước", "next": "Tiếp",
   "usePoints": "Dùng điểm Clucky Club", "availableCheckout": "Có {points} điểm khả dụng", "pointsInput": "Số điểm muốn dùng", "checkoutHint": "Số điểm thực dùng được giới hạn theo tiền món và số dư; xem khoản giảm trong tổng kết đơn.",
-  "previewError": "Chưa xác nhận được tổng tiền. Vui lòng thử lại trước khi đặt hàng.", "applied": "Đã áp dụng {points} điểm"
+  "previewError": "Chưa xác nhận được tổng tiền. Vui lòng thử lại trước khi đặt hàng.", "applied": "Đã áp dụng {points} điểm",
+  "voucherCovered": "Voucher đã giảm hết tiền hàng, không thể áp dụng thêm điểm thưởng."
 }

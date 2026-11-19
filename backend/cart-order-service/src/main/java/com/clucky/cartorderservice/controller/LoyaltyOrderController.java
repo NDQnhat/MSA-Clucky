@@ -46,16 +46,20 @@ public class LoyaltyOrderController {
             if (refundId != null) throw new ApiException(ErrorCode.RESOURCE_NOT_FOUND);
             return new OrderState(id, null, "MISSING");
         }
-        // Loyalty interprets CANCELLED as "release reserved points/vouchers". A failed
-        // delivery or a COD-only simulated completion does not settle real money.
-        // This projection deliberately keeps those simulated orders out of rewards,
-        // including the periodic reconciliation path that queries this endpoint.
+        // A successful mock COD delivery settles the merchant side through the
+        // simulated rider advance. Customer cash remains outside Clucky, so the
+        // payment status stays PENDING while loyalty can settle the completed order.
+        boolean noPaymentRequired = order.getTotalAmount() != null && order.getTotalAmount().signum() == 0;
+        boolean settlementEligible = noPaymentRequired
+                || java.util.Set.of("PAID", "COLLECTED").contains(order.getPaymentStatus())
+                || ("DELIVERY".equals(order.getType()) && "COD".equals(order.getPaymentMethod())
+                    && "PAID_SIMULATED".equals(order.getMerchantPaymentStatus()));
         boolean virtualCodCompletion = "DELIVERY".equals(order.getType())
                 && "COD".equals(order.getPaymentMethod())
                 && "COMPLETED".equals(order.getStatus())
-                && !java.util.Set.of("PAID", "COLLECTED").contains(order.getPaymentStatus());
+                && !settlementEligible;
         boolean uncollectedCompletion = "COMPLETED".equals(order.getStatus())
-                && !java.util.Set.of("PAID", "COLLECTED").contains(order.getPaymentStatus());
+                && !settlementEligible;
         String loyaltyState = "DELIVERY_FAILED".equals(order.getStatus()) || virtualCodCompletion
                 ? "CANCELLED" : order.getStatus();
         if (uncollectedCompletion && !virtualCodCompletion) loyaltyState = "CONFIRMED";
