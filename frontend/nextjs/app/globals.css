@@ -1103,8 +1103,8 @@ select option:hover {
   min-height: 0;
   max-height: none;
   border-radius: 24px;
-  border: 1px solid rgba(255, 250, 243, 0.12);
-  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.26);
+  border: 0;
+  box-shadow: none;
 }
 
 .hero-food .banner-slider--hero .banner-slide-img {
@@ -1124,7 +1124,7 @@ select option:hover {
   text-align: left;
   padding: 16px 22px;
   gap: 6px;
-  background: rgba(22, 16, 13, 0.9);
+  background: transparent;
 }
 
 .hero-food .banner-slider--hero .banner-slide::after {
@@ -1144,6 +1144,11 @@ select option:hover {
   padding: 7px 15px;
   font-size: 12.5px;
   margin-top: 2px;
+  box-shadow: none;
+}
+
+.hero-food .banner-slider--hero .banner-slider-dot.active {
+  box-shadow: none;
 }
 
 .hero-food .banner-slider--hero .banner-slider-nav {
@@ -1260,12 +1265,12 @@ select option:hover {
 }
 
 .hero-food .banner-slider--hero {
-  transition: box-shadow 320ms ease, border-color 320ms ease, transform 320ms ease;
+  transition: none;
 }
 
 .hero-food .banner-slider--hero:hover {
-  border-color: rgba(255, 250, 243, 0.28);
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.3);
+  border: 0;
+  box-shadow: none;
 }
 
 .banner-slide-img {

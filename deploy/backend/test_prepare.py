@@ -135,6 +135,12 @@ class BackendEnvironmentTest(unittest.TestCase):
                     validate_environment(json.dumps({**self.values, "MAPBOX_DIRECTIONS_TOKEN": token}))
 
     def test_shipping_demo_flag_is_explicit_and_remains_private(self):
+        defaults = validate_environment(json.dumps(self.values))
+        self.assertEqual(defaults["SHIPPING_MOCK_ENABLED"], "true")
+        prepare(self.root, self.release, json.dumps(self.values))
+        default_content = (self.root / "backend/incoming" / self.release / "runtime.env").read_text()
+        self.assertIn("SHIPPING_MOCK_ENABLED='true'", default_content)
+
         for flag in ("true", "false"):
             with self.subTest(flag=flag):
                 settings = {**self.values, "SHIPPING_MOCK_ENABLED": flag}

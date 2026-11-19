@@ -273,10 +273,12 @@ export function BannerSlider({
                 className="banner-slide-img"
               />
               <div className="banner-slide-overlay" aria-hidden={!isCurrent}>
-                <span className="banner-slide-eyebrow">
-                  <Sparkles size={14} />
-                  {t("home.banners.eyebrow")}
-                </span>
+                {variant !== "hero" && (
+                  <span className="banner-slide-eyebrow">
+                    <Sparkles size={14} />
+                    {t("home.banners.eyebrow")}
+                  </span>
+                )}
 
                 <h2 className="banner-slide-title">{slide.title}</h2>
 

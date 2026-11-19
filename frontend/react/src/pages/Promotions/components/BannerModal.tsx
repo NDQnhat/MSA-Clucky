@@ -264,6 +264,7 @@ export const BannerModal: React.FC<BannerModalProps> = ({ open, banner, onCancel
           ]}
         >
           <Input
+            aria-label={t('admin:promotions.banner.fields.title')}
             maxLength={180}
             placeholder={t('admin:promotions.banner.fields.titlePlaceholder')}
           />

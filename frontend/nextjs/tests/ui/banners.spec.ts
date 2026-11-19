@@ -13,7 +13,7 @@ test.beforeEach(async ({ page, context }) => {
 });
 
 test('live banners support keyboard navigation, safe links and modal dismissal across reloads', async ({ page }) => {
-  await page.route('**/api/promotions/banners', route => route.fulfill({ json: [hero,
+  await page.route('**/api/promotions/banners**', route => route.fulfill({ json: [hero,
     { ...hero, id: 2, title: 'Hero Two', linkUrl: '/\\evil.example' },
     { ...hero, id: 3, title: 'Popup Offer', position: 'POPUP' },
   ] }));
