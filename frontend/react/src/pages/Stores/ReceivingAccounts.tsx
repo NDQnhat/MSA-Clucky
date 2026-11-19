@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Card, Form, Input, Modal, Select, Space, Switch, Table, Tag, Typography } from 'antd';
+import { DeleteOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { notify } from '../../components/feedback';
 import { api, getErrorMessage, type Store } from '../../lib/api';
@@ -160,6 +161,62 @@ export function ReceivingAccounts({ stores }: { stores: Store[] }) {
     }
   }
 
+  function assignedStoreNames(accountId: number) {
+    return data?.assignments
+      .filter(assignment => assignment.bankAccountId === accountId)
+      .map(assignment => stores.find(store => store.id === assignment.storeId)?.name ?? `#${assignment.storeId}`) ?? [];
+  }
+
+  async function removeAccount(account: ReceivingAccount) {
+    if (busy) return;
+    const path = `/api/payments/bank-config/${account.id}`;
+    setBusy(true);
+    try {
+      await api.delete(path, { headers: operationHeaders(path, { id: account.id }) });
+      if (!alive.current) return;
+      pendingOperation.current = null;
+      setRevision(value => value + 1);
+      notify.success(t('deleted'));
+    } catch (failure) {
+      if (!alive.current) return;
+      if ((failure as { response?: { status?: number } }).response?.status === 409) {
+        try {
+          const latest = await api.get<Overview>('/api/payments/bank-config');
+          if (!alive.current) return;
+          setData(latest.data);
+          const currentAssignments = latest.data.assignments
+            .filter(assignment => assignment.bankAccountId === account.id)
+            .map(assignment => stores.find(store => store.id === assignment.storeId)?.name ?? `#${assignment.storeId}`);
+          notify.error(currentAssignments.length
+            ? t('deleteAssigned', { stores: currentAssignments.join(', ') })
+            : t('deleteConflict'));
+        } catch {
+          notify.error(t('deleteConflict'));
+        }
+      } else {
+        notify.error(getErrorMessage(failure));
+      }
+    } finally {
+      if (alive.current) setBusy(false);
+    }
+  }
+
+  function requestDelete(account: ReceivingAccount) {
+    const assigned = assignedStoreNames(account.id);
+    if (assigned.length) {
+      notify.error(t('deleteAssigned', { stores: assigned.join(', ') }));
+      return;
+    }
+    Modal.confirm({
+      title: t('deleteConfirmTitle'),
+      content: t('deleteConfirmDescription', { bank: account.bankName, account: account.accountNo }),
+      okText: t('delete'),
+      cancelText: t('cancel'),
+      okButtonProps: { danger: true },
+      onOk: () => removeAccount(account),
+    });
+  }
+
   function beginAssigning(store: Store) {
     if (!data) return;
     setAssignmentError('');
@@ -223,7 +280,7 @@ export function ReceivingAccounts({ stores }: { stores: Store[] }) {
     </Button>}>
       <div className="stores-receiving-table" role="region" aria-label={t('accounts')} tabIndex={0}>
         <Table<ReceivingAccount> rowKey="id" dataSource={data?.accounts ?? []} loading={loading} pagination={{ pageSize: 10 }}
-          locale={{ emptyText: t('noAccounts') }} scroll={{ x: 840 }} columns={[
+          locale={{ emptyText: t('noAccounts') }} scroll={{ x: 920 }} columns={[
             { title: t('bankName'), dataIndex: 'bankName' },
             { title: t('bankCode'), render: (_, account) => account.bankCode || <Tag color="warning">{t('missingCode')}</Tag> },
             { title: t('accountNo'), dataIndex: 'accountNo' },
@@ -233,7 +290,12 @@ export function ReceivingAccounts({ stores }: { stores: Store[] }) {
               .filter(assignment => assignment.bankAccountId === account.id)
               .map(assignment => stores.find(store => store.id === assignment.storeId)?.name ?? `#${assignment.storeId}`)
               .join(', ') || t('none') },
-            { title: t('actions'), render: (_, account) => <Button disabled={busy || loading} onClick={() => beginEditing(account)}>{t('edit')}</Button> },
+            { title: t('actions'), render: (_, account) => <Space size="small">
+              <Button disabled={busy || loading} onClick={() => beginEditing(account)}>{t('edit')}</Button>
+              <Button danger icon={<DeleteOutlined />} disabled={busy || loading} onClick={() => requestDelete(account)}>
+                {t('delete')}
+              </Button>
+            </Space> },
           ]} />
       </div>
     </Card>
