@@ -20,7 +20,7 @@ spring:
 clucky:
   shipping:
     mock:
-      enabled: ${SHIPPING_MOCK_ENABLED:false}
+      enabled: ${SHIPPING_MOCK_ENABLED:true}
       mapbox-token: ${MAPBOX_DIRECTIONS_TOKEN:${MAPBOX_GEOCODING_TOKEN:}}
       wallet-initial: ${SHIPPING_MOCK_WALLET_INITIAL:100000000000}
       max-attempts: ${SHIPPING_MOCK_MAX_ATTEMPTS:2}

@@ -14,6 +14,8 @@
     "revoke": "Revoke",
     "browser": "Browser",
     "unknown": "Browser information unavailable",
+    "ipAddress": "IP address",
+    "unknownIp": "Unavailable",
     "current": "Current session",
     "signedIn": "Signed in",
     "lastActive": "Last refresh",

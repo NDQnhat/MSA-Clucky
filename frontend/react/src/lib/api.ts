@@ -127,6 +127,8 @@ api.interceptors.request.use((config) => {
 // an expired access cookie; public login/OTP endpoints must never be retried.
 function isPublicAuthEndpoint(path: string | undefined) {
   return !path || (path.startsWith('/api/auth/') &&
+    path !== '/api/auth/sessions' &&
+    !path.startsWith('/api/auth/sessions/') &&
     !path.startsWith('/api/auth/branch/accounts/') &&
     !path.startsWith('/api/auth/branch/stores/') &&
     path !== '/api/auth/branch/management/finish' &&

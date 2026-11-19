@@ -14,6 +14,8 @@
     "revoke": "Thu hồi",
     "browser": "Trình duyệt",
     "unknown": "Không có thông tin trình duyệt",
+    "ipAddress": "Địa chỉ IP",
+    "unknownIp": "Chưa xác định",
     "current": "Phiên hiện tại",
     "signedIn": "Đăng nhập lúc",
     "lastActive": "Làm mới gần nhất",

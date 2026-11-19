@@ -88,7 +88,12 @@ public class BrowserSessionConfig {
                 return exchange.getResponse().writeWith(reactor.core.publisher.Mono.just(
                         exchange.getResponse().bufferFactory().wrap(body)));
             }
+            String clientIp = clientIp(request);
             var forwarded = request.mutate().headers(headers -> {
+                // Never trust a browser-supplied value. The gateway overwrites this
+                // internal header with the address of the connected peer.
+                headers.remove("X-Clucky-Client-IP");
+                if (clientIp != null && !clientIp.isBlank()) headers.set("X-Clucky-Client-IP", clientIp);
                 if (authMutation || client != null) headers.remove(HttpHeaders.AUTHORIZATION);
                 if (!authMutation && client != null && cookie != null) headers.setBearerAuth(cookie.getValue());
                 if (!path.startsWith("/api/auth/")) headers.remove(HttpHeaders.COOKIE);
@@ -99,6 +104,19 @@ public class BrowserSessionConfig {
 
     private static String normalizeOrigin(String origin) {
         return origin.strip().toLowerCase(Locale.ROOT).replaceAll("/+$", "");
+    }
+
+    private static String clientIp(org.springframework.http.server.reactive.ServerHttpRequest request) {
+        // The deployed Nginx reverse proxy overwrites X-Real-IP with $remote_addr;
+        // the gateway is bound to localhost so browsers cannot supply this header directly.
+        String proxyAddress = request.getHeaders().getFirst("X-Real-IP");
+        if (proxyAddress != null) {
+            String normalized = proxyAddress.trim();
+            if (normalized.length() <= 45 && normalized.matches("[0-9A-Fa-f:.]+")) return normalized;
+        }
+        var remoteAddress = request.getRemoteAddress();
+        return remoteAddress == null || remoteAddress.getAddress() == null
+                ? null : remoteAddress.getAddress().getHostAddress();
     }
 
     private static String refererOrigin(String referer) {

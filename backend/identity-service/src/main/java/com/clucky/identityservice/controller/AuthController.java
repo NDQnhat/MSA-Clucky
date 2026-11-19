@@ -84,8 +84,9 @@ public class AuthController {
     public AuthResponse login(@Valid @RequestBody LoginRequest request,
             @RequestHeader(value = "X-Clucky-Client", defaultValue = "customer") String client,
             @RequestHeader(value = "User-Agent", required = false) String userAgent,
+            @RequestHeader(value = "X-Clucky-Client-IP", required = false) String clientIp,
             HttpServletResponse response) {
-        AuthService.AuthResult result = authService.login(request, userAgent);
+        AuthService.AuthResult result = authService.login(request, userAgent, clientIp);
         setSessionCookies(response, result, client);
         return toAuthResponse(result);
     }

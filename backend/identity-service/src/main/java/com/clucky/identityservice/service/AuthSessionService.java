@@ -59,16 +59,24 @@ public class AuthSessionService {
     /** Caller has already locked the user row (login/findByLogin or Google account provisioning). */
     @Transactional
     public void issue(User user, String sid, Instant expiry, String userAgent) {
+        issue(user, sid, expiry, userAgent, null);
+    }
+
+    @Transactional
+    public void issue(User user, String sid, Instant expiry, String userAgent, String ipAddress) {
         if (managed(user.getRole()) && activeCount(user.getId()) >= limit(user.getId())) {
             throw new ApiException(ErrorCode.RESOURCE_CONFLICT, Map.of("sessionLimit", "REACHED"));
         }
         String safeAgent = userAgent == null ? null : userAgent.replaceAll("[\\p{Cntrl}]", " ").trim();
         if (safeAgent != null && safeAgent.length() > 240) safeAgent = safeAgent.substring(0, 240);
+        String safeIpAddress = ipAddress == null ? null : ipAddress.replaceAll("[\\p{Cntrl}]", "").trim();
+        if (safeIpAddress != null && safeIpAddress.isEmpty()) safeIpAddress = null;
+        if (safeIpAddress != null && safeIpAddress.length() > 45) safeIpAddress = safeIpAddress.substring(0, 45);
         jdbc.update("INSERT INTO identity_service.auth_sessions "
-                        + "(session_id,user_id,client,role_at_login,store_id_at_login,user_agent,refresh_expires_at) "
-                        + "VALUES (?,?,?,?,?,?,?)",
+                        + "(session_id,user_id,client,role_at_login,store_id_at_login,user_agent,ip_address,refresh_expires_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?)",
                 sid, user.getId(), managed(user.getRole()) ? "admin" : "customer",
-                user.getRole().name(), user.getStoreId(), safeAgent, Timestamp.from(expiry));
+                user.getRole().name(), user.getStoreId(), safeAgent, safeIpAddress, Timestamp.from(expiry));
     }
 
     /** Called under the same locked user row as refresh rotation. */
@@ -113,7 +121,7 @@ public class AuthSessionService {
                 + "WHERE user_id=? AND revoked_at IS NULL", reason, userId);
     }
 
-    public record Device(String sessionId, String userAgent, Instant createdAt, Instant lastSeenAt,
+    public record Device(String sessionId, String userAgent, String ipAddress, Instant createdAt, Instant lastSeenAt,
                          Instant expiresAt, boolean current) {}
     public record Overview(long userId, int activeCount, int limit, List<Device> sessions) {}
 
@@ -123,10 +131,10 @@ public class AuthSessionService {
     }
 
     private Overview overview(long userId, String currentSid) {
-        List<Device> sessions = jdbc.query("SELECT session_id,user_agent,created_at,last_seen_at,refresh_expires_at "
+        List<Device> sessions = jdbc.query("SELECT session_id,user_agent,ip_address,created_at,last_seen_at,refresh_expires_at "
                         + "FROM identity_service.auth_sessions WHERE user_id=? AND revoked_at IS NULL "
                         + "AND refresh_expires_at>now() ORDER BY last_seen_at DESC LIMIT 10", (rs, index) ->
-                        new Device(rs.getString("session_id"), rs.getString("user_agent"),
+                        new Device(rs.getString("session_id"), rs.getString("user_agent"), rs.getString("ip_address"),
                                 instant(rs, "created_at"), instant(rs, "last_seen_at"),
                                 instant(rs, "refresh_expires_at"),
                                 Objects.equals(currentSid, rs.getString("session_id"))), userId);
