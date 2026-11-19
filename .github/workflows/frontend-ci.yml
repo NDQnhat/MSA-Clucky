@@ -54,7 +54,10 @@ jobs:
       - name: Deployment configuration tests
         run: |
           python3 -m unittest discover -s deploy -p test_images.py
+          python3 -m unittest discover -s deploy -p 'test_release_*.py'
           python3 -m unittest discover -s deploy/backend -p 'test*.py'
+          python3 -m unittest discover -s deploy/identity -p 'test*.py'
+          python3 -m unittest discover -s scripts -p 'test_*.py'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -87,11 +90,14 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/${{ matrix.app }}/package-lock.json
 
-      - name: Install dependencies
-        run: npm ci
-
+      # The error contract is shared by both frontends and all backend services.
+      # Keep this check in the required Next.js matrix job and run it only once.
       - name: Check generated error catalog
+        if: matrix.app == 'nextjs'
         run: node ../../scripts/generate-errors.mjs --check
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: ESLint
         run: npm run lint
@@ -129,10 +135,10 @@ jobs:
             frontend/react/package-lock.json
 
       - name: Install customer dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install admin dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
         working-directory: frontend/react
 
       # The existing Playwright suite starts Next.js in production mode,
@@ -176,6 +182,7 @@ jobs:
     outputs:
       builds: ${{ steps.plan.outputs.builds }}
       release_id: ${{ steps.plan.outputs.release_id }}
+      should_deploy: ${{ steps.release_gate.outputs.should_deploy }}
     env:
       BACKEND_ENV_JSON: ${{ secrets.BACKEND_ENV_JSON }}
       VPS_HOST: ${{ vars.VPS_HOST || secrets.VPS_HOST }}
@@ -189,11 +196,25 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      # Legal documents are not seeded with fabricated terms. The first
-      # enforcement release must be staged manually: deploy Identity/Admin,
-      # publish approved documents, then switch Customer UI and require consent.
-      # A normal main push cannot perform this sequence atomically.
+          # The release gate compares against the live deployment, which may
+          # predate several documentation-only pushes or failed releases.
+          fetch-depth: 0
+      - name: Check documentation-only push against active production
+        id: release_gate
+        env:
+          PUSH_BEFORE: ${{ github.event.before }}
+          VPS_HOST: ${{ vars.VPS_HOST || secrets.VPS_HOST }}
+          VPS_PORT: ${{ vars.VPS_PORT || secrets.VPS_PORT || '8686' }}
+          VPS_USER: ${{ vars.VPS_USER || secrets.VPS_USER }}
+          VPS_WORKDIR: ${{ vars.VPS_WORKDIR || secrets.VPS_WORKDIR || '/opt/clucky' }}
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: python3 deploy/release_gate.py
+      # Legal documents require an approved two-stage rollout. Check before
+      # building images or changing production, unless the release gate has
+      # already proven this push requires no deployment.
       - name: Require staged legal-content production rollout
+        if: steps.release_gate.outputs.should_deploy == 'true'
         env:
           LEGAL_CONTENT_ROLLOUT_STAGE: ${{ vars.LEGAL_CONTENT_ROLLOUT_STAGE }}
           BACKEND_ENV_JSON: ${{ secrets.BACKEND_ENV_JSON }}
@@ -228,15 +249,19 @@ jobs:
               python3 -c 'import json,sys; status=json.load(sys.stdin); sys.exit(0 if status.get("documentsPublished") is True else "Publish BOTH legally approved documents before enabling registration consent.")'
           fi
       - uses: docker/setup-buildx-action@v3
+        if: steps.release_gate.outputs.should_deploy == 'true'
       - uses: docker/login-action@v3
+        if: steps.release_gate.outputs.should_deploy == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Reuse images with identical source and build arguments
+        if: steps.release_gate.outputs.should_deploy == 'true'
         id: plan
         run: python3 deploy/images.py plan
       - uses: actions/upload-artifact@v4
+        if: steps.release_gate.outputs.should_deploy == 'true'
         with:
           name: release-plan-${{ env.RELEASE_ID }}
           path: release-plan.json
@@ -246,7 +271,7 @@ jobs:
   images:
     name: Package image / ${{ matrix.build }}
     needs: preflight
-    if: needs.preflight.outputs.builds != '[]'
+    if: needs.preflight.outputs.should_deploy == 'true' && needs.preflight.outputs.builds != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: frontend-production
@@ -339,6 +364,7 @@ jobs:
     needs: [preflight, images]
     if: >-
       always() && !cancelled() && needs.preflight.result == 'success' &&
+      needs.preflight.outputs.should_deploy == 'true' &&
       (needs.images.result == 'success' || needs.images.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 45
