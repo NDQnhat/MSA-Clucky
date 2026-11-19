@@ -166,8 +166,9 @@ export default function OrderTrackingPage({
     if (refund?.id && refund.status === "REFUNDED") {
       let active = true;
       refundApi.getEvidence(refund.id).then((res) => {
-        if (active && res?.signedUrl) {
-          setEvidenceUrl(res.signedUrl);
+        const url = res?.accessUrl || (res as any)?.signedUrl;
+        if (active && url) {
+          setEvidenceUrl(url);
         }
       }).catch(() => {});
       return () => { active = false; };
