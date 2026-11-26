@@ -1,5 +1,6 @@
 package com.clucky.promotionloyaltyservice.dto;
 
+import com.clucky.promotionloyaltyservice.config.LocaleResolverHelper;
 import com.clucky.promotionloyaltyservice.model.Voucher;
 import com.clucky.promotionloyaltyservice.model.VoucherApplicability;
 import com.clucky.promotionloyaltyservice.model.VoucherCampaignKind;
@@ -21,7 +22,9 @@ public class VoucherResponse {
     private Integer usage;
     private Integer maxUsage;
     private String title;
+    private LocalizedText titleI18n;
     private String description;
+    private LocalizedText descriptionI18n;
     private VoucherType type;
     private BigDecimal value;
     private BigDecimal minOrderAmount;
@@ -72,10 +75,14 @@ public class VoucherResponse {
     public Instant getRejectedAt() { return rejectedAt; }
 
     public static VoucherResponse fromEntity(Voucher v) {
-        return fromEntity(v, Instant.now());
+        return fromEntity(v, Instant.now(), LocaleResolverHelper.currentRequestLang());
     }
 
     public static VoucherResponse fromEntity(Voucher v, Instant now) {
+        return fromEntity(v, now, LocaleResolverHelper.currentRequestLang());
+    }
+
+    public static VoucherResponse fromEntity(Voucher v, Instant now, String lang) {
         if (v == null) {
             return null;
         }
@@ -87,8 +94,10 @@ public class VoucherResponse {
         dto.storeIds = Set.copyOf(v.getStoreIds());
         dto.usage = v.getUsedCount();
         dto.maxUsage = v.getTotalLimit() == null || v.getTotalLimit() <= 0 ? null : v.getTotalLimit();
-        dto.setTitle(v.getTitle());
-        dto.setDescription(v.getDescription());
+        dto.setTitle(v.getTitle() != null ? v.resolveTitle(lang) : null);
+        dto.setTitleI18n(v.getTitle());
+        dto.setDescription(v.getDescription() != null ? v.resolveDescription(lang) : null);
+        dto.setDescriptionI18n(v.getDescription());
         dto.setType(v.getType());
         dto.setValue(v.getValue());
         dto.setMinOrderAmount(v.getMinOrderAmount());
@@ -128,7 +137,11 @@ public class VoucherResponse {
 
     /** Public cards and customer wallet never expose campaign editorial/audit actor identities. */
     public static VoucherResponse fromPublicEntity(Voucher v, Instant now) {
-        VoucherResponse dto = fromEntity(v, now);
+        return fromPublicEntity(v, now, LocaleResolverHelper.currentRequestLang());
+    }
+
+    public static VoucherResponse fromPublicEntity(Voucher v, Instant now, String lang) {
+        VoucherResponse dto = fromEntity(v, now, lang);
         if (dto != null) {
             dto.createdBy = null;
             dto.approvedBy = null;
@@ -179,12 +192,28 @@ public class VoucherResponse {
         this.title = title;
     }
 
+    public LocalizedText getTitleI18n() {
+        return titleI18n;
+    }
+
+    public void setTitleI18n(LocalizedText titleI18n) {
+        this.titleI18n = titleI18n;
+    }
+
     public String getDescription() {
         return description;
     }
 
     public void setDescription(String description) {
         this.description = description;
+    }
+
+    public LocalizedText getDescriptionI18n() {
+        return descriptionI18n;
+    }
+
+    public void setDescriptionI18n(LocalizedText descriptionI18n) {
+        this.descriptionI18n = descriptionI18n;
     }
 
     public VoucherType getType() {

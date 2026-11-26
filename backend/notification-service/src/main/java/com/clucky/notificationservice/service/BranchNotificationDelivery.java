@@ -59,8 +59,9 @@ public class BranchNotificationDelivery {
                         .getBytes(StandardCharsets.UTF_8)).toString();
                 jdbc.update("""
                         INSERT INTO notification_service.notifications(user_id,store_id,title,content,type,ref_id,operation_key)
-                        VALUES (?,?,?,?,?,?,?) ON CONFLICT (operation_key) WHERE operation_key IS NOT NULL DO NOTHING
-                        """, userId, storeId, row.get("title"), row.get("content"), row.get("type"), row.get("ref_id"), operationKey);
+                        VALUES (?,?,?::jsonb,?::jsonb,?,?,?) ON CONFLICT (operation_key) WHERE operation_key IS NOT NULL DO NOTHING
+                        """, userId, storeId, String.valueOf(row.get("title")), String.valueOf(row.get("content")),
+                        row.get("type"), row.get("ref_id"), operationKey);
                 jdbc.update("UPDATE notification_service.branch_notification_intents SET delivered_at=now() WHERE id=?", id);
                 return true;
             });

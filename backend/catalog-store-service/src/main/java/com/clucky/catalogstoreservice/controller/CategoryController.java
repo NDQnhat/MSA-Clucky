@@ -1,5 +1,6 @@
 package com.clucky.catalogstoreservice.controller;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.CategoryDto;
 import com.clucky.catalogstoreservice.service.CategoryService;
 import jakarta.validation.Valid;
@@ -22,13 +23,18 @@ public class CategoryController {
 
     @GetMapping
     public ResponseEntity<List<CategoryDto.Response>> listCategories(
-            @RequestParam(name = "activeOnly", defaultValue = "false") boolean activeOnly) {
-        return ResponseEntity.ok(categoryService.getAllCategories(activeOnly));
+            @RequestParam(name = "activeOnly", defaultValue = "false") boolean activeOnly,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(categoryService.getAllCategories(activeOnly, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<CategoryDto.Response> getCategory(@PathVariable Long id) {
-        return ResponseEntity.ok(categoryService.getCategoryById(id));
+    public ResponseEntity<CategoryDto.Response> getCategory(
+            @PathVariable Long id,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(categoryService.getCategoryById(id, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @PostMapping

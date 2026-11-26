@@ -42,6 +42,7 @@ import {
   OrderSummaryCard,
 } from "@/components/order";
 import { orderApi, catalogApi, refundApi, type ProductItem, type StoreItem, type RefundResult } from "@/lib/api";
+import { pickLocalized } from "@/lib/bilingual";
 import { stores as FALLBACK_STORES } from "@/lib/products";
 import { fillOrderImages } from "@/lib/order-images";
 import { OrderItemReviews } from "@/components/reviews/order-item-reviews";
@@ -67,13 +68,13 @@ export default function OrderTrackingPage({
   const [serverOrder, setServerOrder] = useState<Order | null>(null);
   const [shipmentTracking, setShipmentTracking] = useState<TrackingResponse | null>(null);
   const [imageCatalog, setImageCatalog] = useState<ProductItem[]>([]);
-  const [storesList, setStoresList] = useState<Pick<StoreItem, "id" | "name" | "address">[]>(FALLBACK_STORES);
+  const [storesList, setStoresList] = useState<Pick<StoreItem, "id" | "name" | "nameI18n" | "address">[]>(FALLBACK_STORES);
   useEffect(() => {
     let active = true;
-    catalogApi.getProducts().then(products => { if (active) setImageCatalog(products); }).catch(() => {});
-    catalogApi.getStores(false).then(stores => { if (active && Array.isArray(stores) && stores.length > 0) setStoresList(stores); }).catch(() => {});
+    catalogApi.getProducts({ lang: locale }).then(products => { if (active) setImageCatalog(products); }).catch(() => {});
+    catalogApi.getStores(false, locale).then(stores => { if (active && Array.isArray(stores) && stores.length > 0) setStoresList(stores); }).catch(() => {});
     return () => { active = false; };
-  }, []);
+  }, [locale]);
   const [isPolling, setIsPolling] = useState(false);
   const [loadError, setLoadError] = useState("");
   useFeedback(loadError);
@@ -136,7 +137,9 @@ export default function OrderTrackingPage({
   const enrichedSourceOrder = sourceOrder
     ? {
         ...sourceOrder,
-        storeName: matchedStore?.name || sourceOrder.storeName,
+        storeName: matchedStore
+          ? pickLocalized(matchedStore.nameI18n, matchedStore.name, locale)
+          : sourceOrder.storeName,
         storeAddress: matchedStore?.address || sourceOrder.storeAddress,
       }
     : undefined;
@@ -436,6 +439,7 @@ export default function OrderTrackingPage({
                     key={item.id}
                     image={item.image}
                     name={item.itemName}
+                    nameI18n={item.itemNameI18n}
                     unitPrice={item.unitPrice}
                     quantity={item.quantity}
                     lineTotal={item.lineTotal}

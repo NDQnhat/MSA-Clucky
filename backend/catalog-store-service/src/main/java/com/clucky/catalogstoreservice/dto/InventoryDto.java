@@ -44,7 +44,9 @@ public class InventoryDto {
         private Long storeId;
         private Long productId;
         private String productName;
+        private LocalizedText productNameI18n;
         private String categoryName;
+        private LocalizedText categoryNameI18n;
         private String imageUrl;
         private Integer quantityAvailable;
         private Integer lowStockThreshold;
@@ -79,8 +81,14 @@ public class InventoryDto {
         public String getProductName() { return productName; }
         public void setProductName(String productName) { this.productName = productName; }
 
+        public LocalizedText getProductNameI18n() { return productNameI18n; }
+        public void setProductNameI18n(LocalizedText productNameI18n) { this.productNameI18n = productNameI18n; }
+
         public String getCategoryName() { return categoryName; }
         public void setCategoryName(String categoryName) { this.categoryName = categoryName; }
+
+        public LocalizedText getCategoryNameI18n() { return categoryNameI18n; }
+        public void setCategoryNameI18n(LocalizedText categoryNameI18n) { this.categoryNameI18n = categoryNameI18n; }
 
         public String getImageUrl() { return imageUrl; }
         public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }

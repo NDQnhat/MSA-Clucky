@@ -1,7 +1,7 @@
-export function matchesCatalogSearch(values: (string | undefined)[], query: string) {
-  const normalize = (value: string) => value.normalize('NFD').replace(/\p{M}/gu, '').replace(/[đĐ]/g, 'd').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
-  const needle = normalize(query);
-  return values.some(value => normalize(value ?? '').includes(needle));
+import { matchesBilingualSearch, type BilingualValue } from '../../lib/bilingual';
+
+export function matchesCatalogSearch(values: BilingualValue[], query: string) {
+  return matchesBilingualSearch(query, ...values);
 }
 
 export function isCatalogImage(file: { type: string; size: number }) {

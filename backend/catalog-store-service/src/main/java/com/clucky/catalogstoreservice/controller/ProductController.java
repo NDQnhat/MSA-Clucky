@@ -1,5 +1,6 @@
 package com.clucky.catalogstoreservice.controller;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.PageResponse;
 import com.clucky.catalogstoreservice.dto.ProductDto;
 import com.clucky.catalogstoreservice.service.ProductService;
@@ -33,29 +34,36 @@ public class ProductController {
             @RequestParam(name = "spicyLevel", required = false) Integer spicyLevel,
             @RequestParam(name = "activeOnly", defaultValue = "false") boolean activeOnly,
             @RequestParam(name = "page", required = false) Integer page,
-            @RequestParam(name = "size", required = false) Integer size) {
+            @RequestParam(name = "size", required = false) Integer size,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        String resolvedLang = LocaleResolverHelper.resolve(lang, acceptLanguage);
 
         if (page != null || size != null) {
             int pageNum = page != null ? Math.max(0, page) : 0;
             int pageSize = size != null ? Math.max(1, size) : 20;
             PageResponse<ProductDto.Response> pageResponse = productService.getProductsPaged(
-                    storeId, categoryId, keyword, spicyLevel, activeOnly, PageRequest.of(pageNum, pageSize));
+                    storeId, categoryId, keyword, spicyLevel, activeOnly, PageRequest.of(pageNum, pageSize), resolvedLang);
             return ResponseEntity.ok()
                     .cacheControl(activeOnly ? CacheControl.maxAge(60, TimeUnit.SECONDS).cachePublic() : CacheControl.noStore())
+                    .varyBy("Accept-Language")
                     .body(pageResponse);
         }
 
-        List<ProductDto.Response> list = productService.getProducts(storeId, categoryId, keyword, spicyLevel, activeOnly);
+        List<ProductDto.Response> list = productService.getProducts(storeId, categoryId, keyword, spicyLevel, activeOnly, resolvedLang);
         return ResponseEntity.ok()
                 .cacheControl(activeOnly ? CacheControl.maxAge(60, TimeUnit.SECONDS).cachePublic() : CacheControl.noStore())
+                .varyBy("Accept-Language")
                 .body(list);
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<ProductDto.Response> getProduct(
             @PathVariable Long id,
-            @RequestParam(name = "storeId", required = false) Long storeId) {
-        return ResponseEntity.ok(productService.getProductById(id, storeId));
+            @RequestParam(name = "storeId", required = false) Long storeId,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(productService.getProductById(id, storeId, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @PostMapping

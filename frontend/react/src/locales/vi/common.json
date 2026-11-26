@@ -32,6 +32,8 @@
   },
   "retry": "Thử lại",
   "confirm": "Xác nhận",
+  "close": "Đóng",
+  "currency": "đ",
   "updating": "Đang cập nhật…",
   "signOut": "Đăng xuất",
   "signedOut": "Đã đăng xuất."

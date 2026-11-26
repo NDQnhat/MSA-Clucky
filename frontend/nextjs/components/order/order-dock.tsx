@@ -8,6 +8,7 @@ import Link from "@/components/ui-loader/navigation-link";
 import { usePathname } from "next/navigation";
 import { ShoppingBag, ArrowRight, Minus, Plus, Trash2, X } from "lucide-react";
 import { isFloatingCartRoute } from "@/lib/order-demo";
+import { pickLocalized } from "@/lib/bilingual";
 import { useOrder } from "./order-provider";
 import { OrderDialog } from "./order-dialog";
 import { useNavigationPending } from "@/components/ui-loader";
@@ -17,7 +18,7 @@ import styles from "./order-experience.module.css";
 function MiniCartContent({ onNavigate }: { onNavigate: () => void }) {
   const t = useTranslations();
 
-  const { money: formatPrice } = useLocaleTools();
+  const { locale, money: formatPrice } = useLocaleTools();
   const { items, count, subtotal, updateQuantity, removeItem } = useOrder();
   return (
     <>
@@ -31,59 +32,66 @@ function MiniCartContent({ onNavigate }: { onNavigate: () => void }) {
             </Link>
           </div>
         ) : (
-          items.map((item) => (
-            <article className={styles.miniCartItem} key={item.id}>
-              <FoodImage
-                src={item.image}
-                alt={item.name}
-                width={64}
-                height={64}
-              />
-              <div className={styles.miniCartItemInfo}>
-                <strong>{item.name}</strong>
-                <p>
-                  {[
-                    ...(item.options ?? []).map((option) => option.name),
-                    ...(item.toppings ?? []).map((top) => `+ ${top.name}`),
-                  ].join(" · ")}
-                </p>
-                {item.note && <p className={styles.miniNote}>{item.note}</p>}
-                <span className={styles.miniUnitPrice}>
-                  {formatPrice(item.unitPrice)} {t("business.cart.serving")} </span>
-                <div className={styles.miniCartItemBottom}>
-                  <div
-                    className={styles.quickQuantity}
-                    aria-label={t("business.orderdock.quantityFor", { value1: item.name })}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => updateQuantity(item.id, -1)}
-                      aria-label={t("business.cart.decrease", { value1: item.name })}
+          items.map((item) => {
+            const itemName = pickLocalized(item.nameI18n, item.name, locale);
+            return (
+              <article className={styles.miniCartItem} key={item.id}>
+                <FoodImage
+                  src={item.image}
+                  alt={itemName}
+                  width={64}
+                  height={64}
+                />
+                <div className={styles.miniCartItemInfo}>
+                  <strong>{itemName}</strong>
+                  <p>
+                    {[
+                      ...(item.options ?? []).map((option) =>
+                        pickLocalized(option.nameI18n, option.name, locale)
+                      ),
+                      ...(item.toppings ?? []).map(
+                        (top) => `+ ${pickLocalized(top.nameI18n, top.name, locale)}`
+                      ),
+                    ].join(" · ")}
+                  </p>
+                  {item.note && <p className={styles.miniNote}>{item.note}</p>}
+                  <span className={styles.miniUnitPrice}>
+                    {formatPrice(item.unitPrice)} {t("business.cart.serving")} </span>
+                  <div className={styles.miniCartItemBottom}>
+                    <div
+                      className={styles.quickQuantity}
+                      aria-label={t("business.orderdock.quantityFor", { value1: itemName })}
                     >
-                      <Minus size={14} />
-                    </button>
-                    <output aria-live="polite">{item.quantity}</output>
-                    <button
-                      type="button"
-                      onClick={() => updateQuantity(item.id, 1)}
-                      aria-label={t("business.cart.increase", { value1: item.name })}
-                    >
-                      <Plus size={14} />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => updateQuantity(item.id, -1)}
+                        aria-label={t("business.cart.decrease", { value1: itemName })}
+                      >
+                        <Minus size={14} />
+                      </button>
+                      <output aria-live="polite">{item.quantity}</output>
+                      <button
+                        type="button"
+                        onClick={() => updateQuantity(item.id, 1)}
+                        aria-label={t("business.cart.increase", { value1: itemName })}
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                    <strong>{formatPrice(item.unitPrice * item.quantity)}</strong>
                   </div>
-                  <strong>{formatPrice(item.unitPrice * item.quantity)}</strong>
                 </div>
-              </div>
-              <button
-                type="button"
-                className={styles.iconAction}
-                onClick={() => removeItem(item.id)}
-                aria-label={t("business.orderdock.remove", { value1: item.name })}
-              >
-                <Trash2 size={16} />
-              </button>
-            </article>
-          ))
+                <button
+                  type="button"
+                  className={styles.iconAction}
+                  onClick={() => removeItem(item.id)}
+                  aria-label={t("business.orderdock.remove", { value1: itemName })}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </article>
+            );
+          })
         )}
       </div>
       {items.length > 0 && (

@@ -41,10 +41,14 @@ public class CatalogCacheService {
         }
     }
 
+    private static String menuKey(Long storeId) {
+        return storeId != null ? "menu:store:v2:" + storeId : "menu:store:v2:all";
+    }
+
     public List<ProductDto.Response> getCachedMenu(Long storeId) {
         if (redisTemplate == null) return null;
         try {
-            String key = storeId != null ? "menu:store:" + storeId : "menu:store:all";
+            String key = menuKey(storeId);
             String json = redisTemplate.opsForValue().get(key);
             if (json != null && !json.isBlank()) {
                 List<ProductDto.Response> cached = objectMapper.readValue(json, new TypeReference<List<ProductDto.Response>>() {});
@@ -60,7 +64,7 @@ public class CatalogCacheService {
     public void setCachedMenu(Long storeId, List<ProductDto.Response> menu) {
         if (redisTemplate == null || menu == null) return;
         try {
-            String key = storeId != null ? "menu:store:" + storeId : "menu:store:all";
+            String key = menuKey(storeId);
             String json = objectMapper.writeValueAsString(menu);
             redisTemplate.opsForValue().set(key, json, MENU_CACHE_TTL);
             log.debug("Redis cache SAVED for key '{}', items count: {}, TTL: {}", key, menu.size(), MENU_CACHE_TTL);
@@ -77,8 +81,9 @@ public class CatalogCacheService {
         if (redisTemplate == null) return;
         try {
             if (storeId != null) {
-                String key = "menu:store:" + storeId;
+                String key = menuKey(storeId);
                 redisTemplate.delete(key);
+                redisTemplate.delete("menu:store:" + storeId);
                 log.info("Evicted Redis cache key: {}", key);
             } else {
                 evictAllStoreMenuCachesNow();

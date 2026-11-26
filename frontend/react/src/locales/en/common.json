@@ -32,6 +32,8 @@
   },
   "retry": "Try again",
   "confirm": "Confirm",
+  "close": "Close",
+  "currency": "VND",
   "updating": "Updating…",
   "signOut": "Sign out",
   "signedOut": "Signed out."

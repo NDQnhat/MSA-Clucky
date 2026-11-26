@@ -1,7 +1,9 @@
 package com.clucky.promotionloyaltyservice.controller;
 
+import com.clucky.promotionloyaltyservice.config.LocaleResolverHelper;
 import com.clucky.promotionloyaltyservice.dto.BannerRequest;
 import com.clucky.promotionloyaltyservice.dto.BannerResponse;
+import com.clucky.promotionloyaltyservice.dto.LocalizedText;
 import com.clucky.promotionloyaltyservice.service.BannerService;
 import jakarta.validation.Valid;
 import java.time.Instant;
@@ -24,8 +26,10 @@ public class BannerController {
 
     @GetMapping
     public ResponseEntity<List<BannerResponse>> getActiveBanners(
-            @RequestParam(name = "position", required = false) String position) {
-        return ResponseEntity.ok(bannerService.getActiveBanners(position));
+            @RequestParam(name = "position", required = false) String position,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(bannerService.getActiveBanners(position, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @GetMapping("/admin")
@@ -33,14 +37,19 @@ public class BannerController {
     public ResponseEntity<List<BannerResponse>> getAdminBanners(
             @RequestParam(name = "position", required = false) String position,
             @RequestParam(name = "isActive", required = false) Boolean isActive,
-            @RequestParam(name = "keyword", required = false) String keyword) {
-        return ResponseEntity.ok(bannerService.getAdminBanners(position, isActive, keyword));
+            @RequestParam(name = "keyword", required = false) String keyword,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(bannerService.getAdminBanners(position, isActive, keyword, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @GetMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<BannerResponse> getBannerById(@PathVariable("id") Long id) {
-        return ResponseEntity.ok(bannerService.getBannerById(id));
+    public ResponseEntity<BannerResponse> getBannerById(
+            @PathVariable("id") Long id,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(bannerService.getBannerById(id, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -49,6 +58,7 @@ public class BannerController {
             @RequestPart(value = "file", required = false) MultipartFile file,
             @RequestPart(value = "data", required = false) BannerRequest data,
             @RequestParam(value = "title", required = false) String title,
+            @RequestParam(value = "titleEn", required = false) String titleEn,
             @RequestParam(value = "linkUrl", required = false) String linkUrl,
             @RequestParam(value = "position", required = false) String position,
             @RequestParam(value = "displayOrder", required = false) Integer displayOrder,
@@ -60,7 +70,7 @@ public class BannerController {
         BannerRequest request = data != null
                 ? data
                 : new BannerRequest(
-                        title,
+                        LocalizedText.of(title, titleEn),
                         linkUrl,
                         position,
                         displayOrder,

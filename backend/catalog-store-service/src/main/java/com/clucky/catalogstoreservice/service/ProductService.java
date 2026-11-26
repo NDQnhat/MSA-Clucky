@@ -1,5 +1,7 @@
 package com.clucky.catalogstoreservice.service;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
+import com.clucky.catalogstoreservice.dto.LocalizedText;
 import com.clucky.catalogstoreservice.dto.MediaDto;
 import com.clucky.catalogstoreservice.dto.PageResponse;
 import com.clucky.catalogstoreservice.dto.ProductDto;
@@ -59,12 +61,23 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public List<ProductDto.Response> getProducts(Long storeId, Long categoryId, String keyword, Integer spicyLevel, boolean activeOnly) {
+        return getProducts(storeId, categoryId, keyword, spicyLevel, activeOnly, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductDto.Response> getProducts(Long storeId, Long categoryId, String keyword, Integer spicyLevel, boolean activeOnly, String lang) {
         List<ProductDto.Response> all = activeOnly ? getOrLoadStoreProducts(storeId) : loadFullProductsFromDb(storeId);
-        return filterProducts(all, categoryId, keyword, spicyLevel, activeOnly);
+        List<ProductDto.Response> filtered = filterProducts(all, categoryId, keyword, spicyLevel, activeOnly);
+        return localizeResponses(filtered, lang);
     }
 
     @Transactional(readOnly = true)
     public PageResponse<ProductDto.Response> getProductsPaged(Long storeId, Long categoryId, String keyword, Integer spicyLevel, boolean activeOnly, Pageable pageable) {
+        return getProductsPaged(storeId, categoryId, keyword, spicyLevel, activeOnly, pageable, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ProductDto.Response> getProductsPaged(Long storeId, Long categoryId, String keyword, Integer spicyLevel, boolean activeOnly, Pageable pageable, String lang) {
         List<ProductDto.Response> all = activeOnly ? getOrLoadStoreProducts(storeId) : loadFullProductsFromDb(storeId);
         List<ProductDto.Response> filtered = filterProducts(all, categoryId, keyword, spicyLevel, activeOnly);
 
@@ -75,7 +88,7 @@ public class ProductService {
 
         int fromIndex = (int) Math.min(pageable.getOffset(), totalElements);
         int toIndex = (int) Math.min((long) fromIndex + pageSize, totalElements);
-        List<ProductDto.Response> content = filtered.subList(fromIndex, toIndex);
+        List<ProductDto.Response> content = localizeResponses(filtered.subList(fromIndex, toIndex), lang);
 
         return new PageResponse<>(content, pageNumber, pageSize, totalElements, totalPages);
     }
@@ -139,7 +152,7 @@ public class ProductService {
                                                      String keyword,
                                                      Integer spicyLevel,
                                                      boolean activeOnly) {
-        String trimmed = keyword != null && !keyword.trim().isEmpty() ? keyword.trim().toLowerCase() : null;
+        String trimmed = keyword != null && !keyword.trim().isEmpty() ? keyword.trim() : null;
         return list.stream().filter(p -> {
             if (activeOnly && !Boolean.TRUE.equals(p.getIsActive())) {
                 return false;
@@ -151,9 +164,13 @@ public class ProductService {
                 return false;
             }
             if (trimmed != null) {
-                boolean nameMatch = p.getName() != null && p.getName().toLowerCase().contains(trimmed);
-                boolean descMatch = p.getDescription() != null && p.getDescription().toLowerCase().contains(trimmed);
-                if (!nameMatch && !descMatch) {
+                boolean nameMatch = (p.getNameI18n() != null && p.getNameI18n().matches(trimmed))
+                        || LocalizedText.normalizeForSearch(p.getName()).contains(LocalizedText.normalizeForSearch(trimmed));
+                boolean descMatch = (p.getDescriptionI18n() != null && p.getDescriptionI18n().matches(trimmed))
+                        || LocalizedText.normalizeForSearch(p.getDescription()).contains(LocalizedText.normalizeForSearch(trimmed));
+                boolean catMatch = (p.getCategoryNameI18n() != null && p.getCategoryNameI18n().matches(trimmed))
+                        || LocalizedText.normalizeForSearch(p.getCategoryName()).contains(LocalizedText.normalizeForSearch(trimmed));
+                if (!nameMatch && !descMatch && !catMatch) {
                     return false;
                 }
             }
@@ -163,10 +180,15 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public ProductDto.Response getProductById(Long id, Long storeId) {
-        Product p = productRepository.findByIdWithCategory(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy món ăn với mã: " + id));
+        return getProductById(id, storeId, LocaleResolverHelper.currentRequestLang());
+    }
 
-        ProductDto.Response resp = toResponse(p);
+    @Transactional(readOnly = true)
+    public ProductDto.Response getProductById(Long id, Long storeId, String lang) {
+        Product p = productRepository.findByIdWithCategory(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + id));
+
+        ProductDto.Response resp = toResponse(p, lang);
         if (storeId != null) {
             storeRepository.findById(storeId)
                     .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chi nhánh với mã: " + storeId));
@@ -238,8 +260,8 @@ public class ProductService {
             product.setCategory(category);
         }
 
-        if (request.getName() != null && !request.getName().isBlank()) product.setName(request.getName());
-        if (request.getDescription() != null) product.setDescription(request.getDescription());
+        if (request.getName() != null && request.getName().hasText()) product.setName(request.getName());
+        if (request.getDescription() != null && request.getDescription().hasText()) product.setDescription(request.getDescription());
         if (request.getBasePrice() != null) product.setBasePrice(request.getBasePrice());
         if (request.getImageUrl() != null) product.setImageUrl(request.getImageUrl());
         if (request.getImagePublicId() != null) product.setImagePublicId(request.getImagePublicId());
@@ -318,12 +340,14 @@ public class ProductService {
                 if (group.getChoices() != null) {
                     for (ProductDto.OptionChoiceDto choice : group.getChoices()) {
                         Long optionId = persistedItemId(choice.getId(), "opt-");
+                        LocalizedText groupName = group.effectiveName();
+                        LocalizedText choiceName = choice.effectiveName();
                         ProductOption option = optionId == null
-                                ? new ProductOption(null, product, group.getName(), choice.getName(), choice.getPriceAdjustment(), group.isRequired())
+                                ? new ProductOption(null, product, groupName, choiceName, choice.getPriceAdjustment(), group.isRequired())
                                 : remainingOptions.remove(optionId);
                         if (option == null) throw new ApiException(ErrorCode.VALIDATION_ERROR);
-                        option.setGroupName(group.getName());
-                        option.setName(choice.getName());
+                        option.setGroupName(groupName);
+                        option.setName(choiceName);
                         option.setExtraPrice(choice.getPriceAdjustment());
                         option.setIsRequired(group.isRequired());
                         retainedOptions.add(option);
@@ -346,11 +370,12 @@ public class ProductService {
             List<ProductTopping> retainedToppings = new ArrayList<>();
             for (ProductDto.ToppingDto toppingDto : toppingsDto) {
                 Long toppingId = persistedItemId(toppingDto.getId(), "top-");
+                LocalizedText toppingName = toppingDto.effectiveName();
                 ProductTopping topping = toppingId == null
-                        ? new ProductTopping(null, product, toppingDto.getName(), toppingDto.getPrice())
+                        ? new ProductTopping(null, product, toppingName, toppingDto.getPrice())
                         : remainingToppings.remove(toppingId);
                 if (topping == null) throw new ApiException(ErrorCode.VALIDATION_ERROR);
-                topping.setToppingName(toppingDto.getName());
+                topping.setToppingName(toppingName);
                 topping.setExtraPrice(toppingDto.getPrice());
                 retainedToppings.add(topping);
             }
@@ -374,43 +399,54 @@ public class ProductService {
     }
 
     public ProductDto.Response toResponse(Product p) {
+        return toResponse(p, LocaleResolverHelper.currentRequestLang());
+    }
+
+    public ProductDto.Response toResponse(Product p, String lang) {
         ProductDto.Response r = new ProductDto.Response();
         r.setId(p.getId());
         r.setVersion(p.getVersion());
-        r.setSlug(ProductDto.toSlug(p.getName()) + "-" + p.getId());
-        r.setName(p.getName());
+        String slugSource = p.getName() != null ? p.resolveName("vi") : "";
+        r.setSlug(ProductDto.toSlug(slugSource) + "-" + p.getId());
+        String resolvedName = p.resolveName(lang);
+        r.setName(resolvedName);
+        r.setNameI18n(p.getName());
         if (p.getCategory() != null) {
             r.setCategoryId(p.getCategory().getId());
-            r.setCategoryName(p.getCategory().getName());
+            r.setCategoryName(p.getCategory().resolveName(lang));
+            r.setCategoryNameI18n(p.getCategory().getName());
         }
-        r.setDescription(p.getDescription());
+        r.setDescription(p.resolveDescription(lang));
+        r.setDescriptionI18n(p.getDescription());
         r.setBasePrice(p.getBasePrice());
         r.setImageUrl(p.getImageUrl());
         r.setImagePublicId(p.getImagePublicId());
-        r.setAlt(p.getName() + " - Clucky");
+        r.setAlt((resolvedName != null ? resolvedName : "") + " - Clucky");
         r.setKcal(p.getKcal());
         r.setSpicyLevel(p.getSpicyLevel());
         r.setIsActive(p.getIsActive());
 
-        // Group options by groupName
-        Map<String, List<ProductOption>> rawGroupMap = new LinkedHashMap<>();
+        // Group options by canonical LocalizedText groupName
+        Map<LocalizedText, List<ProductOption>> rawGroupMap = new LinkedHashMap<>();
         List<ProductOption> options = optionRepository.findByProductId(p.getId());
         for (ProductOption opt : options) {
             rawGroupMap.computeIfAbsent(opt.getGroupName(), k -> new ArrayList<>()).add(opt);
         }
         List<ProductDto.OptionGroupDto> optionGroups = new ArrayList<>();
         int gIndex = 1;
-        for (Map.Entry<String, List<ProductOption>> entry : rawGroupMap.entrySet()) {
+        for (Map.Entry<LocalizedText, List<ProductOption>> entry : rawGroupMap.entrySet()) {
             boolean isRequired = entry.getValue().stream()
                     .anyMatch(opt -> opt.getIsRequired() == null || Boolean.TRUE.equals(opt.getIsRequired()));
             List<ProductDto.OptionChoiceDto> choices = entry.getValue().stream()
                     .map(opt -> new ProductDto.OptionChoiceDto(
                             "opt-" + opt.getId(),
+                            opt.resolveName(lang),
                             opt.getName(),
                             opt.getExtraPrice()
                     )).collect(Collectors.toList());
             optionGroups.add(new ProductDto.OptionGroupDto(
                     "grp-" + (gIndex++),
+                    LocalizedText.resolve(entry.getKey(), lang),
                     entry.getKey(),
                     isRequired,
                     choices
@@ -424,6 +460,7 @@ public class ProductService {
         for (ProductTopping top : toppingsList) {
             toppings.add(new ProductDto.ToppingDto(
                     "top-" + top.getId(),
+                    top.resolveToppingName(lang),
                     top.getToppingName(),
                     top.getExtraPrice()
             ));
@@ -431,5 +468,65 @@ public class ProductService {
         r.setToppings(toppings);
 
         return r;
+    }
+
+    private List<ProductDto.Response> localizeResponses(List<ProductDto.Response> items, String lang) {
+        return items.stream().map(item -> localizeResponse(item, lang)).collect(Collectors.toList());
+    }
+
+    private ProductDto.Response localizeResponse(ProductDto.Response src, String lang) {
+        ProductDto.Response copy = new ProductDto.Response();
+        copy.setVersion(src.getVersion());
+        copy.setInventoryVersion(src.getInventoryVersion());
+        copy.setId(src.getId());
+        copy.setSlug(src.getSlug());
+        String resolvedName = src.getNameI18n() != null ? src.getNameI18n().resolve(lang) : src.getName();
+        copy.setName(resolvedName);
+        copy.setNameI18n(src.getNameI18n());
+        copy.setCategoryId(src.getCategoryId());
+        String resolvedCat = src.getCategoryNameI18n() != null ? src.getCategoryNameI18n().resolve(lang) : src.getCategoryName();
+        copy.setCategoryName(resolvedCat);
+        copy.setCategoryNameI18n(src.getCategoryNameI18n());
+        String resolvedDesc = src.getDescriptionI18n() != null ? src.getDescriptionI18n().resolve(lang) : src.getDescription();
+        copy.setDescription(resolvedDesc);
+        copy.setDescriptionI18n(src.getDescriptionI18n());
+        copy.setBasePrice(src.getBasePrice());
+        copy.setPrice(src.getPrice());
+        copy.setImageUrl(src.getImageUrl());
+        copy.setImagePublicId(src.getImagePublicId());
+        copy.setAlt((resolvedName != null ? resolvedName : "") + " - Clucky");
+        copy.setKcal(src.getKcal());
+        copy.setSpicyLevel(src.getSpicyLevel());
+        copy.setIsActive(src.getIsActive());
+        copy.setIsAvailable(src.getIsAvailable());
+        copy.setIsSoldOut(src.getIsSoldOut());
+        copy.setIsBestSeller(src.getIsBestSeller());
+        copy.setRating(src.getRating());
+        copy.setReviewCount(src.getReviewCount());
+
+        if (src.getOptions() != null) {
+            List<ProductDto.OptionGroupDto> localizedGroups = new ArrayList<>(src.getOptions().size());
+            for (ProductDto.OptionGroupDto grp : src.getOptions()) {
+                List<ProductDto.OptionChoiceDto> localizedChoices = new ArrayList<>(grp.getChoices().size());
+                for (ProductDto.OptionChoiceDto ch : grp.getChoices()) {
+                    String chName = ch.getNameI18n() != null ? ch.getNameI18n().resolve(lang) : ch.getName();
+                    localizedChoices.add(new ProductDto.OptionChoiceDto(ch.getId(), chName, ch.getNameI18n(), ch.getPriceAdjustment()));
+                }
+                String grpName = grp.getNameI18n() != null ? grp.getNameI18n().resolve(lang) : grp.getName();
+                localizedGroups.add(new ProductDto.OptionGroupDto(grp.getId(), grpName, grp.getNameI18n(), grp.isRequired(), localizedChoices));
+            }
+            copy.setOptions(localizedGroups);
+        }
+
+        if (src.getToppings() != null) {
+            List<ProductDto.ToppingDto> localizedToppings = new ArrayList<>(src.getToppings().size());
+            for (ProductDto.ToppingDto top : src.getToppings()) {
+                String topName = top.getNameI18n() != null ? top.getNameI18n().resolve(lang) : top.getName();
+                localizedToppings.add(new ProductDto.ToppingDto(top.getId(), topName, top.getNameI18n(), top.getPrice()));
+            }
+            copy.setToppings(localizedToppings);
+        }
+
+        return copy;
     }
 }

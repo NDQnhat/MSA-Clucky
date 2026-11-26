@@ -1,5 +1,6 @@
 package com.clucky.catalogstoreservice.service;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.CategoryDto;
 import com.clucky.catalogstoreservice.entity.Category;
 import com.clucky.catalogstoreservice.exception.ApiException;
@@ -37,17 +38,27 @@ public class CategoryService {
 
     @Transactional(readOnly = true)
     public List<CategoryDto.Response> getAllCategories(boolean activeOnly) {
+        return getAllCategories(activeOnly, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public List<CategoryDto.Response> getAllCategories(boolean activeOnly, String lang) {
         List<Category> list = activeOnly
                 ? categoryRepository.findByIsActiveTrueOrderBySortOrderAscIdAsc()
                 : categoryRepository.findAllByOrderBySortOrderAscIdAsc();
-        return list.stream().map(this::toResponse).collect(Collectors.toList());
+        return list.stream().map(cat -> toResponse(cat, lang)).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public CategoryDto.Response getCategoryById(Long id) {
+        return getCategoryById(id, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public CategoryDto.Response getCategoryById(Long id, String lang) {
         Category cat = categoryRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy danh mục với mã: " + id));
-        return toResponse(cat);
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found: " + id));
+        return toResponse(cat, lang);
     }
 
     public CategoryDto.Response createCategory(CategoryDto.Request request) {
@@ -166,7 +177,18 @@ public class CategoryService {
     }
 
     private CategoryDto.Response toResponse(Category cat) {
-        var resp = new CategoryDto.Response(cat.getId(), cat.getName(), cat.getImageUrl(), cat.getSortOrder(), cat.getIsActive());
+        return toResponse(cat, LocaleResolverHelper.currentRequestLang());
+    }
+
+    private CategoryDto.Response toResponse(Category cat, String lang) {
+        var resp = new CategoryDto.Response(
+                cat.getId(),
+                cat.resolveName(lang),
+                cat.getName(),
+                cat.getImageUrl(),
+                cat.getSortOrder(),
+                cat.getIsActive()
+        );
         resp.setVersion(cat.getVersion());
         return resp;
     }

@@ -8,6 +8,7 @@ import { useSession } from "@/components/auth/use-session";
 import { getSessionState } from "@/lib/session";
 import { useLocaleTools } from "@/lib/i18n/hooks";
 import { catalogApi, getErrorMessage, type StoreItem } from "@/lib/api";
+import { pickLocalized } from "@/lib/bilingual";
 import { personalVoucherApi, type PersonalVoucher, type VoucherCampaign } from "@/lib/personal-vouchers";
 import Link from "@/components/ui-loader/navigation-link";
 import styles from "./personal-vouchers.module.css";
@@ -16,7 +17,7 @@ type Tab = "discover" | "mine";
 
 export default function VouchersPage() {
   const t = useTranslations("personalVouchers");
-  const { money, date } = useLocaleTools();
+  const { money, date, locale } = useLocaleTools();
   const { ready, user } = useSession();
   const userId = user?.userId;
   const [tab, setTab] = useState<Tab>("discover");
@@ -68,7 +69,7 @@ export default function VouchersPage() {
     void Promise.allSettled([
       personalVoucherApi.campaigns(),
       userId ? personalVoucherApi.mine() : Promise.resolve([] as PersonalVoucher[]),
-      catalogApi.getStores(false).catch(() => [] as StoreItem[]),
+      catalogApi.getStores(false, locale).catch(() => [] as StoreItem[]),
     ]).then(([available, mine, locations]) => {
       if (!active) return;
       if (available.status === 'fulfilled') setCampaigns(available.value);
@@ -79,7 +80,7 @@ export default function VouchersPage() {
     })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [ready, userId, version]);
+  }, [ready, userId, version, locale]);
 
   const mineByCampaign = useMemo(() => new Map(owned.map(item => [item.campaignId, item])), [owned]);
   const list = tab === "mine" ? owned.map(v => ({ campaign: v.campaign, voucher: v }))
@@ -133,7 +134,10 @@ export default function VouchersPage() {
     ? campaign.applicability === 'ALL' : campaign.scope === 'ALL')
     ? t("allStores")
     : (campaign.campaignKind === 'PERSONAL' ? campaign.storeIds ?? [] : [campaign.storeId].filter((id): id is number => id != null))
-      .map(id => stores.find(store => Number(store.id) === Number(id))?.name ?? `#${id}`).join(", ");
+      .map(id => {
+        const matched = stores.find(store => Number(store.id) === Number(id));
+        return matched ? pickLocalized(matched.nameI18n, matched.name, locale) : `#${id}`;
+      }).join(", ");
 
   async function copyCode(code: string) {
     try {
@@ -227,8 +231,10 @@ export default function VouchersPage() {
                       ? <span className={styles.stateBadge + (voucher.state === "ISSUED" ? " " + styles.stateAvailable : "")}>{t("state." + voucher.state)}</span>
                       : inactive && <span className={styles.stateBadge}>{t("unavailable")}</span>}
                   </div>
-                  <h3>{campaign.title}</h3>
-                  {campaign.description && <p className={styles.description}>{campaign.description}</p>}
+                  <h3>{pickLocalized(campaign.titleI18n, campaign.title, locale)}</h3>
+                  {pickLocalized(campaign.descriptionI18n, campaign.description, locale) && (
+                    <p className={styles.description}>{pickLocalized(campaign.descriptionI18n, campaign.description, locale)}</p>
+                  )}
                   <div className={styles.cardDetails}>
                     <span><ShoppingBag size={15} aria-hidden="true" />{t("minimum", { amount: money(campaign.minOrderAmount) })}</span>
                     <span><CalendarDays size={15} aria-hidden="true" />{t("validUntil", { date: date(voucher?.expiresAt ?? campaign.endAt, { dateStyle: "medium" }) })}</span>
@@ -298,8 +304,10 @@ export default function VouchersPage() {
               <div className={styles.detailBrand}><span className={styles.detailMark}><Gift size={21} aria-hidden="true" /></span> Clucky Club</div>
               <span className={styles.detailEyebrow}>{t("detailTitle")}</span>
               <strong className={styles.detailDiscount}>{discount(detail.campaign)}</strong>
-              <h2 id="voucher-detail-heading">{detail.campaign.title}</h2>
-              {detail.campaign.description && <p className={styles.detailDescription}>{detail.campaign.description}</p>}
+              <h2 id="voucher-detail-heading">{pickLocalized(detail.campaign.titleI18n, detail.campaign.title, locale)}</h2>
+              {pickLocalized(detail.campaign.descriptionI18n, detail.campaign.description, locale) && (
+                <p className={styles.detailDescription}>{pickLocalized(detail.campaign.descriptionI18n, detail.campaign.description, locale)}</p>
+              )}
               <div className={styles.detailFacts}>
                 <div><ShoppingBag size={18} aria-hidden="true" /><span>{t("minimum", { amount: money(detail.campaign.minOrderAmount) })}</span></div>
                 <div><CalendarDays size={18} aria-hidden="true" /><span>{t("validUntil", { date: date(detail.expiresAt ?? detail.campaign.endAt, { dateStyle: "medium" }) })}</span></div>
@@ -325,7 +333,7 @@ export default function VouchersPage() {
           </div>}
           {detail && (!canView(detail) || !detail.code) && <div className={styles.detailStatus}>
             <TicketPercent size={38} aria-hidden="true" />
-            <h2 id="voucher-detail-heading">{detail.campaign.title}</h2>
+            <h2 id="voucher-detail-heading">{pickLocalized(detail.campaign.titleI18n, detail.campaign.title, locale)}</h2>
             <p>{canView(detail) ? t("codeUnavailable") : t("state." + detail.state)}</p>
           </div>}
         </section>

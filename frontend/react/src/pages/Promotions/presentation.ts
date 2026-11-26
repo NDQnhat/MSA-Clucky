@@ -1,4 +1,6 @@
 import type { AdminVoucher } from '../../types/promotion';
+import type { LocalizedText } from '../../lib/bilingual';
+import { pickLocalized } from '../../lib/bilingual';
 
 const statusColors: Record<string, string> = {
   ACTIVE: 'success', UPCOMING: 'processing', EXPIRED: 'default', EXHAUSTED: 'error',
@@ -17,10 +19,23 @@ export function voucherState(voucher: Pick<AdminVoucher, 'status' | 'effectiveSt
   };
 }
 
-export function voucherStoreName(voucher: Pick<AdminVoucher, 'storeId' | 'storeIds' | 'storeName'>, stores: { id: number; name: string }[]) {
+export function voucherStoreName(
+  voucher: Pick<AdminVoucher, 'storeId' | 'storeIds' | 'storeName' | 'storeNameI18n'>,
+  stores: { id: number; name: string; nameI18n?: LocalizedText | null }[],
+  lang: string = 'vi'
+) {
   if (voucher.storeIds?.length) {
-    return voucher.storeIds.map(id => stores.find(store => store.id === Number(id))?.name || `#${id}`).join(', ');
+    return voucher.storeIds
+      .map((id) => {
+        const matched = stores.find((store) => store.id === Number(id));
+        return matched ? pickLocalized(matched.nameI18n, matched.name, lang) : `#${id}`;
+      })
+      .join(', ');
   }
-  return stores.find(store => voucher.storeId != null && Number(voucher.storeId) === store.id)?.name
-    || voucher.storeName?.trim() || undefined;
+  const matchedSingle = stores.find((store) => voucher.storeId != null && Number(voucher.storeId) === store.id);
+  if (matchedSingle) {
+    return pickLocalized(matchedSingle.nameI18n, matchedSingle.name, lang);
+  }
+  const resolved = pickLocalized(voucher.storeNameI18n, voucher.storeName, lang).trim();
+  return resolved || undefined;
 }

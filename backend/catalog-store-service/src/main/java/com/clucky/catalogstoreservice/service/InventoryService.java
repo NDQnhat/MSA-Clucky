@@ -1,5 +1,6 @@
 package com.clucky.catalogstoreservice.service;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.InventoryDto;
 import com.clucky.catalogstoreservice.entity.LowStockEpisode;
 import com.clucky.catalogstoreservice.entity.Product;
@@ -65,8 +66,13 @@ public class InventoryService {
 
     @Transactional(readOnly = true)
     public List<InventoryDto.InventoryResponse> getStoreInventory(Long storeId) {
+        return getStoreInventory(storeId, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public List<InventoryDto.InventoryResponse> getStoreInventory(Long storeId, String lang) {
         Store store = storeRepository.findById(storeId)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chi nhánh với mã: " + storeId));
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found: " + storeId));
 
         List<StoreInventory> inventoryList = storeInventoryRepository.findByStoreIdWithProductAndCategory(storeId);
         Map<Long, StoreProduct> availabilityByProduct = storeProductRepository.findByStoreId(storeId).stream()
@@ -74,7 +80,7 @@ public class InventoryService {
         int storeThreshold = store.getLowStockThreshold();
 
         return inventoryList.stream()
-                .map(inv -> toResponse(inv, storeId, storeThreshold, Optional.ofNullable(availabilityByProduct.get(inv.getProduct().getId()))))
+                .map(inv -> toResponse(inv, storeId, storeThreshold, Optional.ofNullable(availabilityByProduct.get(inv.getProduct().getId())), lang))
                 .collect(Collectors.toList());
     }
 
@@ -348,7 +354,8 @@ public class InventoryService {
                 inv,
                 storeId,
                 storeThreshold,
-                storeProductRepository.findByStoreIdAndProductId(storeId, inv.getProduct().getId())
+                storeProductRepository.findByStoreIdAndProductId(storeId, inv.getProduct().getId()),
+                LocaleResolverHelper.currentRequestLang()
         );
     }
 
@@ -356,7 +363,8 @@ public class InventoryService {
             StoreInventory inv,
             Long storeId,
             int storeThreshold,
-            Optional<StoreProduct> availability
+            Optional<StoreProduct> availability,
+            String lang
     ) {
         Product p = inv.getProduct();
         boolean isSoldOut = (inv.getQuantityAvailable() != null && inv.getQuantityAvailable() <= 0)
@@ -364,9 +372,10 @@ public class InventoryService {
                         .map(StoreProduct::getIsSoldOut)
                         .orElse(false);
 
+        boolean isEn = "en".equalsIgnoreCase(lang);
         String updatedByName = inv.getUpdatedBy() != null
-                ? "Tài khoản #" + inv.getUpdatedBy()
-                : "Hệ thống";
+                ? (isEn ? "Account #" : "Tài khoản #") + inv.getUpdatedBy()
+                : (isEn ? "System" : "Hệ thống");
 
         BigDecimal basePrice = p.getBasePrice();
         BigDecimal storePrice = availability.map(StoreProduct::getStorePrice).orElse(null);
@@ -375,8 +384,8 @@ public class InventoryService {
         var response = new InventoryDto.InventoryResponse(
                 storeId,
                 p.getId(),
-                p.getName(),
-                p.getCategory() != null ? p.getCategory().getName() : "Khác",
+                p.resolveName(lang),
+                p.getCategory() != null ? p.getCategory().resolveName(lang) : (isEn ? "Other" : "Khác"),
                 p.getImageUrl(),
                 inv.getQuantityAvailable(),
                 storeThreshold,
@@ -384,6 +393,8 @@ public class InventoryService {
                 inv.getUpdatedAt() != null ? inv.getUpdatedAt().format(DATE_FORMAT) : "",
                 updatedByName
         );
+        response.setProductNameI18n(p.getName());
+        response.setCategoryNameI18n(p.getCategory() != null ? p.getCategory().getName() : null);
         response.setBasePrice(basePrice);
         response.setStorePrice(storePrice);
         response.setEffectivePrice(effectivePrice);

@@ -1,6 +1,7 @@
 package com.clucky.promotionloyaltyservice.controller;
 
 import com.clucky.promotionloyaltyservice.config.CurrentActor;
+import com.clucky.promotionloyaltyservice.config.LocaleResolverHelper;
 import com.clucky.promotionloyaltyservice.dto.PrintBatchDtos.CreatePrintBatchRequest;
 import com.clucky.promotionloyaltyservice.dto.PrintBatchDtos.PrintBatchResponse;
 import com.clucky.promotionloyaltyservice.dto.PrintBatchDtos.PrintQuotaSummaryResponse;
@@ -59,38 +60,50 @@ public class VoucherController {
      * POST /api/promotions/vouchers/validate
      */
     @PostMapping("/validate")
-    public ResponseEntity<ValidateVoucherResponse> validateVoucher(@Valid @RequestBody ValidateVoucherRequest request) {
+    public ResponseEntity<ValidateVoucherResponse> validateVoucher(
+            @Valid @RequestBody ValidateVoucherRequest request,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        String resolvedLang = LocaleResolverHelper.resolve(lang, acceptLanguage);
         String code = request.getCode() == null ? "" : request.getCode().strip().toUpperCase(java.util.Locale.ROOT);
         boolean printedCode = PrintedVoucherService.isPrintedCode(code);
         boolean personalCode = code.startsWith("CK1") || code.startsWith("CLUCKY:V1:");
         ValidateVoucherResponse response;
         if (printedCode) {
             if (printed == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
-            response = printed.validate(request);
+            response = printed.validate(request, resolvedLang);
         } else if (request.getVoucherInstanceId() != null || personalCode) {
-            response = personal.validate(request);
+            response = personal.validate(request, resolvedLang);
         } else {
-            response = voucherService.validateVoucher(request);
+            response = voucherService.validateVoucher(request, resolvedLang);
         }
         return ResponseEntity.ok(response);
     }
 
     @PostMapping("/{campaignId}/claim")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public PersonalVoucherService.PersonalVoucherView claim(@PathVariable Long campaignId) {
-        return personal.claim(campaignId, CurrentActor.require().userId());
+    public PersonalVoucherService.PersonalVoucherView claim(
+            @PathVariable Long campaignId,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return personal.claim(campaignId, CurrentActor.require().userId(), LocaleResolverHelper.resolve(lang, acceptLanguage));
     }
 
     @GetMapping("/mine")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public List<PersonalVoucherService.PersonalVoucherView> mine() {
-        return personal.mine(CurrentActor.require().userId());
+    public List<PersonalVoucherService.PersonalVoucherView> mine(
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return personal.mine(CurrentActor.require().userId(), LocaleResolverHelper.resolve(lang, acceptLanguage));
     }
 
     @GetMapping("/my/{instanceId}")
     @PreAuthorize("hasRole('CUSTOMER')")
-    public PersonalVoucherService.PersonalVoucherView myDetail(@PathVariable UUID instanceId) {
-        return personal.detail(instanceId, CurrentActor.require().userId());
+    public PersonalVoucherService.PersonalVoucherView myDetail(
+            @PathVariable UUID instanceId,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return personal.detail(instanceId, CurrentActor.require().userId(), LocaleResolverHelper.resolve(lang, acceptLanguage));
     }
 
     /**
@@ -98,8 +111,11 @@ public class VoucherController {
      * GET /api/promotions/vouchers/available?storeId=...
      */
     @GetMapping("/available")
-    public ResponseEntity<List<VoucherResponse>> getAvailableVouchers(@RequestParam(name = "storeId", required = false) Long storeId) {
-        List<VoucherResponse> vouchers = voucherService.getAvailableVouchers(storeId);
+    public ResponseEntity<List<VoucherResponse>> getAvailableVouchers(
+            @RequestParam(name = "storeId", required = false) Long storeId,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        List<VoucherResponse> vouchers = voucherService.getAvailableVouchers(storeId, LocaleResolverHelper.resolve(lang, acceptLanguage));
         return ResponseEntity.ok(vouchers);
     }
 
@@ -113,7 +129,9 @@ public class VoucherController {
         @RequestParam(name = "scope", required = false) VoucherScope scope,
         @RequestParam(name = "storeId", required = false) Long storeId,
         @RequestParam(name = "status", required = false) VoucherStatus status,
-        @RequestParam(name = "keyword", required = false) String keyword
+        @RequestParam(name = "keyword", required = false) String keyword,
+        @RequestParam(name = "lang", required = false) String lang,
+        @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage
     ) {
         CurrentActor actor = CurrentActor.require();
         if (actor.role() != Role.ADMIN && actor.role() != Role.STORE_MANAGER) {
@@ -130,7 +148,7 @@ public class VoucherController {
             scope = null;
         }
 
-        List<VoucherResponse> vouchers = voucherService.getVouchers(scope, effectiveStoreId, status, keyword);
+        List<VoucherResponse> vouchers = voucherService.getVouchers(scope, effectiveStoreId, status, keyword, LocaleResolverHelper.resolve(lang, acceptLanguage));
         return ResponseEntity.ok(vouchers);
     }
 
@@ -140,12 +158,15 @@ public class VoucherController {
      */
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'STORE_MANAGER')")
-    public ResponseEntity<VoucherResponse> getVoucherById(@PathVariable("id") Long id) {
+    public ResponseEntity<VoucherResponse> getVoucherById(
+            @PathVariable("id") Long id,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
         CurrentActor actor = CurrentActor.require();
         if (actor.role() != Role.ADMIN && actor.role() != Role.STORE_MANAGER) {
             throw new ApiException(ErrorCode.FORBIDDEN);
         }
-        VoucherResponse voucher = voucherService.getVoucherById(id);
+        VoucherResponse voucher = voucherService.getVoucherById(id, LocaleResolverHelper.resolve(lang, acceptLanguage));
         if (actor.role() == Role.STORE_MANAGER
                 && (actor.storeId() == null || !(actor.storeId().equals(voucher.getStoreId())
                     || voucher.getStoreIds() != null && voucher.getStoreIds().contains(actor.storeId())
@@ -285,15 +306,20 @@ public class VoucherController {
     public ResponseEntity<List<PrintBatchResponse>> listPrintBatches(
             @RequestParam(name = "campaignId", required = false) Long campaignId,
             @RequestParam(name = "storeId", required = false) Long storeId,
-            @RequestParam(name = "status", required = false) String status
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage
     ) {
-        return ResponseEntity.ok(printed.listBatches(campaignId, storeId, status));
+        return ResponseEntity.ok(printed.listBatches(campaignId, storeId, status, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @GetMapping("/print-batches/{batchId}/pdf")
     @PreAuthorize("hasAnyRole('ADMIN', 'STORE_MANAGER')")
-    public ResponseEntity<byte[]> exportPrintBatchPdf(@PathVariable("batchId") Long batchId) {
-        PrintedVoucherService.BatchPdfResult result = printed.exportBatchPdf(batchId);
+    public ResponseEntity<byte[]> exportPrintBatchPdf(
+            @PathVariable("batchId") Long batchId,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        PrintedVoucherService.BatchPdfResult result = printed.exportBatchPdf(batchId, LocaleResolverHelper.resolve(lang, acceptLanguage));
         String filename = "clucky-vouchers-" + result.batchCode().toLowerCase(java.util.Locale.ROOT) + ".pdf";
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())

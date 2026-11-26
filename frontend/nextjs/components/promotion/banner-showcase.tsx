@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { ArrowRight, EyeOff, X } from "lucide-react";
 import Link from "@/components/ui-loader/navigation-link";
+import { pickLocalized } from "@/lib/bilingual";
 import { subscribeSession } from "@/lib/session";
 import type { PromoBanner } from "@/lib/types/promotion";
 import { BannerSlider, resolveSafeHref, type BannerSlideItem } from "./banner-slider";
@@ -82,6 +83,7 @@ export function BannerShowcase({
   showHero?: boolean;
 }) {
   const t = useTranslations();
+  const locale = useLocale();
   const [storageReady, setStorageReady] = useState(false);
   const [hiddenPopupIds, setHiddenPopupIds] = useState<number[]>([]);
   const [dismissedPopupId, setDismissedPopupId] = useState<number | null>(null);
@@ -116,16 +118,20 @@ export function BannerShowcase({
   const heroSlides: BannerSlideItem[] = showHero
     ? banners
         .filter((item) => item.position === "HERO_HOME")
-        .map((item) => ({
-          id: item.id,
-          image: item.imageUrl,
-          title: item.title,
-          redirectUrl: item.linkUrl,
-          alt: item.title,
-        }))
+        .map((item) => {
+          const resolvedTitle = pickLocalized(item.titleI18n, item.title, locale);
+          return {
+            id: item.id,
+            image: item.imageUrl,
+            title: resolvedTitle,
+            redirectUrl: item.linkUrl,
+            alt: resolvedTitle,
+          };
+        })
     : [];
 
   const popupBanner = banners.find((item) => item.position === "POPUP") ?? null;
+  const popupTitle = popupBanner ? pickLocalized(popupBanner.titleI18n, popupBanner.title, locale) : "";
   const popupVisible = Boolean(
     storageReady
       && popupBanner
@@ -197,7 +203,7 @@ export function BannerShowcase({
             dismissPopup(false);
           }}
           aria-modal="true"
-          aria-label={popupBanner.title}
+          aria-label={popupTitle}
           className={`banner-popup-backdrop${isClosing ? " banner-popup-backdrop--closing" : ""}`}
           onClick={(event) => {
             if (event.target === event.currentTarget) {
@@ -227,12 +233,12 @@ export function BannerShowcase({
 
               <img
                 src={popupBanner.imageUrl}
-                alt={popupBanner.title}
+                alt={popupTitle}
                 className="banner-popup-img"
               />
 
               <div className="banner-popup-overlay">
-                <h3 className="banner-popup-title">{popupBanner.title}</h3>
+                <h3 className="banner-popup-title">{popupTitle}</h3>
                 <BannerActionLink
                   href={popupHref}
                   label={t("home.banners.cta")}

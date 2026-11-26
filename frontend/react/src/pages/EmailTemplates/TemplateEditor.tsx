@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Alert, App, Button, Input, Popconfirm, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
+import { Alert, App, Button, Input, Popconfirm, Segmented, Space, Spin, Table, Tabs, Tag, Typography } from 'antd';
 import { CodeOutlined, EyeOutlined, SaveOutlined, SendOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { getErrorMessage } from '../../lib/api';
@@ -11,7 +11,7 @@ import {
   type MailTemplateRevision,
 } from '../../lib/mail-templates';
 
-type EditableContent = { subject: string; text: string; html: string };
+type EditableContent = { subject: string; subjectEn: string; text: string; textEn: string; html: string; htmlEn: string };
 
 const layoutVariables = ['{{subject}}', '{{title}}', '{{eyebrow}}', '{{details}}', '{{action}}', '{{notice}}', '{{footer}}'];
 
@@ -44,14 +44,23 @@ function editableFromRevision(
   fallbackSubject: string,
   layout: string,
 ): { content: EditableContent; legacy: boolean } {
-  const originalHtml = revision?.html;
-  const legacy = !originalHtml || !isFullHtmlDocument(originalHtml);
-  const fragment = originalHtml || escapeHtml(revision?.text ?? '').replace(/\r?\n/g, '<br>');
+  const originalHtmlVi = revision?.htmlI18n?.vi ?? revision?.html ?? null;
+  const originalHtmlEn = revision?.htmlI18n?.en ?? originalHtmlVi;
+  const legacy = !originalHtmlVi || !isFullHtmlDocument(originalHtmlVi);
+  const viText = revision?.textI18n?.vi ?? revision?.text ?? '';
+  const enText = revision?.textI18n?.en ?? viText;
+  const fragmentVi = originalHtmlVi || escapeHtml(viText).replace(/\r?\n/g, '<br>');
+  const fragmentEn = originalHtmlEn || escapeHtml(enText).replace(/\r?\n/g, '<br>');
   return {
     content: {
-      subject: revision?.subject ?? fallbackSubject,
-      text: revision?.text ?? '',
-      html: legacy ? layout.replace('{{content}}', () => fragment) : originalHtml,
+      subject: revision?.subjectI18n?.vi ?? revision?.subject ?? fallbackSubject,
+      subjectEn: revision?.subjectI18n?.en ?? revision?.subject ?? fallbackSubject,
+      text: viText,
+      textEn: enText,
+      html: legacy ? layout.replace('{{content}}', () => fragmentVi) : originalHtmlVi,
+      htmlEn: !originalHtmlEn || !isFullHtmlDocument(originalHtmlEn)
+        ? layout.replace('<html lang="vi">', '<html lang="en">').replace('{{content}}', () => fragmentEn)
+        : originalHtmlEn,
     },
     legacy: revision !== null && legacy,
   };
@@ -72,10 +81,14 @@ export function TemplateEditor({
   const { message } = App.useApp();
   const [detail, setDetail] = useState<MailTemplateDetail | null>(null);
   const [layout, setLayout] = useState('');
+  const [editLang, setEditLang] = useState<'vi' | 'en'>('vi');
   const [subject, setSubject] = useState('');
+  const [subjectEn, setSubjectEn] = useState('');
   const [bodyText, setBodyText] = useState('');
+  const [bodyTextEn, setBodyTextEn] = useState('');
   const [bodyHtml, setBodyHtml] = useState('');
-  const [baseline, setBaseline] = useState<EditableContent>({ subject: '', text: '', html: '' });
+  const [bodyHtmlEn, setBodyHtmlEn] = useState('');
+  const [baseline, setBaseline] = useState<EditableContent>({ subject: '', subjectEn: '', text: '', textEn: '', html: '', htmlEn: '' });
   const [legacy, setLegacy] = useState(false);
   const [pending, setPending] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -88,7 +101,9 @@ export function TemplateEditor({
   const tRef = useRef(t);
   const messageRef = useRef(message);
 
-  const dirty = subject !== baseline.subject || bodyText !== baseline.text || bodyHtml !== baseline.html;
+  const dirty = subject !== baseline.subject || subjectEn !== baseline.subjectEn
+    || bodyText !== baseline.text || bodyTextEn !== baseline.textEn
+    || bodyHtml !== baseline.html || bodyHtmlEn !== baseline.htmlEn;
   const canPublish = Boolean(detail?.draft && !dirty && !legacy && !pending);
 
   useEffect(() => { onUnsavedChange(dirty); }, [dirty, onUnsavedChange]);
@@ -130,8 +145,11 @@ export function TemplateEditor({
       setDetail(next);
       setLayout(sharedLayout.html);
       setSubject(content.subject);
+      setSubjectEn(content.subjectEn);
       setBodyText(content.text);
+      setBodyTextEn(content.textEn);
       setBodyHtml(content.html);
+      setBodyHtmlEn(content.htmlEn);
       setBaseline(content);
       setLegacy(fromLegacy);
     }).catch(failure => {
@@ -148,8 +166,11 @@ export function TemplateEditor({
   function applyRevision(revision: MailTemplateRevision | null, sharedLayout: string, fallbackSubject: string) {
     const { content, legacy: fromLegacy } = editableFromRevision(revision, fallbackSubject, sharedLayout);
     setSubject(content.subject);
+    setSubjectEn(content.subjectEn);
     setBodyText(content.text);
+    setBodyTextEn(content.textEn);
     setBodyHtml(content.html);
+    setBodyHtmlEn(content.htmlEn);
     setBaseline(content);
     setLegacy(fromLegacy);
     htmlSelectionRef.current = { start: 0, end: 0 };
@@ -159,8 +180,12 @@ export function TemplateEditor({
     return {
       expectedRevision: detail?.template.latestRevision ?? 0,
       subject: subject.trim(),
+      subjectEn: subjectEn.trim(),
       text: bodyText.trim(),
+      textEn: bodyTextEn.trim(),
       html: bodyHtml,
+      htmlEn: bodyHtmlEn,
+      lang: editLang,
     };
   }
 
@@ -179,14 +204,19 @@ export function TemplateEditor({
     }
   }
 
+  const activeSubject = editLang === 'en' ? subjectEn : subject;
+  const activeHtml = editLang === 'en' ? bodyHtmlEn : bodyHtml;
+
   function insertVariable(variable: string) {
     const textarea = htmlInputRef.current;
     if (!textarea) return;
     const { start, end } = htmlSelectionRef.current;
-    const from = Math.max(0, Math.min(start, bodyHtml.length));
-    const to = Math.max(from, Math.min(end, bodyHtml.length));
+    const from = Math.max(0, Math.min(start, activeHtml.length));
+    const to = Math.max(from, Math.min(end, activeHtml.length));
     const nextPosition = from + variable.length;
-    setBodyHtml(bodyHtml.slice(0, from) + variable + bodyHtml.slice(to));
+    const nextHtml = activeHtml.slice(0, from) + variable + activeHtml.slice(to);
+    if (editLang === 'en') setBodyHtmlEn(nextHtml);
+    else setBodyHtml(nextHtml);
     setPreview(null);
     htmlSelectionRef.current = { start: nextPosition, end: nextPosition };
     requestAnimationFrame(() => {
@@ -199,12 +229,16 @@ export function TemplateEditor({
     void perform(async () => {
       const sample = revision
         ? editableFromRevision(revision, detail?.template.subject ?? '', layout).content
-        : { subject, text: bodyText, html: bodyHtml };
+        : { subject, subjectEn, text: bodyText, textEn: bodyTextEn, html: bodyHtml, htmlEn: bodyHtmlEn };
       const result = await mailTemplatesApi.preview(keyName, {
         expectedRevision: detail?.template.latestRevision ?? 0,
         subject: sample.subject.trim(),
+        subjectEn: sample.subjectEn.trim(),
         text: sample.text.trim(),
+        textEn: sample.textEn.trim(),
         html: sample.html,
+        htmlEn: sample.htmlEn,
+        lang: editLang,
       });
       setPreview(result);
       setTab('preview');
@@ -270,16 +304,31 @@ export function TemplateEditor({
           { key: 'history', label: t('admin:emailTemplates.history') },
         ]} />
         {tab === 'editor' && <div className="clucky-mail-form">
-          <label htmlFor="clucky-mail-subject">{t('admin:emailTemplates.subject')}</label>
-          <Input id="clucky-mail-subject" value={subject} maxLength={255}
-            onChange={event => { setSubject(event.target.value); setPreview(null); }} disabled={pending} />
-          <label htmlFor="clucky-mail-html">{t('admin:emailTemplates.htmlSource')}</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <Segmented
+              value={editLang}
+              onChange={val => { setEditLang(val as 'vi' | 'en'); setPreview(null); }}
+              options={[
+                { label: `VI · ${t('admin:voucherUi.viLanguage')}`, value: 'vi' },
+                { label: `EN · ${t('admin:voucherUi.enLanguage')}`, value: 'en' },
+              ]}
+            />
+          </div>
+          <label htmlFor="clucky-mail-subject">{t('admin:emailTemplates.subject')} ({editLang.toUpperCase()})</label>
+          <Input id="clucky-mail-subject" value={activeSubject} maxLength={255}
+            onChange={event => {
+              if (editLang === 'en') setSubjectEn(event.target.value);
+              else setSubject(event.target.value);
+              setPreview(null);
+            }} disabled={pending} />
+          <label htmlFor="clucky-mail-html">{t('admin:emailTemplates.htmlSource')} ({editLang.toUpperCase()})</label>
           <Typography.Text type="secondary">{t('admin:emailTemplates.htmlHelp')}</Typography.Text>
           <textarea id="clucky-mail-html" ref={htmlInputRef} className="clucky-mail-source"
             aria-label={t('admin:emailTemplates.htmlSource')} spellCheck={false} wrap="off"
-            maxLength={100000} value={bodyHtml} disabled={pending}
+            maxLength={100000} value={activeHtml} disabled={pending}
             onChange={event => {
-              setBodyHtml(event.target.value);
+              if (editLang === 'en') setBodyHtmlEn(event.target.value);
+              else setBodyHtml(event.target.value);
               setPreview(null);
               htmlSelectionRef.current = { start: event.target.selectionStart, end: event.target.selectionEnd };
             }}
@@ -288,7 +337,7 @@ export function TemplateEditor({
               htmlSelectionRef.current = { start: target.selectionStart, end: target.selectionEnd };
             }} />
           <Space className="clucky-mail-source-info" wrap>
-            <Typography.Text type="secondary"><CodeOutlined /> HTML · {bodyHtml.length.toLocaleString()} / 100,000</Typography.Text>
+            <Typography.Text type="secondary"><CodeOutlined /> HTML · {activeHtml.length.toLocaleString()} / 100,000</Typography.Text>
           </Space>
           <Typography.Text strong>{t('admin:emailTemplates.layoutVariables')}</Typography.Text>
           <Space wrap size={[6, 6]}>

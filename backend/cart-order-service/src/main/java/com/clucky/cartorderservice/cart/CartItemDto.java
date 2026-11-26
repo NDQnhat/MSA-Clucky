@@ -1,5 +1,6 @@
 package com.clucky.cartorderservice.cart;
 
+import com.clucky.cartorderservice.dto.LocalizedText;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Min;
@@ -18,6 +19,7 @@ public class CartItemDto {
     private Long productId;
     private Long comboId;
     private String itemName;
+    private LocalizedText itemNameI18n;
 
     @Min(value = 1, message = "Quantity must be greater than 0")
     private Integer quantity = 1;
@@ -108,6 +110,18 @@ public class CartItemDto {
 
     public String getItemName() { return itemName; }
     public void setItemName(String itemName) { this.itemName = itemName; }
+
+    public LocalizedText getItemNameI18n() { return itemNameI18n; }
+    public void setItemNameI18n(LocalizedText itemNameI18n) { this.itemNameI18n = itemNameI18n; }
+
+    public void localizeFor(String lang) {
+        if (itemNameI18n != null) {
+            String resolved = itemNameI18n.resolve(lang);
+            if (!resolved.isBlank()) {
+                this.itemName = resolved;
+            }
+        }
+    }
 
     public Integer getQuantity() { return quantity; }
     public void setQuantity(Integer quantity) {

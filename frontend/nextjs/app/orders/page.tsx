@@ -23,6 +23,7 @@ import {
 import { OrderStatusChip } from "@/components/order";
 import { FoodImage } from "@/components/order/food-image";
 import { displayOrderTime } from "@/lib/order-demo";
+import { matchesBilingualSearch, pickLocalized } from "@/lib/bilingual";
 import styles from "./orders.module.css";
 
 type FilterTab = "ALL" | "ACTIVE" | "COMPLETED" | "CANCELLED" | "DELIVERY_FAILED";
@@ -106,14 +107,14 @@ export default function OrdersHistoryPage() {
   // Base filters (Search + Date + Payment Method) applied before status tab counts
   const baseFilteredOrders = orders.filter((order) => {
     if (searchQuery.trim()) {
-      const q = searchQuery.trim().toLowerCase();
-      const matchCode = (order.orderCode || "").toLowerCase().includes(q);
-      const matchStore = (order.storeName || "").toLowerCase().includes(q);
-      const matchAddress = (order.storeAddress || "").toLowerCase().includes(q);
-      const matchItems = (order.items || []).some((it) =>
-        (it.itemName || "").toLowerCase().includes(q)
+      const matched = matchesBilingualSearch(
+        searchQuery,
+        order.orderCode,
+        order.storeName,
+        order.storeAddress,
+        ...(order.items || []).flatMap((it) => [it.itemNameI18n, it.itemName]),
       );
-      if (!matchCode && !matchStore && !matchAddress && !matchItems) return false;
+      if (!matched) return false;
     }
 
     if (selectedDate) {
@@ -417,7 +418,7 @@ export default function OrdersHistoryPage() {
                         <FoodImage
                           key={item.id}
                           src={item.image}
-                          alt={item.itemName}
+                          alt={pickLocalized(item.itemNameI18n, item.itemName, locale)}
                         />
                       ))}
                     </div>
@@ -426,7 +427,7 @@ export default function OrdersHistoryPage() {
                     </span>
                     <span className={styles.itemsSummary}>
                       {order.items
-                        .map((i) => `${i.itemName} (x${i.quantity})`)
+                        .map((i) => `${pickLocalized(i.itemNameI18n, i.itemName, locale)} (x${i.quantity})`)
                         .join(", ")}
                     </span>
                   </div>

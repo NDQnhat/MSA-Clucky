@@ -1,11 +1,13 @@
 package com.clucky.promotionloyaltyservice.dto;
 
+import com.clucky.promotionloyaltyservice.config.LocaleResolverHelper;
 import com.clucky.promotionloyaltyservice.entity.Banner;
 import java.time.Instant;
 
 public record BannerResponse(
         Long id,
         String title,
+        LocalizedText titleI18n,
         String imageUrl,
         String imagePublicId,
         String linkUrl,
@@ -20,13 +22,18 @@ public record BannerResponse(
         Instant updatedAt
 ) {
     public static BannerResponse fromEntity(Banner banner) {
-        return fromEntity(banner, Instant.now());
+        return fromEntity(banner, Instant.now(), LocaleResolverHelper.currentRequestLang());
     }
 
     public static BannerResponse fromEntity(Banner banner, Instant now) {
+        return fromEntity(banner, now, LocaleResolverHelper.currentRequestLang());
+    }
+
+    public static BannerResponse fromEntity(Banner banner, Instant now, String lang) {
         String effectiveStatus = resolveEffectiveStatus(banner, now);
         return new BannerResponse(
                 banner.getId(),
+                banner.resolveTitle(lang),
                 banner.getTitle(),
                 banner.getImageUrl(),
                 banner.getImagePublicId(),

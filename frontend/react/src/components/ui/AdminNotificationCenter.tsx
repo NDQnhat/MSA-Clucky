@@ -6,11 +6,14 @@ import { BellOutlined, CheckOutlined } from '@ant-design/icons';
 import { useAuth } from '../../context/AuthContext';
 import { useLocaleTools } from '../../i18n/hooks';
 import { api, getErrorMessage, ordersApi } from '../../lib/api';
+import { pickLocalized, type LocalizedText } from '../../lib/bilingual';
 
 type BranchNotice = {
   id: number;
   title: string;
+  titleI18n?: LocalizedText | null;
   content: string;
+  contentI18n?: LocalizedText | null;
   type: 'ORDER' | 'INVENTORY' | 'PAYMENT' | 'REFUND' | 'PROMOTION' | 'SYSTEM';
   refId: number | null;
   isRead: boolean;
@@ -30,7 +33,7 @@ type BranchInbox = {
 export function AdminNotificationCenter() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const { date } = useLocaleTools();
+  const { date, locale } = useLocaleTools();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState(0);
@@ -126,9 +129,12 @@ export function AdminNotificationCenter() {
     {error ? <Alert type="error" showIcon title={t('admin:ui.unableToLoadOrUpdateNotifications')} description={error} />
       : loading ? <Spin aria-label={t('admin:ui.loadingNotifications')} />
       : inbox?.content.length ? <ul style={{ padding: 0, margin: 0, listStyle: 'none', maxHeight: 420, overflowY: 'auto' }}>
-        {inbox.content.map(notice => <li key={notice.id} style={{ padding: '12px 0', borderBottom: '1px solid #eee' }}>
-          <Typography.Text strong={!notice.isRead}>{notice.title}</Typography.Text>
-          <Typography.Paragraph style={{ marginBottom: 4 }}>{notice.content}</Typography.Paragraph>
+        {inbox.content.map(notice => {
+          const noticeTitle = pickLocalized(notice.titleI18n, notice.title, locale);
+          const noticeContent = pickLocalized(notice.contentI18n, notice.content, locale);
+          return <li key={notice.id} style={{ padding: '12px 0', borderBottom: '1px solid #eee' }}>
+          <Typography.Text strong={!notice.isRead}>{noticeTitle}</Typography.Text>
+          <Typography.Paragraph style={{ marginBottom: 4 }}>{noticeContent}</Typography.Paragraph>
           <Space wrap>
             {(notice.type === 'ORDER' || notice.type === 'INVENTORY') && notice.refId &&
               <Button size="small" type="link" disabled={saving} onClick={() => void viewNotice(notice)}>
@@ -137,10 +143,11 @@ export function AdminNotificationCenter() {
             <Typography.Text type="secondary">{date(notice.createdAt, { dateStyle: 'short', timeStyle: 'short' })}</Typography.Text>
             {notice.isRead ? <Typography.Text type="secondary">{t('admin:ui.read')}</Typography.Text>
               : <Button size="small" icon={<CheckOutlined />} disabled={saving}
-                  aria-label={t('admin:ui.markAsRead', { value1: notice.title })}
+                  aria-label={t('admin:ui.markAsRead', { value1: noticeTitle })}
                   onClick={() => void markRead(notice.id)}>{t('business:promotionUi.markRead')}</Button>}
           </Space>
-        </li>)}
+        </li>;
+        })}
       </ul> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('admin:ui.noNotificationsYet')} />}
     {!error && <Pagination size="small" current={page + 1} pageSize={10}
       total={inbox?.totalElements ?? 0} showSizeChanger={false} disabled={loading || saving}

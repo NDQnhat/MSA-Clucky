@@ -103,8 +103,8 @@ public final class CatalogSelfCheck {
         require(fixture.product.getOptions().getFirst() == originalOption, "Option identity changed");
         require(fixture.product.getToppings().getFirst() == originalTopping, "Topping identity changed");
         require(originalOption.getId().equals(11L) && originalTopping.getId().equals(21L), "Stored IDs changed");
-        require(originalOption.getName().equals("Large") && originalOption.getExtraPrice().equals(BigDecimal.TEN), "Option was not updated");
-        require(originalTopping.getToppingName().equals("Cheese"), "Topping was not updated");
+        require(originalOption.resolveName("vi").equals("Large") && originalOption.getExtraPrice().equals(BigDecimal.TEN), "Option was not updated");
+        require(originalTopping.resolveToppingName("vi").equals("Cheese"), "Topping was not updated");
 
         fixture.service.updateProduct(1L, new ProductDto.Request());
         require(fixture.product.getOptions().getFirst() == originalOption, "Omitted options were deleted");

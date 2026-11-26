@@ -1,5 +1,6 @@
 package com.clucky.notificationservice.mapper;
 
+import com.clucky.notificationservice.config.LocaleResolverHelper;
 import com.clucky.notificationservice.dto.*;
 import com.clucky.notificationservice.entity.*;
 
@@ -7,10 +8,16 @@ public final class DomainMapper {
     private DomainMapper() {}
 
     public static NotificationResponse toResponse(Notification entity) {
+        return toResponse(entity, LocaleResolverHelper.currentRequestLang());
+    }
+
+    public static NotificationResponse toResponse(Notification entity, String lang) {
         return new NotificationResponse(
                 entity.getId(),
                 entity.getUserId(),
+                entity.resolveTitle(lang),
                 entity.getTitle(),
+                entity.resolveContent(lang),
                 entity.getContent(),
                 entity.getType(),
                 entity.getRefId(),

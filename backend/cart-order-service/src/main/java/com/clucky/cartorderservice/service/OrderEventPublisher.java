@@ -239,7 +239,10 @@ public class OrderEventPublisher {
                 if (item.getComboId() != null) {
                     itemNode.put("comboId", item.getComboId());
                 }
-                itemNode.put("itemName", item.getItemName());
+                itemNode.put("itemName", item.resolveItemName("vi"));
+                if (item.getItemName() != null) {
+                    itemNode.set("itemNameI18n", objectMapper.valueToTree(item.getItemName()));
+                }
                 if (item.getUnitPrice() != null) {
                     itemNode.put("unitPrice", item.getUnitPrice());
                 }

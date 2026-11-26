@@ -17,7 +17,9 @@ import {
 import { DeleteOutlined, InboxOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { promotionsApi } from '../../../lib/api';
+import { getErrorMessage, promotionsApi } from '../../../lib/api';
+import { isLocalizedViValid, toLocalizedInput, toLocalizedPayload, type LocalizedText } from '../../../lib/bilingual';
+import { BilingualField } from '../../../components/ui/BilingualField';
 import type { BannerPayload, BannerPosition, PromoBanner } from '../../../types/promotion';
 
 const { Text } = Typography;
@@ -60,7 +62,7 @@ export function validateBannerImageFile(file: File): 'type' | 'size' | null {
 }
 
 interface BannerFormValues {
-  title: string;
+  title: LocalizedText;
   position: BannerPosition;
   displayOrder: number;
   linkUrl?: string;
@@ -113,7 +115,7 @@ export const BannerModal: React.FC<BannerModalProps> = ({ open, banner, onCancel
 
     if (banner) {
       form.setFieldsValue({
-        title: banner.title,
+        title: toLocalizedInput(banner.titleI18n, banner.title),
         position: banner.position,
         displayOrder: banner.displayOrder ?? 0,
         linkUrl: banner.linkUrl ?? '',
@@ -123,7 +125,7 @@ export const BannerModal: React.FC<BannerModalProps> = ({ open, banner, onCancel
       });
     } else {
       form.setFieldsValue({
-        title: '',
+        title: { vi: '', en: '' },
         position: 'HERO_HOME',
         displayOrder: 0,
         linkUrl: '',
@@ -172,7 +174,7 @@ export const BannerModal: React.FC<BannerModalProps> = ({ open, banner, onCancel
     }
 
     const payload: BannerPayload = {
-      title: values.title.trim(),
+      title: toLocalizedPayload(values.title) ?? { vi: '', en: '' },
       position: values.position,
       displayOrder: values.displayOrder ?? 0,
       linkUrl: values.linkUrl?.trim() ? values.linkUrl.trim() : null,
@@ -209,8 +211,7 @@ export const BannerModal: React.FC<BannerModalProps> = ({ open, banner, onCancel
         onSuccess(updated, 'edit');
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : t('admin:promotions.banner.loadError');
-      setErrorText(msg);
+      setErrorText(getErrorMessage(err));
     } finally {
       lockRef.current = false;
       setSubmitting(false);
@@ -258,15 +259,23 @@ export const BannerModal: React.FC<BannerModalProps> = ({ open, banner, onCancel
         <Form.Item
           name="title"
           label={t('admin:promotions.banner.fields.title')}
+          required
           rules={[
-            { required: true, whitespace: true, message: t('admin:promotions.banner.validation.titleRequired') },
-            { max: 180, message: t('admin:promotions.banner.validation.titleMax') },
+            {
+              validator: async (_, val: LocalizedText) => {
+                if (!isLocalizedViValid(val)) throw new Error(t('admin:promotions.banner.validation.titleRequired'));
+                if ((val?.vi?.length ?? 0) > 180 || (val?.en?.length ?? 0) > 180) {
+                  throw new Error(t('admin:promotions.banner.validation.titleMax'));
+                }
+              },
+            },
           ]}
         >
-          <Input
-            aria-label={t('admin:promotions.banner.fields.title')}
+          <BilingualField
             maxLength={180}
-            placeholder={t('admin:promotions.banner.fields.titlePlaceholder')}
+            requiredVi
+            viPlaceholder={t('admin:promotions.banner.fields.titlePlaceholder')}
+            enPlaceholder="English banner title"
           />
         </Form.Item>
 

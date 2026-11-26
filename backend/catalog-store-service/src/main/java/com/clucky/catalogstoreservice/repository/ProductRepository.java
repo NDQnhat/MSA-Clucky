@@ -43,30 +43,4 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
                                        @Param("spicyLevel") Integer spicyLevel,
                                        @Param("activeOnly") boolean activeOnly,
                                        Pageable pageable);
-
-    @Query("SELECT DISTINCT p FROM Product p LEFT JOIN FETCH p.category " +
-           "WHERE (:categoryId IS NULL OR p.category.id = :categoryId) " +
-           "AND (:spicyLevel IS NULL OR p.spicyLevel = :spicyLevel) " +
-           "AND (:activeOnly IS FALSE OR p.isActive = true) " +
-           "AND (LOWER(p.name) LIKE :pattern OR LOWER(p.description) LIKE :pattern)")
-    List<Product> searchWithKeyword(@Param("categoryId") Long categoryId,
-                                    @Param("pattern") String pattern,
-                                    @Param("spicyLevel") Integer spicyLevel,
-                                    @Param("activeOnly") boolean activeOnly);
-
-    @Query(value = "SELECT DISTINCT p FROM Product p LEFT JOIN FETCH p.category " +
-           "WHERE (:categoryId IS NULL OR p.category.id = :categoryId) " +
-           "AND (:spicyLevel IS NULL OR p.spicyLevel = :spicyLevel) " +
-           "AND (:activeOnly IS FALSE OR p.isActive = true) " +
-           "AND (LOWER(p.name) LIKE :pattern OR LOWER(p.description) LIKE :pattern)",
-           countQuery = "SELECT count(DISTINCT p) FROM Product p " +
-           "WHERE (:categoryId IS NULL OR p.category.id = :categoryId) " +
-           "AND (:spicyLevel IS NULL OR p.spicyLevel = :spicyLevel) " +
-           "AND (:activeOnly IS FALSE OR p.isActive = true) " +
-           "AND (LOWER(p.name) LIKE :pattern OR LOWER(p.description) LIKE :pattern)")
-    Page<Product> searchWithKeyword(@Param("categoryId") Long categoryId,
-                                    @Param("pattern") String pattern,
-                                    @Param("spicyLevel") Integer spicyLevel,
-                                    @Param("activeOnly") boolean activeOnly,
-                                    Pageable pageable);
 }

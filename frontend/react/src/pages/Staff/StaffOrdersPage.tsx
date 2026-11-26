@@ -53,6 +53,7 @@ import { CounterPaymentModal } from "./components/CounterPaymentModal";
 import { ReceiptBillModal } from "./components/ReceiptBillModal";
 import styles from "./staff-orders.module.css";
 import { loadOrderItemImages, orderItemImage, type OrderItemImages } from "../../lib/order-item-images";
+import { pickLocalized } from "../../lib/bilingual";
 import { useOrderAlerts } from "../../hooks/useOrderAlerts";
 import { OrderSoundButton } from "../../components/ui/OrderSoundButton";
 
@@ -88,6 +89,7 @@ export function fromBackendOrderToStaffOrder(
   const timeStr = `${String(createdDate.getHours()).padStart(2, "0")}:${String(
     createdDate.getMinutes(),
   ).padStart(2, "0")}`;
+  const lang = getBrowserLocale();
 
   const staffItems: StaffOrderItem[] = (bo.items || []).map((item, idx) => {
     let optionsStr: string | undefined = undefined;
@@ -96,7 +98,11 @@ export function fromBackendOrderToStaffOrder(
         optionsStr = item.optionsSnapshot;
       } else if (Array.isArray(item.optionsSnapshot)) {
         optionsStr = (item.optionsSnapshot as any[])
-          .map((opt: any) => opt.name || opt.groupName)
+          .map((opt: any) =>
+            pickLocalized(opt.nameI18n, opt.name, lang) ||
+            pickLocalized(opt.groupNameI18n, opt.groupName, lang)
+          )
+          .filter(Boolean)
           .join(", ");
       } else {
         optionsStr = JSON.stringify(item.optionsSnapshot);
@@ -104,7 +110,7 @@ export function fromBackendOrderToStaffOrder(
     }
     return {
       id: `item-${bo.id}-${item.id || idx}`,
-      itemName: item.itemName,
+      itemName: pickLocalized(item.itemNameI18n, item.itemName, lang),
       quantity: item.quantity,
       unitPrice: item.unitPrice,
       lineTotal: item.lineTotal,
@@ -114,13 +120,14 @@ export function fromBackendOrderToStaffOrder(
     };
   });
 
-  const tr = getTranslator(getBrowserLocale());
+  const tr = getTranslator(lang);
   const orderSrc: OrderSource =
     bo.orderSource === "COUNTER" || !bo.customerId ? "COUNTER" : "WEB";
   const diningOpt: DiningOption | undefined =
     bo.diningOption === "TAKE_AWAY" || bo.diningOption === "DINE_IN"
       ? bo.diningOption
       : undefined;
+  const matchedStore = storesList.find((s) => Number(s.id) === Number(bo.storeId));
 
   return {
     id: String(bo.id),
@@ -130,12 +137,14 @@ export function fromBackendOrderToStaffOrder(
     diningOption: diningOpt,
     customerName:
       bo.receiverName ||
-      (bo.customerId ? "Khách hàng #" + bo.customerId : "Khách quầy #" + qNum),
+      (bo.customerId
+        ? tr("business:stafforderspage.registeredCustomerFallback", { id: bo.customerId })
+        : tr("business:stafforderspage.counterCustomerFallback", { queue: qNum })),
     customerPhone: bo.receiverPhone || "",
     storeId: String(bo.storeId),
     storeName:
+      pickLocalized(matchedStore?.nameI18n, matchedStore?.name, lang) ||
       bo.storeName ||
-      storesList.find((s) => Number(s.id) === Number(bo.storeId))?.name ||
       tr("business:stafforderspage.branchFallback", { id: bo.storeId }),
     orderType: bo.type === "DELIVERY" ? "DELIVERY" : "PICKUP",
     deliveryAddress: bo.deliveryAddress,
@@ -239,23 +248,24 @@ export function StaffOrdersPage() {
     }
   }, [user?.storeId, currentStore?.id, selectedDate, observe]);
 
-  // Đồng bộ lại tên chi nhánh thật khi danh sách stores tải xong
+  // Sync localized branch name when stores list or UI language updates
+  const lang = i18n.resolvedLanguage || i18n.language || "vi";
   useEffect(() => {
     if (!stores.length) return;
     setOrders((prev) =>
       prev.map((o) => {
         const matched = stores.find((s) => Number(s.id) === Number(o.storeId));
-        return matched && matched.name && matched.name !== o.storeName
-          ? { ...o, storeName: matched.name }
+        const localizedName = matched ? pickLocalized(matched.nameI18n, matched.name, lang) : "";
+        return localizedName && localizedName !== o.storeName
+          ? { ...o, storeName: localizedName }
           : o;
       }),
     );
-  }, [stores]);
+  }, [stores, lang]);
 
-  // Load ban đầu khi mount
   useEffect(() => {
     fetchOrders(false);
-  }, [fetchOrders]);
+  }, [fetchOrders, lang]);
 
   // Shipping Service owns the attempt state. Keep failed shipments visible even
   // while the corresponding Order remains SHIPPING pending manager resolution.
@@ -900,12 +910,16 @@ export function StaffOrdersPage() {
     return {
       id: found.id,
       orderCode: found.orderCode,
-      customerName: found.customerName || ("Khách hàng #" + found.queueNumber),
+      customerName:
+        found.customerName ||
+        t("business:stafforderspage.counterCustomerFallback", { queue: found.queueNumber }),
       customerPhone: found.customerPhone || "",
       storeId: found.storeId,
       storeName:
-        stores.find((s) => Number(s.id) === Number(found.storeId))?.name ||
-        found.storeName,
+        (() => {
+          const matched = stores.find((s) => Number(s.id) === Number(found.storeId));
+          return matched ? pickLocalized(matched.nameI18n, matched.name, lang) : found.storeName;
+        })(),
       orderType: found.orderType,
       diningOption: found.diningOption,
       orderSource: found.orderSource,
@@ -958,12 +972,14 @@ export function StaffOrdersPage() {
             className={`${styles.branchChip} ${
               !storeOpenState.isOpen ? styles.branchChipClosed : ""
             }`}
-            title="Chi nhánh tác nghiệp hiện tại"
+            title={t("business:stafforderspage.currentStoreChipTitle")}
           >
             <Store size={20} />
             <div className={styles.branchInfo}>
               <span className={styles.branchName}>
-                {currentStore?.name || user?.storeName || t("business:stafforderspage.branchFallback", { id: user?.storeId || 1 })}
+                {pickLocalized(currentStore?.nameI18n, currentStore?.name, lang) ||
+                  user?.storeName ||
+                  t("business:stafforderspage.branchFallback", { id: user?.storeId || 1 })}
               </span>
               <span
                 className={`${styles.branchStatus} ${

@@ -1,6 +1,8 @@
 package com.clucky.notificationservice.service;
 
 import com.clucky.notificationservice.config.CurrentActor;
+import com.clucky.notificationservice.config.LocaleResolverHelper;
+import com.clucky.notificationservice.dto.LocalizedText;
 import com.clucky.notificationservice.dto.PageResponse;
 import com.clucky.notificationservice.dto.Role;
 import com.clucky.notificationservice.exception.ApiException;
@@ -23,13 +25,21 @@ public class AdminNotificationService {
         this.jdbc = jdbc;
     }
 
-    public record NotificationView(long id, String title, String content, String type, long refId,
-                                   long storeId, boolean isRead, Instant createdAt) {}
+    public record NotificationView(long id, String title, LocalizedText titleI18n,
+                                   String content, LocalizedText contentI18n, String type, long refId,
+                                   long storeId, boolean isRead, Instant createdAt) {
+        public NotificationView(long id, String title, String content, String type, long refId,
+                                long storeId, boolean isRead, Instant createdAt) {
+            this(id, title, LocalizedText.ofSingle(title), content, LocalizedText.ofSingle(content),
+                    type, refId, storeId, isRead, createdAt);
+        }
+    }
 
     @Transactional(readOnly = true, isolation = org.springframework.transaction.annotation.Isolation.REPEATABLE_READ)
     public PageResponse<NotificationView> inbox(int page, int size) {
         long userId = requireAdmin();
         validatePage(page, size);
+        String lang = LocaleResolverHelper.currentRequestLang();
         long total = jdbc.queryForObject("SELECT count(*) FROM notification_service.admin_notifications", Long.class);
         var content = jdbc.query("""
                 SELECT notification.*, receipt.user_id IS NOT NULL AS is_read
@@ -37,9 +47,21 @@ public class AdminNotificationService {
                 LEFT JOIN notification_service.admin_notification_reads receipt
                   ON receipt.notification_id = notification.id AND receipt.user_id = ?
                 ORDER BY notification.created_at DESC,notification.id DESC LIMIT ? OFFSET ?
-                """, (row, index) -> new NotificationView(row.getLong("id"), row.getString("title"),
-                row.getString("content"), row.getString("type"), row.getLong("ref_id"), row.getLong("store_id"),
-                row.getBoolean("is_read"), row.getTimestamp("created_at").toInstant()), userId, size, (long) page * size);
+                """, (row, index) -> {
+            LocalizedText titleI18n = LocalizedText.fromDbValue(row.getString("title"));
+            LocalizedText contentI18n = LocalizedText.fromDbValue(row.getString("content"));
+            return new NotificationView(
+                    row.getLong("id"),
+                    LocalizedText.resolve(titleI18n, lang),
+                    titleI18n,
+                    LocalizedText.resolve(contentI18n, lang),
+                    contentI18n,
+                    row.getString("type"),
+                    row.getLong("ref_id"),
+                    row.getLong("store_id"),
+                    row.getBoolean("is_read"),
+                    row.getTimestamp("created_at").toInstant());
+        }, userId, size, (long) page * size);
         return new PageResponse<>(content, page, size, total, (int) ((total + size - 1) / size));
     }
 

@@ -1,3 +1,5 @@
+import type { LocalizedText } from '../bilingual';
+
 export const STORE_STATUSES = ['OPEN', 'CLOSED_TEMP', 'INACTIVE'] as const;
 
 export type StoreStatus = (typeof STORE_STATUSES)[number];
@@ -62,14 +64,18 @@ export function getStoreStatusMeta(status?: string | null): StoreStatusMeta {
 export interface Store {
   id: number;
   name: string;
+  nameI18n?: LocalizedText | null;
   address: string;
   district: string;
+  districtI18n?: LocalizedText | null;
   city: string;
+  cityI18n?: LocalizedText | null;
   phone: string;
   openTime: string;
   closeTime: string;
   status: StoreStatus;
   deliveryArea: string;
+  deliveryAreaI18n?: LocalizedText | null;
   managerName?: string;
   isOpenNow?: boolean;
   latitude?: number;

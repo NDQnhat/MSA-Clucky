@@ -6,6 +6,7 @@ import com.clucky.cartorderservice.cart.CartService;
 import com.clucky.cartorderservice.cart.ComboSelectionDto;
 import com.clucky.cartorderservice.config.AccessGuard;
 import com.clucky.cartorderservice.config.CurrentActor;
+import com.clucky.cartorderservice.config.LocaleResolverHelper;
 import com.clucky.cartorderservice.config.RedisConfig;
 import com.clucky.cartorderservice.dto.*;
 import com.clucky.cartorderservice.entity.Order;
@@ -622,14 +623,18 @@ public class OrderService {
                     CatalogClient.ValidatedCatalogItem validated = catalogValidation.items().get(i);
                     BigDecimal unitPrice = validated.unitPrice();
                     BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
-                    String itemName = validated.name();
+                    LocalizedText itemNameI18n = validated.nameI18n() != null
+                            ? validated.nameI18n()
+                            : (it.getItemNameI18n() != null
+                                ? it.getItemNameI18n()
+                                : LocalizedText.ofSingle(validated.name()));
 
                     OrderItem item = new OrderItem();
                     item.setOrderId(order.getId());
                     item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
                     item.setProductId(it.getProductId());
                     item.setComboId(it.getComboId());
-                    item.setItemName(itemName);
+                    item.setItemName(itemNameI18n);
                     item.setUnitPrice(unitPrice.add(extraPrice));
                     item.setQuantity(it.getQuantity());
                     item.setNote(it.getNote());
@@ -758,15 +763,27 @@ public class OrderService {
             boolean isInventoryIssue = false;
             if (catalogValidation.items() != null) {
                 for (CatalogClient.ValidatedCatalogItem vi : catalogValidation.items()) {
-                    if (!vi.available() && vi.reason() != null &&
-                            (vi.reason().toLowerCase().contains("tồn kho") || vi.reason().toLowerCase().contains("hết hàng"))) {
-                        isInventoryIssue = true;
-                        msg = vi.reason();
-                        break;
+                    if (!vi.available()) {
+                        String reasonLower = vi.reason() != null ? vi.reason().toLowerCase(Locale.ROOT) : "";
+                        boolean itemInventory = vi.insufficientStock()
+                                || "INSUFFICIENT_INVENTORY".equals(vi.errorCode())
+                                || reasonLower.contains("tồn kho")
+                                || reasonLower.contains("hết hàng")
+                                || reasonLower.contains("insufficient stock")
+                                || reasonLower.contains("out of stock");
+                        if (itemInventory) {
+                            isInventoryIssue = true;
+                            if (vi.reason() != null) {
+                                msg = vi.reason();
+                            }
+                            break;
+                        }
                     }
                 }
             }
-            if (isInventoryIssue || msg.toLowerCase().contains("tồn kho") || msg.toLowerCase().contains("hết hàng")) {
+            String msgLower = msg.toLowerCase(Locale.ROOT);
+            if (isInventoryIssue || msgLower.contains("tồn kho") || msgLower.contains("hết hàng")
+                    || msgLower.contains("insufficient stock") || msgLower.contains("out of stock")) {
                 throw new ApiException(ErrorCode.INSUFFICIENT_INVENTORY, msg);
             }
             throw new ApiException(ErrorCode.VALIDATION_ERROR, msg);
@@ -925,7 +942,9 @@ public class OrderService {
                     item.setItemType(it.getProductId() != null ? "PRODUCT" : "COMBO");
                     item.setProductId(it.getProductId());
                     item.setComboId(it.getComboId());
-                    item.setItemName(validated.name());
+                    item.setItemName(validated.nameI18n() != null
+                            ? validated.nameI18n()
+                            : LocalizedText.ofSingle(validated.name()));
                     item.setUnitPrice(effectiveUnitPrice);
                     item.setQuantity(it.getQuantity());
                     item.setNote(it.getNote());
@@ -1419,10 +1438,11 @@ public class OrderService {
                     }
                 }
             }
+            String lang = LocaleResolverHelper.currentRequestLang();
             CartItemDto cartItem = new CartItemDto(
                     it.getProductId(),
                     it.getComboId(),
-                    it.getItemName(),
+                    it.resolveItemName(lang),
                     it.getQuantity() != null && it.getQuantity() > 0 ? it.getQuantity() : 1,
                     it.getUnitPrice(),
                     optionIds,
@@ -1430,9 +1450,10 @@ public class OrderService {
                     it.getNote(),
                     order.getStoreId()
             );
+            cartItem.setItemNameI18n(it.getItemName());
             cartItem.setComboSelections(comboSelections);
-            cartItem.setOptionsSnapshot(it.getOptionsSnapshot());
-            cartItem.setToppingsSnapshot(it.getToppingsSnapshot());
+            cartItem.setOptionsSnapshot(LocalizedText.localizeSnapshotNode(it.getOptionsSnapshot(), lang));
+            cartItem.setToppingsSnapshot(LocalizedText.localizeSnapshotNode(it.getToppingsSnapshot(), lang));
             cartService.addItem(cartKey, cartItem, CartService.CUSTOMER_CART_TTL);
         }
 
@@ -1606,6 +1627,10 @@ public class OrderService {
             CartItemDto item = items.get(index);
             CatalogClient.ValidatedCatalogItem validated = validatedItems.get(index);
             BigDecimal extraPrice = validated.extraPrice() != null ? validated.extraPrice() : BigDecimal.ZERO;
+            item.setItemName(validated.name());
+            item.setItemNameI18n(validated.nameI18n() != null
+                    ? validated.nameI18n()
+                    : LocalizedText.ofSingle(validated.name()));
             item.setUnitPrice(validated.unitPrice().add(extraPrice));
             item.setLineTotal(validated.lineTotal());
             if (item.getComboId() != null) {

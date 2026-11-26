@@ -92,6 +92,11 @@ public class PersonalVoucherService {
 
     @Transactional
     public PersonalVoucherView claim(Long campaignId, long ownerId) {
+        return claim(campaignId, ownerId, "vi");
+    }
+
+    @Transactional
+    public PersonalVoucherView claim(Long campaignId, long ownerId, String lang) {
         if (campaignId == null || campaignId <= 0 || ownerId <= 0) throw new ApiException(ErrorCode.VALIDATION_ERROR);
         Voucher campaign = campaigns.findByIdWithLock(campaignId)
                 .orElseThrow(() -> new ApiException(ErrorCode.VOUCHER_NOT_FOUND));
@@ -99,7 +104,7 @@ public class PersonalVoucherService {
             throw new ApiException(ErrorCode.VOUCHER_NOT_FOUND);
         var existing = jdbc.queryForList("SELECT * FROM promotion_service.customer_voucher_instances WHERE campaign_id=? AND customer_id=?",
                 campaignId, ownerId);
-        if (!existing.isEmpty()) return view(existing.getFirst(), campaign, false);
+        if (!existing.isEmpty()) return view(existing.getFirst(), campaign, false, lang);
         checkCampaign(campaign, Instant.now());
         // Claiming does not consume campaign usage or reserve a quota slot.
         String selector = randomChars(12);
@@ -114,23 +119,33 @@ public class PersonalVoucherService {
                 java.sql.Timestamp.from(campaign.getEndAt()));
         audit.record(ownerId, Role.CUSTOMER.name(), null, "VOUCHER_CLAIMED",
                 "VOUCHER_CAMPAIGN", campaignId, Map.of(), Map.of("instanceId", id.toString()));
-        return view(jdbc.queryForMap("SELECT * FROM promotion_service.customer_voucher_instances WHERE id=?", id), campaign, false);
+        return view(jdbc.queryForMap("SELECT * FROM promotion_service.customer_voucher_instances WHERE id=?", id), campaign, false, lang);
     }
 
     @Transactional(readOnly = true)
     public List<PersonalVoucherView> mine(long ownerId) {
+        return mine(ownerId, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public List<PersonalVoucherView> mine(long ownerId, String lang) {
         var result = new ArrayList<PersonalVoucherView>();
         var rows = jdbc.queryForList("SELECT * FROM promotion_service.customer_voucher_instances WHERE customer_id=? ORDER BY issued_at DESC", ownerId);
         for (var row : rows) {
             var campaign = campaigns.findById(number(row, "campaign_id"))
                     .orElseThrow(() -> new ApiException(ErrorCode.VOUCHER_NOT_FOUND));
-            result.add(view(row, campaign, false));
+            result.add(view(row, campaign, false, lang));
         }
         return result;
     }
 
     @Transactional(readOnly = true)
     public PersonalVoucherView detail(UUID instanceId, long ownerId) {
+        return detail(instanceId, ownerId, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public PersonalVoucherView detail(UUID instanceId, long ownerId, String lang) {
         var rows = jdbc.queryForList(
                 "SELECT * FROM promotion_service.customer_voucher_instances WHERE id=? AND customer_id=?",
                 instanceId, ownerId);
@@ -138,11 +153,16 @@ public class PersonalVoucherService {
         var row = rows.getFirst();
         var campaign = campaigns.findById(number(row, "campaign_id"))
                 .orElseThrow(() -> new ApiException(ErrorCode.VOUCHER_NOT_FOUND));
-        return view(row, campaign, true);
+        return view(row, campaign, true, lang);
     }
 
     @Transactional(readOnly = true)
     public ValidateVoucherResponse validate(ValidateVoucherRequest request) {
+        return validate(request, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public ValidateVoucherResponse validate(ValidateVoucherRequest request, String lang) {
         if (request == null || request.getOrderAmount() == null || request.getOrderAmount().signum() < 0
                 || request.getOrderAmount().stripTrailingZeros().scale() > 0
                 || request.getOrderAmount().precision() > 12 || request.getStoreId() == null || request.getStoreId() <= 0
@@ -170,7 +190,7 @@ public class PersonalVoucherService {
         checkQuota(campaign);
         BigDecimal discount = discount(campaign, request.getOrderAmount());
         ValidateVoucherResponse response = ValidateVoucherResponse.valid(
-                discount, VoucherResponse.fromPublicEntity(campaign, Instant.now()));
+                discount, VoucherResponse.fromPublicEntity(campaign, Instant.now(), lang));
         response.setVoucherInstanceId((UUID) row.get("id"));
         return response;
     }
@@ -287,14 +307,14 @@ public class PersonalVoucherService {
                 eventId == null ? action.toLowerCase(Locale.ROOT)+"-"+orderId : eventId);
     }
 
-    private PersonalVoucherView view(Map<String,Object> row, Voucher campaign, boolean reveal) {
+    private PersonalVoucherView view(Map<String,Object> row, Voucher campaign, boolean reveal, String lang) {
         String state = (String) row.get("state");
         Instant expiresAt = instant(row,"expires_at");
         if ("ISSUED".equals(state) && Instant.now().isAfter(expiresAt)) state = "EXPIRED";
         String code = reveal && "ISSUED".equals(state) ? decrypt((String)row.get("code_ciphertext")) : null;
         return new PersonalVoucherView((UUID)row.get("id"),campaign.getId(),state,
                 instant(row,"issued_at"),expiresAt,code,code == null ? null : "CLUCKY:V1:"+code,
-                VoucherResponse.fromPublicEntity(campaign, Instant.now()));
+                VoucherResponse.fromPublicEntity(campaign, Instant.now(), lang));
     }
 
     private Map<String,Object> findInstance(UUID id) {

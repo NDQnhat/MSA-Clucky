@@ -1,6 +1,7 @@
 "use client";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useLocaleTools } from "@/lib/i18n/hooks";
+import { pickLocalized } from "@/lib/bilingual";
 
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
@@ -22,6 +23,10 @@ interface ProductDetailClientProps {
 
 export function ProductDetailClient({ product, storeId, itemType, comboComponents = [] }: ProductDetailClientProps) {
   const t = useTranslations();
+  const locale = useLocale();
+  const resolvedProductName = pickLocalized(product.nameI18n, product.name, locale);
+  const resolvedProductDescription = pickLocalized(product.descriptionI18n, product.description, locale);
+  const resolvedCategoryName = pickLocalized(product.categoryNameI18n, product.categoryName || product.category || "", locale);
 
   const { money: formatPrice } = useLocaleTools();
   const { addItem, ready, cartPending } = useOrder();
@@ -107,26 +112,40 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
   const comboOptionSnapshots = comboComponents.flatMap(component => {
     const itemId = component.item.id;
     if (itemId == null) return [];
+    const compName = pickLocalized(component.item.productNameI18n, component.item.productName, locale);
     return (component.product?.options ?? []).flatMap(group => {
       const fixed = configuredComboOption(component, group);
       const chosen = fixed ?? group.choices.find(choice => choice.id === comboOptions[comboChoiceKey(itemId, group.id)]);
-      return chosen ? [{
+      if (!chosen) return [];
+      const groupLabel = pickLocalized(group.nameI18n, group.name, locale);
+      const choiceLabel = pickLocalized(chosen.nameI18n, chosen.name, locale);
+      return [{
         id: catalogSelectionId(chosen.id, "opt"),
-        groupName: `${component.item.productName} · ${group.name}`,
-        name: chosen.name,
+        groupName: `${compName} · ${groupLabel}`,
+        groupNameI18n: {
+          vi: `${component.item.productNameI18n?.vi || component.item.productName} · ${group.nameI18n?.vi || group.name}`,
+          en: `${component.item.productNameI18n?.en || component.item.productName} · ${group.nameI18n?.en || group.name}`,
+        },
+        name: choiceLabel,
+        nameI18n: chosen.nameI18n ?? undefined,
         extraPrice: fixed ? 0 : chosen.priceAdjustment * component.item.quantity,
-      }] : [];
+      }];
     });
   });
 
   const comboToppingSnapshots = comboComponents.flatMap(component => {
     const itemId = component.item.id;
     if (itemId == null) return [];
+    const compName = pickLocalized(component.item.productNameI18n, component.item.productName, locale);
     return (component.product?.toppings ?? [])
       .filter(top => (comboToppings[itemId] ?? []).includes(top.id))
       .map(top => ({
         id: catalogSelectionId(top.id, "top"),
-        name: `${component.item.productName} · ${top.name}`,
+        name: `${compName} · ${pickLocalized(top.nameI18n, top.name, locale)}`,
+        nameI18n: {
+          vi: `${component.item.productNameI18n?.vi || component.item.productName} · ${top.nameI18n?.vi || top.name}`,
+          en: `${component.item.productNameI18n?.en || component.item.productName} · ${top.nameI18n?.en || top.name}`,
+        },
         extraPrice: top.price * component.item.quantity,
       }));
   });
@@ -186,8 +205,10 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
       toppingIds: itemType === "COMBO" ? [] : selectedToppings.map(value => catalogSelectionId(value, "top")),
       ...(itemType === "COMBO" ? { comboSelections } : {}),
       slug: product.slug,
-      name: product.name,
-      category: product.categoryName || product.category || '',
+      name: resolvedProductName,
+      nameI18n: product.nameI18n ?? undefined,
+      category: resolvedCategoryName,
+      categoryI18n: product.categoryNameI18n ?? undefined,
       basePrice: product.basePrice || product.price,
       unitPrice,
       quantity,
@@ -201,8 +222,10 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
           ? [
               {
                 id: catalogSelectionId(choice.id, "opt"),
-                groupName: group.name,
-                name: choice.name,
+                groupName: pickLocalized(group.nameI18n, group.name, locale),
+                groupNameI18n: group.nameI18n ?? undefined,
+                name: pickLocalized(choice.nameI18n, choice.name, locale),
+                nameI18n: choice.nameI18n ?? undefined,
                 extraPrice: choice.priceAdjustment,
               },
             ]
@@ -210,7 +233,12 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
       }),
       toppings: itemType === "COMBO" ? comboToppingSnapshots : product.toppings
         ?.filter((top) => selectedToppings.includes(top.id))
-        .map((top) => ({ id: catalogSelectionId(top.id, "top"), name: top.name, extraPrice: top.price })),
+        .map((top) => ({
+          id: catalogSelectionId(top.id, "top"),
+          name: pickLocalized(top.nameI18n, top.name, locale),
+          nameI18n: top.nameI18n ?? undefined,
+          extraPrice: top.price,
+        })),
     });
     if (!added) return;
     setIsAddedSuccess(true);
@@ -384,7 +412,7 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
               letterSpacing: "-0.02em",
             }}
           >
-            {product.name}
+            {resolvedProductName}
           </h1>
 
           {/* Description */}
@@ -397,7 +425,7 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
               margin: "0 0 28px",
             }}
           >
-            {product.description}
+            {resolvedProductDescription}
           </p>
 
           {itemType === "COMBO" && (product.comboItems?.length ?? 0) > 0 && (
@@ -411,7 +439,7 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
             />
           )}
 
-          {/* Single Options (Chọn 1) */}
+          {/* Single Options */}
           {itemType === "PRODUCT" && product.options?.map((group) => (
             <div key={group.id} style={{ marginBottom: 24 }}>
               <div
@@ -430,7 +458,7 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
                     color: "#16100D",
                   }}
                 >
-                  {group.name}
+                  {pickLocalized(group.nameI18n, group.name, locale)}
                 </span>
                 <span
                   style={{ fontSize: 12, color: "#8F1216", fontWeight: 700 }}
@@ -464,7 +492,7 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
                       {isSelected && (
                         <Check size={16} className="text-[#8F1216]" />
                       )}
-                      <span>{choice.name}</span>
+                      <span>{pickLocalized(choice.nameI18n, choice.name, locale)}</span>
                       {choice.priceAdjustment > 0 && (
                         <span style={{ color: "#8F1216", fontSize: 13 }}>
                           +{formatPrice(choice.priceAdjustment)}
@@ -477,7 +505,7 @@ export function ProductDetailClient({ product, storeId, itemType, comboComponent
             </div>
           ))}
 
-          {/* Multi Toppings (Chọn nhiều) */}
+          {/* Multi Toppings */}
           {itemType === "PRODUCT" && product.toppings && product.toppings.length > 0 && (
             <div style={{ marginBottom: 28 }}>
               <div

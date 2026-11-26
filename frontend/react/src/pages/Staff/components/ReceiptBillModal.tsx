@@ -17,6 +17,7 @@ import { useOrders } from "../../../context/OrderContext";
 import type { StaffOrder } from "../../../mocks/mockStaffOrders";
 import { paymentsApi } from "../../../lib/api";
 import { fulfillmentShortLabel, getFulfillmentMode } from "../../../lib/order-fulfillment";
+import { pickLocalized } from "../../../lib/bilingual";
 import styles from "./receipt-bill.module.css";
 
 interface ReceiptBillModalProps {
@@ -27,10 +28,6 @@ interface ReceiptBillModalProps {
   initialMode?: "RECEIPT" | "KOT";
 }
 
-const formatVnd = (val: number) => {
-  return new Intl.NumberFormat("vi-VN").format(val) + " đ";
-};
-
 export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
   open,
   order,
@@ -38,11 +35,14 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
   onPrintSuccess,
   initialMode = "RECEIPT",
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n: i18next } = useTranslation();
+  const lang = i18next.resolvedLanguage || i18next.language || "vi";
+  const formatVnd = (val: number) =>
+    `${new Intl.NumberFormat(lang.startsWith("en") ? "en-US" : "vi-VN").format(val)} ${t("common:currency")}`;
   const { user } = useAuth();
   const { stores, currentStore } = useOrders();
   const matchedStore = stores.find((s) => Number(s.id) === Number(order?.storeId)) || currentStore;
-  const resolvedStoreName = matchedStore?.name || order?.storeName || user?.storeName || "Clucky";
+  const resolvedStoreName = pickLocalized(matchedStore?.nameI18n, matchedStore?.name, lang) || order?.storeName || user?.storeName || "Clucky";
   const resolvedStoreAddress = matchedStore?.address || "";
   const resolvedStoreHotline = matchedStore?.phone || "1900 6868";
   const [mode, setMode] = useState<"RECEIPT" | "KOT">(initialMode);
@@ -104,18 +104,18 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
       if (printMode === "RECEIPT") {
         message.success(
           isReprint
-            ? "Đã in lại bản sao hóa đơn #" + updatedCount + " thành công! (Mô phỏng máy in nhiệt K80)"
-            : "Đã in hóa đơn thành công! (Mô phỏng máy in nhiệt K80)",
+            ? t("business:receipt.reprintedSuccess", { count: updatedCount })
+            : t("business:receipt.printedSuccess"),
         );
       } else {
-        message.success("Đã in phiếu chế biến bếp (KOT) thành công! (Mô phỏng máy in nhiệt K80)");
+        message.success(t("business:receipt.kotPrintedSuccess"));
       }
 
       setIsPaperFeeding(false);
     }, 400);
   };
 
-  const nowString = new Date().toLocaleString("vi-VN", {
+  const nowString = new Date().toLocaleString(lang.startsWith("en") ? "en-US" : "vi-VN", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -127,7 +127,7 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
   const createdAtDate = order.createdAt ? new Date(order.createdAt) : null;
   const orderDateLabel =
     createdAtDate && !Number.isNaN(createdAtDate.getTime())
-      ? new Intl.DateTimeFormat("vi-VN", {
+      ? new Intl.DateTimeFormat(lang.startsWith("en") ? "en-US" : "vi-VN", {
           timeZone: "Asia/Ho_Chi_Minh",
           day: "2-digit",
           month: "2-digit",
@@ -136,7 +136,7 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
       : "";
 
   const modalNode = (
-    <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Hóa đơn thanh toán K80">
+    <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label={t("business:receipt.dialogAria")}>
       <div className={styles.modalWindow}>
         {/* Action Toolbar */}
         <div className={styles.actionsToolbar}>
@@ -146,20 +146,23 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
                 type="button"
                 className={`${styles.actionBtn} ${styles.printBtn}`}
                 onClick={() => handlePrint("RECEIPT")}
-                title="In hóa đơn bán lẻ cho khách"
+                title={t("business:receipt.printReceiptTitle")}
               >
                 <Printer size={16} />
-                <span>In hóa đơn {isReprint ? "(Lần " + (printCount + 1) + ")" : ""}</span>
+                <span>
+                  {t("business:receipt.printReceiptBtn")}
+                  {isReprint ? t("business:receipt.printAttemptSuffix", { count: printCount + 1 }) : ""}
+                </span>
               </button>
 
               <button
                 type="button"
                 className={`${styles.actionBtn} ${styles.kotBtn}`}
                 onClick={() => setMode("KOT")}
-                title="Chuyển sang mẫu phiếu bếp"
+                title={t("business:receipt.switchToKotTitle")}
               >
                 <ChefHat size={16} />
-                <span>Xem phiếu bếp (KOT)</span>
+                <span>{t("business:receipt.viewKotBtn")}</span>
               </button>
             </>
           ) : (
@@ -168,20 +171,20 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
                 type="button"
                 className={`${styles.actionBtn} ${styles.kotBtn}`}
                 onClick={() => handlePrint("KOT")}
-                title="In phiếu chế biến gửi bếp"
+                title={t("business:receipt.printKotTitle")}
               >
                 <Printer size={16} />
-                <span>In phiếu bếp (KOT)</span>
+                <span>{t("business:receipt.printKotBtn")}</span>
               </button>
 
               <button
                 type="button"
                 className={`${styles.actionBtn} ${styles.modeToggleBtn}`}
                 onClick={() => setMode("RECEIPT")}
-                title="Quay lại hóa đơn bán lẻ"
+                title={t("business:receipt.backToReceiptTitle")}
               >
                 <FileText size={16} />
-                <span>Xem hóa đơn khách</span>
+                <span>{t("business:receipt.viewReceiptBtn")}</span>
               </button>
             </>
           )}
@@ -190,10 +193,10 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
             type="button"
             className={`${styles.actionBtn} ${styles.closeBtn}`}
             onClick={onClose}
-            aria-label="Đóng"
+            aria-label={t("common:close")}
           >
             <X size={16} />
-            <span>Đóng</span>
+            <span>{t("common:close")}</span>
           </button>
         </div>
 
@@ -204,17 +207,14 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
               isPaperFeeding ? styles.paperFeeding : ""
             }`}
             tabIndex={0}
-            aria-label="Phiếu in nhiệt 80mm"
+            aria-label={t("business:receipt.paperAria")}
           >
-            {/* =========================================================================
-                CHẾ ĐỘ 1: HÓA ĐƠN BÁN LẺ (RECEIPT)
-               ========================================================================= */}
+            {/* Mode 1: Receipt */}
             {mode === "RECEIPT" ? (
               <>
-                {/* Watermark nếu là in lại từ lần 2 */}
                 {isReprint && (
                   <div className={styles.reprintWatermark}>
-                    *** BẢN SAO HÓA ĐƠN / REPRINT #{printCount} ***
+                    {t("business:receipt.reprintWatermark", { count: printCount })}
                   </div>
                 )}
 
@@ -230,10 +230,10 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
                   />
                   <h1 className={styles.brandName}>CLUCKY</h1>
                   <div className={styles.brandSlogan}>
-                    Gà Rán Giòn Cay - Đậm Vị Việt
+                    {t("business:receipt.slogan")}
                   </div>
                   <div className={styles.storeInfo}>
-                    Chi nhánh: <strong>{resolvedStoreName}</strong>
+                    {t("business:receipt.branchLabel")} <strong>{resolvedStoreName}</strong>
                     {resolvedStoreAddress && (
                       <>
                         <br />
@@ -247,10 +247,9 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
 
                 <div className={styles.doubleDivider} />
 
-                {/* Số thứ tự gọi món & Hình thức dùng bữa */}
                 <div className={styles.queueCallout}>
                   <div className={styles.queueCalloutLeft}>
-                    <span className={styles.queueTitle}>SỐ THỨ TỰ GỌI MÓN {orderDateLabel ? `(${orderDateLabel})` : ""}</span>
+                    <span className={styles.queueTitle}>{t("business:receipt.queueCalloutTitle")} {orderDateLabel ? `(${orderDateLabel})` : ""}</span>
                     <span className={styles.queueNumberLarge}>
                       {formattedQueue}
                     </span>
@@ -262,22 +261,21 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
 
                 <div className={styles.dashedDivider} />
 
-                {/* Metadata Đơn Hàng */}
                 <div className={styles.metaRow}>
-                  <span>Mã đơn hàng:</span>
+                  <span>{t("business:receipt.orderCodeLabel")}</span>
                   <strong>{order.orderCode}</strong>
                 </div>
                 <div className={styles.metaRow}>
-                  <span>Thời gian đặt:</span>
-                  <span>{order.createdAt ? new Date(order.createdAt).toLocaleString("vi-VN") : nowString}</span>
+                  <span>{t("business:receipt.placedAtLabel")}</span>
+                  <span>{order.createdAt ? new Date(order.createdAt).toLocaleString(lang.startsWith("en") ? "en-US" : "vi-VN") : nowString}</span>
                 </div>
                 <div className={styles.metaRow}>
-                  <span>Thu ngân phục vụ:</span>
+                  <span>{t("business:receipt.cashierLabel")}</span>
                   <span>{order.cashierName || (user?.fullName ? `${user.fullName} (${user.role === "STAFF" ? "Staff" : user.role})` : t("business:staffactions.staff"))}</span>
                 </div>
                 {order.customerName && (
                   <div className={styles.metaRow}>
-                    <span>Khách hàng:</span>
+                    <span>{t("business:receipt.customerLabel")}</span>
                     <span>{order.customerName}</span>
                   </div>
                 )}
@@ -290,14 +288,13 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
 
                 <div className={styles.dashedDivider} />
 
-                {/* Bảng Danh Sách Món Ăn */}
                 <table className={styles.itemsTable}>
                   <thead>
                     <tr>
-                      <th className={styles.itemColName}>TÊN MÓN</th>
-                      <th className={styles.itemColQty}>SL</th>
-                      <th className={styles.itemColPrice}>Đ.GIÁ</th>
-                      <th className={styles.itemColTotal}>T.TIỀN</th>
+                      <th className={styles.itemColName}>{t("business:receipt.colItemName")}</th>
+                      <th className={styles.itemColQty}>{t("business:receipt.colQty")}</th>
+                      <th className={styles.itemColPrice}>{t("business:receipt.colUnitPrice")}</th>
+                      <th className={styles.itemColTotal}>{t("business:receipt.colLineTotal")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -329,20 +326,19 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
 
                 <div className={styles.dashedDivider} />
 
-                {/* Tổng kết tiền */}
                 <div className={styles.totalSection}>
                   <div className={styles.totalRow}>
-                    <span>Tổng tiền hàng:</span>
+                    <span>{t("business:receipt.subtotalLabel")}</span>
                     <span>{formatVnd(order.subtotal || order.total)}</span>
                   </div>
                   {order.discount > 0 && (
                     <div className={styles.totalRow}>
-                      <span>Giảm giá khuyến mãi:</span>
+                      <span>{t("business:receipt.discountLabel")}</span>
                       <span>-{formatVnd(order.discount)}</span>
                     </div>
                   )}
                   <div className={styles.grandTotalRow}>
-                    <span>TỔNG THANH TOÁN:</span>
+                    <span>{t("business:receipt.grandTotalLabel")}</span>
                     <span className={styles.grandTotalAmount}>
                       {formatVnd(order.total)}
                     </span>
@@ -351,27 +347,26 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
 
                 <div className={styles.dashedDivider} />
 
-                {/* Chi tiết thanh toán */}
                 <div className={styles.paymentSection}>
                   <div className={styles.metaRow}>
-                    <span>Phương thức:</span>
+                    <span>{t("business:receipt.methodLabel")}</span>
                     <strong>
                       {order.paymentMethod === "CASH"
-                        ? "TIỀN MẶT (CASH)"
+                        ? t("business:receipt.methodCash")
                         : order.paymentMethod === "BANK_TRANSFER"
-                        ? "CHUYỂN KHOẢN (VIETQR)"
-                        : "KẾT HỢP (SPLIT)"}
+                        ? t("business:receipt.methodBank")
+                        : t("business:receipt.methodSplit")}
                     </strong>
                   </div>
 
                   {order.cashTendered !== undefined && order.cashTendered > 0 && (
                     <>
                       <div className={styles.metaRow}>
-                        <span>Tiền khách đưa:</span>
+                        <span>{t("business:receipt.cashTenderedLabel")}</span>
                         <span>{formatVnd(order.cashTendered)}</span>
                       </div>
                       <div className={styles.metaRow}>
-                        <span>Tiền thối lại:</span>
+                        <span>{t("business:receipt.cashChangeLabel")}</span>
                         <strong style={{ color: "#1e7a46" }}>
                           {formatVnd(order.cashChange || 0)}
                         </strong>
@@ -381,14 +376,14 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
 
                   {order.bankRefCode && (
                     <div className={styles.metaRow}>
-                      <span>Mã tham chiếu CK:</span>
+                      <span>{t("business:receipt.bankRefLabel")}</span>
                       <span>{order.bankRefCode}</span>
                     </div>
                   )}
 
                   {order.manualAcceptanceReason && (
                     <div className={styles.metaRow}>
-                      <span>Ghi chú thu quầy:</span>
+                      <span>{t("business:receipt.cashierNoteLabel")}</span>
                       <span>{order.manualAcceptanceReason}</span>
                     </div>
                   )}
@@ -396,44 +391,39 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
 
                 <div className={styles.doubleDivider} />
 
-                {/* Lời cảm ơn & Wifi */}
                 <div className={styles.receiptFooter}>
                   <div className={styles.thankYouText}>
-                    CẢM ƠN QUÝ KHÁCH VÀ HẸN GẶP LẠI!
+                    {t("business:receipt.thankYou")}
                   </div>
                   <div className={styles.wifiText}>
                     <Wifi size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
-                    Wifi: <strong>Clucky_Guest</strong> (Mật khẩu: <strong>12345678</strong>)
+                    Wifi: <strong>Clucky_Guest</strong> ({t("business:receipt.wifiPasswordLabel")} <strong>12345678</strong>)
                   </div>
 
                   {isReprint && (
                     <div className={styles.reprintFooterNotice}>
-                      Hóa đơn in lại vào lúc {nowString}.
+                      {t("business:receipt.reprintNoticeTime", { time: nowString })}
                       <br />
-                      Bản sao chỉ có giá trị đối chiếu đối soát nội bộ.
+                      {t("business:receipt.reprintNoticeInternal")}
                     </div>
                   )}
                 </div>
               </>
             ) : (
-              /* =========================================================================
-                  CHẾ ĐỘ 2: PHIẾU CHẾ BIẾN CHO BẾP (KITCHEN ORDER TICKET - KOT)
-                  TUYỆT ĐỐI KHÔNG CÓ GIÁ TIỀN, ĐƠN GIÁ, TỔNG TIỀN, TIỀN THỐI!
-                 ========================================================================= */
+              /* Mode 2: Kitchen Order Ticket (KOT) */
               <>
                 <div className={styles.kotHeader}>
-                  <h2 className={styles.kotTitle}>PHIẾU CHẾ BIẾN BẾP</h2>
+                  <h2 className={styles.kotTitle}>{t("business:receipt.kotTitle")}</h2>
                   <div style={{ fontSize: 11, color: "#444444", marginTop: 4 }}>
-                    Bếp Chi nhánh: <strong>{resolvedStoreName}</strong>
+                    {t("business:receipt.kotBranchLabel")} <strong>{resolvedStoreName}</strong>
                     <br />
-                    Thời gian nhận: {order.time || "Ngay bây giờ"} · {order.createdAt ? new Date(order.createdAt).toLocaleTimeString("vi-VN") : ""}
+                    {t("business:receipt.kotReceivedLabel")} {order.time || t("business:receipt.nowLabel")} · {order.createdAt ? new Date(order.createdAt).toLocaleTimeString(lang.startsWith("en") ? "en-US" : "vi-VN") : ""}
                   </div>
                 </div>
 
-                {/* Số thứ tự to bản cho bếp gọi */}
                 <div className={styles.queueCallout} style={{ backgroundColor: "#000000", color: "#ffffff" }}>
                   <div className={styles.queueCalloutLeft}>
-                    <span style={{ fontSize: 10, color: "#aaaaaa" }}>SỐ THỨ TỰ BẾP {orderDateLabel ? `(${orderDateLabel})` : ""}</span>
+                    <span style={{ fontSize: 10, color: "#aaaaaa" }}>{t("business:receipt.kotQueueTitle")} {orderDateLabel ? `(${orderDateLabel})` : ""}</span>
                     <span style={{ fontFamily: "Fredoka, sans-serif", fontSize: 28, fontWeight: 800, color: "#ffffff" }}>
                       {formattedQueue}
                     </span>
@@ -444,18 +434,17 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
                 </div>
 
                 <div className={styles.metaRow} style={{ marginTop: 8 }}>
-                  <span>Mã đơn: <strong>{order.orderCode}</strong></span>
-                  <span>Nguồn: <strong>{order.orderSource === "COUNTER" ? "TẠI QUẦY" : "ĐẶT WEB"}</strong></span>
+                  <span>{t("business:receipt.kotOrderCodeLabel")} <strong>{order.orderCode}</strong></span>
+                  <span>{t("business:receipt.kotSourceLabel")} <strong>{order.orderSource === "COUNTER" ? t("business:receipt.kotSourceCounter") : t("business:receipt.kotSourceWeb")}</strong></span>
                 </div>
 
                 <div className={styles.doubleDivider} />
 
-                {/* Danh sách món cho Bếp - CHỈ CÓ SỐ LƯỢNG & TÊN & TÙY CHỌN */}
                 <table className={styles.itemsTable}>
                   <thead>
                     <tr>
-                      <th style={{ width: "18%", textAlign: "center", fontSize: 13 }}>SL</th>
-                      <th style={{ width: "82%", fontSize: 13 }}>MÓN ĂN & TÙY CHỌN CHẾ BIẾN</th>
+                      <th style={{ width: "18%", textAlign: "center", fontSize: 13 }}>{t("business:receipt.colQty")}</th>
+                      <th style={{ width: "82%", fontSize: 13 }}>{t("business:receipt.kotItemsHeader")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -477,16 +466,15 @@ export const ReceiptBillModal: React.FC<ReceiptBillModalProps> = ({
                   </tbody>
                 </table>
 
-                {/* Ghi chú bếp nếu có */}
                 {order.note && (
                   <div className={styles.kotNoteBox}>
-                    ⚠️ GHI CHÚ ĐƠN BẾP: {order.note}
+                    ⚠️ {t("business:receipt.kotNotePrefix")} {order.note}
                   </div>
                 )}
 
                 <div className={styles.doubleDivider} />
                 <div style={{ textAlign: "center", fontSize: 11, fontStyle: "italic", color: "#555555" }}>
-                  Bếp chiên nấu nhanh theo thứ tự số gọi món.
+                  {t("business:receipt.kotFooterHint")}
                 </div>
               </>
             )}

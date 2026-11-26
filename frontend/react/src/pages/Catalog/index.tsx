@@ -6,7 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../context/AuthContext';
 import { useLocaleTools } from '../../i18n/hooks';
 import { getErrorMessage, type Product } from '../../lib/api';
-import { catalogAdministration as administration, type AdminProduct, type AdminCombo, type AdminCategory, type CategoryPayload, type ComboPayload } from '../../lib/catalog-administration';
+import { catalogAdministration as administration, type AdminProduct, type AdminCombo, type AdminCategory, type CategoryPayload, type ComboPayload, type ProductPayload } from '../../lib/catalog-administration';
+import { isLocalizedViValid, pickLocalized, toLocalizedInput, toLocalizedPayload, type LocalizedText } from '../../lib/bilingual';
+import { BilingualField } from '../../components/ui/BilingualField';
 import { ProductForm } from './ProductForm';
 import { ComboForm } from './ComboForm';
 import { CatalogImage } from './ImageField';
@@ -15,7 +17,7 @@ import { matchesCatalogSearch } from './presentation';
 import './catalog.css';
 
 export const CatalogPage: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { money, date } = useLocaleTools();
   const { isAdmin } = useAuth();
   const [catalog, setCatalog] = useState<{ products: AdminProduct[]; combos: AdminCombo[]; categories: AdminCategory[] }>({ products: [], combos: [], categories: [] });
@@ -39,10 +41,11 @@ export const CatalogPage: React.FC = () => {
   const [categoryOpen, setCategoryOpen] = useState(false);
   const [category, setCategory] = useState<AdminCategory | null>(null);
   const [categoryError, setCategoryError] = useState('');
-  const [categoryForm] = Form.useForm<Pick<CategoryPayload, 'name' | 'isActive'>>();
+  const [categoryForm] = Form.useForm<{ name: LocalizedText; isActive: boolean }>();
   const [deletion, setDeletion] = useState<{ kind: 'products' | 'combos' | 'categories'; row: AdminProduct | AdminCombo | AdminCategory } | null>(null);
   const [deleteError, setDeleteError] = useState('');
   const text = (key: string, defaultValue: string) => t(`business:catalogAdmin.${key}`, { defaultValue });
+  const lang = i18n.language;
 
   const refetch = useCallback(async () => {
     request.current?.abort();
@@ -62,7 +65,7 @@ export const CatalogPage: React.FC = () => {
   useEffect(() => {
     if (isAdmin) void refetch();
     return () => { request.current?.abort(); };
-  }, [isAdmin, refetch]);
+  }, [isAdmin, refetch, lang]);
 
   const mutate = async (operation: () => Promise<void>) => {
     if (!isAdmin || lock.current) throw new Error(t("admin:ui.thisActionIsNotReadyPleaseTryAgain"));
@@ -70,7 +73,7 @@ export const CatalogPage: React.FC = () => {
     try { await operation(); } finally { await refetch(); lock.current = false; setBusy(false); }
   };
 
-  const saveProduct = async (data: Partial<Product>, file?: File, progress?: (percent: number) => void) => {
+  const saveProduct = async (data: ProductPayload, file?: File, progress?: (percent: number) => void) => {
     await mutate(async () => {
       productDraft.current = await administration.saveProduct(data, productDraft.current);
       if (file) productDraft.current = await administration.upload('products', productDraft.current, file, progress);
@@ -86,7 +89,10 @@ export const CatalogPage: React.FC = () => {
   const openCombo = (current: AdminCombo | null) => { setCombo(current); comboDraft.current = current; setComboOpen(true); };
   const openCategory = (current: AdminCategory | null) => {
     setCategory(current); setCategoryError(''); categoryForm.resetFields();
-    categoryForm.setFieldsValue(current ?? { name: '', isActive: true }); setCategoryOpen(true);
+    categoryForm.setFieldsValue(current
+      ? { name: toLocalizedInput(current.nameI18n, current.name), isActive: current.isActive }
+      : { name: { vi: '', en: '' }, isActive: true });
+    setCategoryOpen(true);
   };
   const remove = (kind: 'products' | 'combos' | 'categories', row: AdminProduct | AdminCombo | AdminCategory) => {
     setDeleteError(''); setDeletion({ kind, row });
@@ -95,41 +101,48 @@ export const CatalogPage: React.FC = () => {
     try { await mutate(async () => { await administration.status(kind, row, active); }); }
     catch (failure) { setError(getErrorMessage(failure)); }
   };
-  const actions = (kind: 'products' | 'combos' | 'categories', row: AdminProduct | AdminCombo | AdminCategory, edit: () => void) => <Space size={4}>
-    <Button type="text" icon={<EditOutlined />} disabled={busy || loading} onClick={edit} aria-label={`${text('edit', t("business:account.edit"))} ${row.name}`}>{text('edit', t("business:account.edit"))}</Button>
-    <Tooltip title={text('delete', t("admin:ui.delete"))}><Button type="text" danger icon={<DeleteOutlined />} disabled={busy || loading} onClick={() => remove(kind, row)} aria-label={`${text('delete', t("admin:ui.delete"))} ${row.name}`} /></Tooltip>
-  </Space>;
-  const identity = (row: AdminProduct | AdminCombo, edit: () => void) => <div className="catalog-item">
-    <div className="catalog-thumb"><CatalogImage url={row.imageUrl} name={row.name} /></div>
-    <div className="catalog-item-copy"><button type="button" className="catalog-item-name" disabled={busy || loading} onClick={edit}>{row.name}</button>
-      <p className="catalog-item-description">{row.description}</p><span className="catalog-item-meta">#{row.id}{'basePrice' in row && row.options?.length ? t("admin:ui.optionGroups", { value1: row.options.length }) : ''}</span>
-    </div>
-  </div>;
+  const actions = (kind: 'products' | 'combos' | 'categories', row: AdminProduct | AdminCombo | AdminCategory, edit: () => void) => {
+    const label = pickLocalized(row.nameI18n, row.name, lang);
+    return <Space size={4}>
+      <Button type="text" icon={<EditOutlined />} disabled={busy || loading} onClick={edit} aria-label={`${text('edit', t("business:account.edit"))} ${label}`}>{text('edit', t("business:account.edit"))}</Button>
+      <Tooltip title={text('delete', t("admin:ui.delete"))}><Button type="text" danger icon={<DeleteOutlined />} disabled={busy || loading} onClick={() => remove(kind, row)} aria-label={`${text('delete', t("admin:ui.delete"))} ${label}`} /></Tooltip>
+    </Space>;
+  };
+  const identity = (row: AdminProduct | AdminCombo, edit: () => void) => {
+    const displayName = pickLocalized(row.nameI18n, row.name, lang);
+    const displayDescription = pickLocalized(row.descriptionI18n, row.description, lang);
+    return <div className="catalog-item">
+      <div className="catalog-thumb"><CatalogImage url={row.imageUrl} name={displayName} /></div>
+      <div className="catalog-item-copy"><button type="button" className="catalog-item-name" disabled={busy || loading} onClick={edit}>{displayName}</button>
+        <p className="catalog-item-description">{displayDescription}</p><span className="catalog-item-meta">#{row.id}{'basePrice' in row && row.options?.length ? t("admin:ui.optionGroups", { value1: row.options.length }) : ''}</span>
+      </div>
+    </div>;
+  };
   const saleStatus = (kind: 'products' | 'combos', row: AdminProduct | AdminCombo) => <div className={`catalog-status ${row.isActive ? 'is-active' : ''}`}>
-    <Switch size="small" checked={row.isActive} disabled={busy || loading} aria-label={t("admin:ui.allowSalesOf", { value1: row.name })} onChange={active => void toggle(kind, row, active)} />
+    <Switch size="small" checked={row.isActive} disabled={busy || loading} aria-label={t("admin:ui.allowSalesOf", { value1: pickLocalized(row.nameI18n, row.name, lang) })} onChange={active => void toggle(kind, row, active)} />
     <span>{row.isActive ? t("admin:ui.enableSales") : t("business:stores.salesStopped")}</span>
   </div>;
   const productColumns: TableColumnsType<AdminProduct> = [
-    { title: text('dish', t("business:catalog.dish")), key: 'name', width: 380, sorter: (first, second) => first.name.localeCompare(second.name, 'vi'), render: (_, row) => identity(row, () => openProduct(row)) },
-    { title: text('category', t("business:catalog.category")), dataIndex: 'categoryName', width: 170, render: name => <span className="catalog-category-tag">{name || t("payments:unclassified")}</span> },
+    { title: text('dish', t("business:catalog.dish")), key: 'name', width: 380, sorter: (first, second) => pickLocalized(first.nameI18n, first.name, lang).localeCompare(pickLocalized(second.nameI18n, second.name, lang), lang), render: (_, row) => identity(row, () => openProduct(row)) },
+    { title: text('category', t("business:catalog.category")), key: 'categoryName', width: 170, render: (_, row) => <span className="catalog-category-tag">{pickLocalized(row.categoryNameI18n, row.categoryName, lang) || t("payments:unclassified")}</span> },
     { title: text('price', t("admin:ui.salePrice")), dataIndex: 'basePrice', width: 150, sorter: (first, second) => first.basePrice - second.basePrice, render: value => <span className="catalog-price">{money(value)}</span> },
     { title: t("admin:ui.availableForSale"), key: 'status', width: 150, render: (_, row) => saleStatus('products', row) },
     { title: text('actions', t("accounts:action")), key: 'actions', width: 130, fixed: 'right', render: (_, row) => actions('products', row, () => openProduct(row)) },
   ];
   const comboColumns: TableColumnsType<AdminCombo> = [
-    { title: 'Combo', key: 'name', width: 350, sorter: (first, second) => first.name.localeCompare(second.name, 'vi'), render: (_, row) => identity(row, () => openCombo(row)) },
-    { title: text('items', t("admin:ui.contents")), key: 'items', width: 240, render: (_, row) => <div className="catalog-items-summary">{row.items.slice(0, 3).map((item, index) => <Tag key={item.id ?? index}>{item.quantity} × {item.productName}</Tag>)}{row.items.length > 3 && <Tag>+{row.items.length - 3} {t("business:orderspage.items")}</Tag>}</div> },
+    { title: 'Combo', key: 'name', width: 350, sorter: (first, second) => pickLocalized(first.nameI18n, first.name, lang).localeCompare(pickLocalized(second.nameI18n, second.name, lang), lang), render: (_, row) => identity(row, () => openCombo(row)) },
+    { title: text('items', t("admin:ui.contents")), key: 'items', width: 240, render: (_, row) => <div className="catalog-items-summary">{row.items.slice(0, 3).map((item, index) => <Tag key={item.id ?? index}>{item.quantity} × {pickLocalized(item.productNameI18n, item.productName, lang)}</Tag>)}{row.items.length > 3 && <Tag>+{row.items.length - 3} {t("business:orderspage.items")}</Tag>}</div> },
     { title: t("admin:ui.comboPrice122"), dataIndex: 'comboPrice', width: 145, sorter: (first, second) => first.comboPrice - second.comboPrice, render: value => <span className="catalog-price">{money(value)}</span> },
     { title: t("admin:ui.availabilityPeriod"), key: 'schedule', width: 165, render: (_, row) => <div className="catalog-hint">{!row.startAt && !row.endAt ? t("admin:ui.unlimited") : <>{row.startAt && <div>{t("admin:ui.from")} {date(row.startAt, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>}{row.endAt && <div>{t("admin:ui.to")} {date(row.endAt, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>}</>}</div> },
     { title: t("admin:ui.availableForSale"), key: 'status', width: 145, render: (_, row) => saleStatus('combos', row) },
     { title: text('actions', t("accounts:action")), key: 'actions', width: 130, fixed: 'right', render: (_, row) => actions('combos', row, () => openCombo(row)) },
   ];
   const matchesStatus = (row: { isActive: boolean }) => status === 'ALL' || row.isActive === (status === 'ACTIVE');
-  const products = catalog.products.filter(row => matchesStatus(row) && (!categoryId || row.categoryId === categoryId) && matchesCatalogSearch([row.name, row.categoryName], search));
-  const combos = catalog.combos.filter(row => matchesStatus(row) && matchesCatalogSearch([row.name, ...row.items.map(item => item.productName)], search));
+  const products = catalog.products.filter(row => matchesStatus(row) && (!categoryId || row.categoryId === categoryId) && matchesCatalogSearch([row.name, row.nameI18n, row.categoryName, row.categoryNameI18n], search));
+  const combos = catalog.combos.filter(row => matchesStatus(row) && matchesCatalogSearch([row.name, row.nameI18n, ...row.items.flatMap(item => [item.productName, item.productNameI18n])], search));
   const orderedCategories = [...catalog.categories].sort((first, second) => first.sortOrder - second.sortOrder || first.id - second.id);
   const categoryPositions = new Map(orderedCategories.map((row, index) => [row.id, index + 1]));
-  const categories = orderedCategories.filter(row => matchesStatus(row) && matchesCatalogSearch([row.name], search));
+  const categories = orderedCategories.filter(row => matchesStatus(row) && matchesCatalogSearch([row.name, row.nameI18n], search));
   const total = tab === 'products' ? products.length : tab === 'combos' ? combos.length : categories.length;
   const filtered = Boolean(search || status !== 'ALL' || (tab === 'products' && categoryId));
   const categoryCount = (row: AdminCategory) => {
@@ -159,7 +172,7 @@ export const CatalogPage: React.FC = () => {
   const panel = <>
     <div className="catalog-toolbar">
       <Input className="catalog-search" size="large" prefix={<SearchOutlined />} allowClear aria-label={t("admin:ui.searchMenu")} placeholder={tab === 'combos' ? t("admin:ui.searchCombosOrDishesInACombo") : tab === 'categories' ? t("admin:ui.searchCategories") : t("admin:ui.searchDishNamesOrCategories")} value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} />
-      {tab === 'products' && <Select className="catalog-filter" size="large" allowClear placeholder={t("admin:ui.allCategories")} aria-label={t("admin:ui.filterCategories")} value={categoryId} onChange={value => { setCategoryId(value); setPage(1); }} options={catalog.categories.map(row => ({ value: row.id, label: row.name }))} />}
+      {tab === 'products' && <Select className="catalog-filter" size="large" allowClear placeholder={t("admin:ui.allCategories")} aria-label={t("admin:ui.filterCategories")} value={categoryId} onChange={value => { setCategoryId(value); setPage(1); }} options={catalog.categories.map(row => ({ value: row.id, label: pickLocalized(row.nameI18n, row.name, lang) }))} />}
       <Select className="catalog-filter" size="large" aria-label={t("admin:ui.filterStatus")} value={status} onChange={value => { setStatus(value); setPage(1); }} options={[{ value: 'ALL', label: t("business:paymentspage.allStatuses") }, { value: 'ACTIVE', label: tab === 'categories' ? t("admin:ui.active") : t("admin:ui.availableForSale") }, { value: 'INACTIVE', label: tab === 'categories' ? t("business:stores.inactive") : t("business:stores.salesStopped") }]} />
     </div>
     <div className="catalog-table-caption"><span>{loading ? t("admin:ui.loadingMenu") : `${total} ${tab === 'products' ? t("admin:ui.dishes") : tab === 'combos' ? 'combo' : t("admin:ui.categories")}`}{!loading && filtered ? t("admin:ui.matching") : ''}</span>{filtered ? <Button type="link" size="small" onClick={resetFilters}>{t("business:orderspage.clearFilters")}</Button> : <span>{t("admin:ui.systemWideManagement")}</span>}</div>
@@ -168,7 +181,7 @@ export const CatalogPage: React.FC = () => {
         expandable={{ rowExpandable: row => row.items.length > 0, expandedRowRender: row => <div className="catalog-expand">{row.items.map((item, index) => {
           const dish = catalog.products.find(candidate => candidate.id === item.productId);
           const choice = dish?.options?.flatMap(group => group.choices).find(option => Number(option.id.replace(/^opt-/, '')) === item.optionId);
-          return <div key={item.id ?? index} className="catalog-expand-item"><div className="catalog-thumb"><CatalogImage url={dish?.imageUrl} name={item.productName} /></div><div><strong>{item.quantity} × {item.productName}</strong><p>{choice?.name ?? (item.optionId ? t("admin:ui.option146", { value1: item.optionId }) : t("admin:ui.noFixedOption147"))}</p></div></div>;
+          return <div key={item.id ?? index} className="catalog-expand-item"><div className="catalog-thumb"><CatalogImage url={dish?.imageUrl} name={pickLocalized(item.productNameI18n, item.productName, lang)} /></div><div><strong>{item.quantity} × {pickLocalized(item.productNameI18n, item.productName, lang)}</strong><p>{pickLocalized(choice?.nameI18n, choice?.name, lang) || (item.optionId ? t("admin:ui.option146", { value1: item.optionId }) : t("admin:ui.noFixedOption147"))}</p></div></div>;
         })}</div> }} />
         : <CategoryOrderList categories={categories} positions={categoryPositions}
           disabled={busy || loading || filtered} actionDisabled={busy || loading} filtered={filtered}
@@ -199,13 +212,19 @@ export const CatalogPage: React.FC = () => {
       onCancel={() => { if (!busy) setCategoryOpen(false); }} okText={text('save', t("payments:save"))} cancelText={text('cancel', t("business:account.cancel"))} onOk={async () => {
         try {
           const values = await categoryForm.validateFields();
-          await mutate(async () => { await administration.saveCategory({ ...values, sortOrder: category?.sortOrder ?? 0 }, category); });
+          await mutate(async () => {
+            await administration.saveCategory({
+              name: toLocalizedPayload(values.name) ?? { vi: '', en: '' },
+              isActive: Boolean(values.isActive),
+              sortOrder: category?.sortOrder ?? 0,
+            }, category);
+          });
           setCategoryOpen(false);
         } catch (failure) { if (!(failure && typeof failure === 'object' && 'errorFields' in failure)) setCategoryError(getErrorMessage(failure)); }
       }}>
       {categoryError && <Alert type="error" showIcon message={categoryError} />}
       <Form name="catalog-category" form={categoryForm} layout="vertical" disabled={busy}>
-        <Form.Item name="name" label={text('name', t("admin:ui.name"))} rules={[{ required: true, whitespace: true }, { max: 120 }]}><Input maxLength={120} /></Form.Item>
+        <Form.Item name="name" label={text('name', t("admin:ui.name"))} required rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("admin:ui.name")); if ((val?.vi?.length ?? 0) > 120 || (val?.en?.length ?? 0) > 120) throw new Error('Max 120'); } }]}><BilingualField maxLength={120} requiredVi viPlaceholder={t("admin:ui.name")} enPlaceholder="English category name" /></Form.Item>
         <p className="catalog-category-modal-note">{t('admin:ui.dragCategoriesToReorder')}</p>
         <div className="catalog-publication"><div><strong>{t("admin:ui.activeCategory")}</strong><p>{t("admin:ui.showThisCategoryOnTheMenu")}</p></div><Form.Item name="isActive" valuePropName="checked"><Switch aria-label={t("admin:ui.activeCategory")} /></Form.Item></div>
       </Form>
@@ -216,7 +235,7 @@ export const CatalogPage: React.FC = () => {
         try { await mutate(async () => { await administration.remove(deletion.kind, deletion.row); }); setDeletion(null); }
         catch (failure) { setDeleteError(getErrorMessage(failure)); }
       }}>
-      {deletion && <div className="catalog-delete-summary">{deletion.kind !== 'categories' && <div className="catalog-thumb"><CatalogImage url={deletion.row.imageUrl} name={deletion.row.name} preview={false} /></div>}<div><strong>{deletion.row.name}</strong><p className="catalog-hint">#{deletion.row.id}</p></div></div>}
+      {deletion && <div className="catalog-delete-summary">{deletion.kind !== 'categories' && <div className="catalog-thumb"><CatalogImage url={deletion.row.imageUrl} name={pickLocalized(deletion.row.nameI18n, deletion.row.name, lang)} preview={false} /></div>}<div><strong>{pickLocalized(deletion.row.nameI18n, deletion.row.name, lang)}</strong><p className="catalog-hint">#{deletion.row.id}</p></div></div>}
       <p>{text('references', t("admin:ui.referencedDataCannotBeDeletedYouCanStop"))}</p>
       {deleteError && <Alert type="error" showIcon message={deleteError} />}
     </Modal>

@@ -1,3 +1,5 @@
+import type { LocalizedText } from '../lib/bilingual';
+
 export type VoucherType = 'PERCENT' | 'AMOUNT';
 export type VoucherScope = 'ALL' | 'STORE';
 export type VoucherStatus =
@@ -18,7 +20,9 @@ export interface AdminVoucher {
   usage?: number;
   maxUsage?: number | null;
   title?: string;
+  titleI18n?: LocalizedText;
   description?: string;
+  descriptionI18n?: LocalizedText | null;
   type: VoucherType;
   value: number;
   minOrderAmount: number;
@@ -39,6 +43,7 @@ export interface AdminVoucher {
   scope: VoucherScope;
   storeId?: string | number | null;
   storeName?: string | null;
+  storeNameI18n?: LocalizedText | null;
   status: VoucherStatus | string;
   effectiveStatus?: VoucherStatus | string;
   createdBy?: string | number;
@@ -55,8 +60,10 @@ export interface VoucherPayload {
   code?: string | null;
   applicability?: 'ALL' | 'SELECTED';
   storeIds?: number[];
-  title?: string;
-  description?: string;
+  title?: string | LocalizedText;
+  titleI18n?: LocalizedText | null;
+  description?: string | LocalizedText | null;
+  descriptionI18n?: LocalizedText | null;
   type: VoucherType;
   value: number;
   minOrderAmount: number;
@@ -153,6 +160,7 @@ export type BannerEffectiveStatus = 'ACTIVE' | 'UPCOMING' | 'EXPIRED' | 'DISABLE
 export interface PromoBanner {
   id: number;
   title: string;
+  titleI18n?: LocalizedText;
   imageUrl: string;
   imagePublicId?: string | null;
   linkUrl?: string | null;
@@ -170,7 +178,7 @@ export interface PromoBanner {
 }
 
 export interface BannerPayload {
-  title: string;
+  title: string | LocalizedText;
   linkUrl?: string | null;
   position: BannerPosition;
   displayOrder: number;

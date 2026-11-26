@@ -1,11 +1,31 @@
 import { api, type Product, type Combo, type CatalogCategory, type Store } from './api';
+import type { LocalizedText } from './bilingual';
 
 export type AdminProduct = Product & { version: number; imagePublicId?: string | null };
 export type ComboItem = Omit<Combo['items'][number], 'optionId'> & { id?: number; optionId?: number | null };
 export type AdminCombo = Omit<Combo, 'items'> & { version: number; items: ComboItem[]; imagePublicId?: string | null };
 export type AdminCategory = CatalogCategory & { version: number };
-export type ComboPayload = Pick<AdminCombo, 'name' | 'description' | 'comboPrice' | 'isActive' | 'startAt' | 'endAt' | 'items'>;
-export type CategoryPayload = Pick<AdminCategory, 'name' | 'sortOrder' | 'isActive'>;
+export type ProductPayload = Omit<Partial<Product>, 'name' | 'description' | 'options' | 'toppings'> & {
+  name?: string | LocalizedText;
+  description?: string | LocalizedText;
+  options?: { id?: string; name: string | LocalizedText; required: boolean; choices: { id?: string; name: string | LocalizedText; priceAdjustment: number }[] }[];
+  toppings?: { id?: string; name: string | LocalizedText; price: number }[];
+};
+export type ComboPayload = Omit<Pick<AdminCombo, 'comboPrice' | 'isActive' | 'startAt' | 'endAt' | 'items'>, 'name' | 'description'> & {
+  name: string | LocalizedText;
+  description: string | LocalizedText;
+};
+export type CategoryPayload = {
+  name: string | LocalizedText;
+  sortOrder: number;
+  isActive: boolean;
+};
+export type StorePayload = Omit<Partial<Store>, 'name' | 'district' | 'city' | 'deliveryArea'> & {
+  name?: string | LocalizedText;
+  district?: string | LocalizedText | null;
+  city?: string | LocalizedText | null;
+  deliveryArea?: string | LocalizedText | null;
+};
 export type StoreReadinessStatus = { storeId: number; readiness: NonNullable<Store['accountReadiness']>; error: string };
 
 export const catalogAdministration = {
@@ -17,7 +37,7 @@ export const catalogAdministration = {
     ]);
     return { products: products.data, combos: combos.data, categories: categories.data };
   },
-  saveProduct: (data: Partial<Product>, current?: AdminProduct | null) => current
+  saveProduct: (data: ProductPayload, current?: AdminProduct | null) => current
     ? api.put<AdminProduct>(`/api/catalog/products/${current.id}`, { ...data, expectedVersion: current.version }).then(response => response.data)
     : api.post<AdminProduct>('/api/catalog/products', data).then(response => response.data),
   saveCombo: (data: ComboPayload, current?: AdminCombo | null) => current
@@ -41,7 +61,7 @@ export const catalogAdministration = {
       onUploadProgress: event => { if (event.total) onProgress?.(Math.round(event.loaded / event.total * 100)); },
     }).then(response => response.data);
   },
-  updateStore: (store: Store, data: Partial<Store>) =>
+  updateStore: (store: Store, data: StorePayload) =>
     api.put<Store>(`/api/stores/${store.id}`, { ...data, expectedVersion: store.version }).then(response => response.data),
   storeOperation: (store: Store, data: { status: string }) =>
     api.put<Store>(`/api/stores/${store.id}/operation`, { ...data, expectedVersion: store.version }).then(response => response.data),

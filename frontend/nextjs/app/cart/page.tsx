@@ -21,11 +21,12 @@ import {
 } from "lucide-react";
 import { FoodImage } from "@/components/order/food-image";
 import { Modal } from "@/components/ui/modal";
+import { pickLocalized } from "@/lib/bilingual";
 import styles from "./cart.module.css";
 
 export default function CartPage() {
   const t = useTranslations();
-  const { money: formatPrice } = useLocaleTools();
+  const { locale, money: formatPrice } = useLocaleTools();
   const {
     items,
     count,
@@ -78,24 +79,27 @@ export default function CartPage() {
                 <Link href="/menu">
                   <Plus size={16} /> {t("business.cart.addItems")} </Link>
               </div>
-              {items.map((item) => (
+              {items.map((item) => {
+                const itemName = pickLocalized(item.nameI18n, item.name, locale);
+                const itemCategory = pickLocalized(item.categoryI18n, item.category, locale);
+                return (
                 <article className={styles.cartCard} key={item.id}>
                   <div className={styles.imageFrame}>
                     <FoodImage
                       src={item.image}
-                      alt={item.name}
+                      alt={itemName}
                       className={styles.itemImage}
                     />
                   </div>
 
                   <div className={styles.itemDetails}>
                     <div className={styles.itemTopline}>
-                      <span className={styles.itemCategory}>{item.comboId != null ? t("business.cart.comboItem") : item.category}</span>
+                      <span className={styles.itemCategory}>{item.comboId != null ? t("business.cart.comboItem") : itemCategory}</span>
                       <span className={styles.itemUnitPrice}>
                         {formatPrice(item.unitPrice)} {t("business.cart.serving")}
                       </span>
                     </div>
-                    <h2 className={styles.itemName}>{item.name}</h2>
+                    <h2 className={styles.itemName}>{itemName}</h2>
 
                     {Boolean(item.options?.length || item.toppings?.length) && (
                       <div className={styles.selectionsPanel}>
@@ -104,15 +108,19 @@ export default function CartPage() {
                           <span>{t("business.cart.selectedOptions")}</span>
                         </div>
                         <div className={styles.selectionsList}>
-                          {item.options?.map((opt, i) => (
-                            <div key={`opt-${i}`} className={styles.selectionRow}>
-                              <span className={styles.selectionName}>{opt.groupName ? `${opt.groupName}: ${opt.name}` : opt.name}</span>
-                              {opt.extraPrice > 0 && <span className={styles.selectionPrice}>+{formatPrice(opt.extraPrice)}</span>}
-                            </div>
-                          ))}
+                          {item.options?.map((opt, i) => {
+                            const groupLabel = pickLocalized(opt.groupNameI18n, opt.groupName, locale);
+                            const optLabel = pickLocalized(opt.nameI18n, opt.name, locale);
+                            return (
+                              <div key={`opt-${i}`} className={styles.selectionRow}>
+                                <span className={styles.selectionName}>{groupLabel ? `${groupLabel}: ${optLabel}` : optLabel}</span>
+                                {opt.extraPrice > 0 && <span className={styles.selectionPrice}>+{formatPrice(opt.extraPrice)}</span>}
+                              </div>
+                            );
+                          })}
                           {item.toppings?.map((top, i) => (
                             <div key={`top-${i}`} className={styles.selectionRow}>
-                              <span className={styles.selectionName}>{t("business.cart.toppingLabel")}: {top.name}</span>
+                              <span className={styles.selectionName}>{t("business.cart.toppingLabel")}: {pickLocalized(top.nameI18n, top.name, locale)}</span>
                               {top.extraPrice > 0 && <span className={styles.selectionPrice}>+{formatPrice(top.extraPrice)}</span>}
                             </div>
                           ))}
@@ -135,7 +143,7 @@ export default function CartPage() {
                         }}
                         disabled={cartPending}
                         className={styles.noteInput}
-                        aria-label={t("business.cart.notesFor", { value1: item.name })}
+                        aria-label={t("business.cart.notesFor", { value1: itemName })}
                       />
                     </div>
                   </div>
@@ -160,8 +168,8 @@ export default function CartPage() {
                           disabled={cartPending}
                           className={styles.stepperBtn}
                           aria-label={item.quantity <= 1
-                            ? t("business.cart.removeNamedItem", { itemName: item.name })
-                            : t("business.cart.decrease", { value1: item.name })}
+                            ? t("business.cart.removeNamedItem", { itemName })
+                            : t("business.cart.decrease", { value1: itemName })}
                         >
                           <Minus size={16} />
                         </button>
@@ -171,7 +179,7 @@ export default function CartPage() {
                           onClick={() => updateQuantity(item.id, 1)}
                           disabled={cartPending}
                           className={styles.stepperBtn}
-                          aria-label={t("business.cart.increase", { value1: item.name })}
+                          aria-label={t("business.cart.increase", { value1: itemName })}
                         >
                           <Plus size={16} />
                         </button>
@@ -182,15 +190,16 @@ export default function CartPage() {
                         onClick={() => setItemPendingRemoval(item.id)}
                         disabled={cartPending}
                         className={styles.removeBtn}
-                        aria-label={t("business.cart.removeNamedItem", { itemName: item.name })}
-                        title={t("business.cart.removeNamedItem", { itemName: item.name })}
+                        aria-label={t("business.cart.removeNamedItem", { itemName })}
+                        title={t("business.cart.removeNamedItem", { itemName })}
                       >
                         <Trash2 size={21} strokeWidth={2.8} aria-hidden="true" />
                       </button>
                     </div>
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </section>
 
             <aside className={styles.summaryBox}>
@@ -239,7 +248,7 @@ export default function CartPage() {
       }}
       dismissible={!cartPending}
       title={t("business.cart.confirmRemoveTitle")}
-      description={t("business.cart.confirmRemoveDescription", { itemName: selectedItem?.name ?? "" })}
+      description={t("business.cart.confirmRemoveDescription", { itemName: selectedItem ? pickLocalized(selectedItem.nameI18n, selectedItem.name, locale) : "" })}
     >
       <div className={styles.removeModalActions}>
         <button

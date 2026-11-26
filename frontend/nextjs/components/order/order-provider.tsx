@@ -3,6 +3,7 @@ import { useFeedback, notify } from "@/components/feedback";
 import { getBrowserLocale } from "@/lib/i18n/locale";
 import { getTranslator } from "@/lib/i18n/translator";
 import { useLocaleTools } from "@/lib/i18n/hooks";
+import { pickLocalized, type LocalizedText } from "@/lib/bilingual";
 import { useSession } from "@/components/auth/use-session";
 import { getSessionState } from "@/lib/session";
 
@@ -40,21 +41,23 @@ const storageKey = "clucky-order-workspace-v1";
 
 function resolveStoreMeta(
   storeId: number | string | undefined,
-  storesList: Pick<StoreItem, "id" | "name" | "address">[] = FALLBACK_STORES
+  storesList: Pick<StoreItem, "id" | "name" | "nameI18n" | "address">[] = FALLBACK_STORES,
+  lang: string = getBrowserLocale()
 ): { storeName: string; storeAddress?: string } {
   const numericId = Number(storeId);
   const found =
     storesList.find((s) => Number(s.id) === numericId) ??
     FALLBACK_STORES.find((s) => Number(s.id) === numericId);
   return {
-    storeName: found?.name || `Clucky #${storeId}`,
+    storeName: found ? pickLocalized(found.nameI18n, found.name, lang) : `Clucky #${storeId}`,
     storeAddress: found?.address,
   };
 }
 
 export function mapBackendOrderToOrder(
   be: BackendOrder,
-  storesList: Pick<StoreItem, "id" | "name" | "address">[] = FALLBACK_STORES
+  storesList: Pick<StoreItem, "id" | "name" | "nameI18n" | "address">[] = FALLBACK_STORES,
+  lang: string = getBrowserLocale()
 ): Order {
   const statusMap: Record<string, Order["status"]> = {
     PENDING_PAYMENT: "PENDING_PAYMENT",
@@ -85,7 +88,9 @@ export function mapBackendOrderToOrder(
           ? {
               id: Number((o as any).id ?? idx),
               groupName: String((o as any).groupName ?? ""),
+              groupNameI18n: ((o as any).groupNameI18n as LocalizedText | null | undefined) ?? undefined,
               name: String((o as any).name ?? ""),
+              nameI18n: ((o as any).nameI18n as LocalizedText | null | undefined) ?? undefined,
               extraPrice: Number((o as any).extraPrice ?? 0),
             }
           : {
@@ -116,6 +121,7 @@ export function mapBackendOrderToOrder(
           ? {
               id: Number((t as any).id ?? idx),
               name: String((t as any).name ?? ""),
+              nameI18n: ((t as any).nameI18n as LocalizedText | null | undefined) ?? undefined,
               extraPrice: Number((t as any).extraPrice ?? 0),
             }
           : {
@@ -132,7 +138,8 @@ export function mapBackendOrderToOrder(
     productId: it.productId,
     comboId: it.comboId,
     slug: it.comboId != null ? `combo-${it.comboId}` : String(it.productId ?? it.id),
-    itemName: it.itemName,
+    itemName: pickLocalized(it.itemNameI18n, it.itemName, lang),
+    itemNameI18n: it.itemNameI18n ?? undefined,
     itemType: it.itemType,
     unitPrice: Number(it.unitPrice),
     quantity: it.quantity,
@@ -163,7 +170,7 @@ export function mapBackendOrderToOrder(
         },
       ];
 
-  const storeMeta = resolveStoreMeta(be.storeId, storesList);
+  const storeMeta = resolveStoreMeta(be.storeId, storesList, lang);
 
   return {
     id: String(be.id),
@@ -227,7 +234,7 @@ const OrderContext = createContext<OrderContextValue | null>(null);
 export function OrderProvider({ children }: { children: React.ReactNode }) {
   const session = useSession();
   const userId = session.user?.userId;
-  const { errorMessage } = useLocaleTools();
+  const { errorMessage, locale } = useLocaleTools();
   const [workspace, setSnapshot] = useState<{
     items: CartItem[];
     orders: Order[];
@@ -254,18 +261,18 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   useFeedback(cartError ? errorMessage(cartError) : session.error ? errorMessage(session.error) : null);
   const cartBusy = useRef(false);
   const catalogForImages = useRef<Promise<ProductItem[]> | null>(null);
-  const storesListRef = useRef<Pick<StoreItem, "id" | "name" | "address">[]>(FALLBACK_STORES);
+  const storesListRef = useRef<Pick<StoreItem, "id" | "name" | "nameI18n" | "address">[]>(FALLBACK_STORES);
 
   useEffect(() => {
     let active = true;
-    catalogApi.getStores(false).then((storesData) => {
+    catalogApi.getStores(false, locale).then((storesData) => {
       if (!active || !Array.isArray(storesData) || storesData.length === 0) return;
       storesListRef.current = storesData;
       setWorkspace((previous) => {
         if (!previous.orders.length) return previous;
         let changed = false;
         const orders = previous.orders.map((ord) => {
-          const meta = resolveStoreMeta(ord.storeId, storesData);
+          const meta = resolveStoreMeta(ord.storeId, storesData, locale);
           if (ord.storeName === meta.storeName && ord.storeAddress === meta.storeAddress) return ord;
           changed = true;
           return { ...ord, storeName: meta.storeName, storeAddress: meta.storeAddress };
@@ -274,7 +281,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       });
     }).catch(() => {});
     return () => { active = false; };
-  }, [setWorkspace]);
+  }, [setWorkspace, locale]);
 
   useEffect(() => {
     const needsOrderImages = workspace.orders.some(order => order.items.some(item => !item.image || item.image === "/images/food-placeholder.svg"));
@@ -282,7 +289,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     if (!needsOrderImages && !needsCartImages) return;
     let active = true;
     const revision = getSessionState().revision;
-    catalogForImages.current ??= catalogApi.getProducts();
+    catalogForImages.current ??= catalogApi.getProducts({ lang: locale });
     catalogForImages.current.then(products => {
       if (!active || revision !== getSessionState().revision) return;
       const imgMap = new Map(products.map(p => [`${p.comboItems !== undefined ? "COMBO" : "PRODUCT"}:${p.id}`, p.imageUrl || p.image]));
@@ -353,7 +360,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         }
       }
       setOrdersError(null);
-      const serverOrders = collected.map((be) => mapBackendOrderToOrder(be, storesListRef.current));
+      const serverOrders = collected.map((be) => mapBackendOrderToOrder(be, storesListRef.current, locale));
       setWorkspace((prev) => ({
         ...prev,
         orders: serverOrders,
@@ -361,7 +368,17 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       if (revision === getSessionState().revision) setOrdersError(error);
     }
-  }, [setWorkspace]);
+  }, [setWorkspace, locale]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let active = true;
+    void cartApi.getCart().then((cartDto) => {
+      if (!active || !cartDto || !Array.isArray(cartDto.items)) return;
+      setWorkspace((prev) => ({ ...prev, items: mapBackendCart(cartDto, prev.items) }));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [locale, ready, setWorkspace]);
 
   useEffect(() => {
     if (!session.ready || session.error) return;
@@ -470,14 +487,14 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const revision = getSessionState().revision;
       const backendOrder = await orderApi.create(payload, idempotencyKey);
       if (revision !== getSessionState().revision) throw { code: "UNAUTHENTICATED", status: 401 };
-      const mappedOrder = mapBackendOrderToOrder(backendOrder, storesListRef.current);
+      const mappedOrder = mapBackendOrderToOrder(backendOrder, storesListRef.current, locale);
       setWorkspace((prev) => ({
         items: [],
         orders: [ensureDemoShipment(mappedOrder), ...prev.orders],
       }));
       return backendOrder;
     },
-    [setWorkspace],
+    [setWorkspace, locale],
   );
 
   const cancelOrder = useCallback(
@@ -487,7 +504,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         const revision = getSessionState().revision;
         const updatedBackend = await orderApi.cancel(id, reason);
         if (revision !== getSessionState().revision) return;
-        const mapped = mapBackendOrderToOrder(updatedBackend, storesListRef.current);
+        const mapped = mapBackendOrderToOrder(updatedBackend, storesListRef.current, locale);
         setWorkspace((prev) => ({
           ...prev,
           orders: prev.orders.map((o) => (o.id === id || o.orderCode === id ? mapped : o)),
@@ -497,7 +514,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         throw err;
       }
     },
-    [setWorkspace],
+    [setWorkspace, locale],
   );
 
   const reorder = useCallback(

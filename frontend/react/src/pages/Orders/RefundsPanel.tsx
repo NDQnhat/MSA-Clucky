@@ -4,6 +4,7 @@ import { Alert, Button, Empty, Select, Space, Spin, Table, Tag } from "antd";
 import { adminFinance, orderForAdmin, type RefundQuery } from "../../lib/admin-finance";
 import { getErrorMessage, ordersApi, refundsApi, type BackendRefund, type PageResponse, type Store } from "../../lib/api";
 import { useLocaleTools } from "../../i18n/hooks";
+import { pickLocalized } from "../../lib/bilingual";
 import type { AdminOrder } from "../../types/order";
 import { RefundModal } from "./components/RefundModal";
 import "./admin-orders.css";
@@ -11,7 +12,7 @@ import "./admin-orders.css";
 export function RefundsPanel({ orderId, stores = [], revision = 0, onChanged }: {
   orderId?: number; stores?: Store[]; revision?: number; onChanged?: () => void;
 }) {
-  const { money } = useLocaleTools();
+  const { money, locale } = useLocaleTools();
   const { t } = useTranslation();
   const statusLabels: Record<string, string> = {
     PENDING: t("business:refundmodal.statePending"), APPROVED: t("business:refundmodal.stateApproved"),
@@ -69,7 +70,7 @@ export function RefundsPanel({ orderId, stores = [], revision = 0, onChanged }: 
       <Tag>{page?.totalElements ?? 0} {t("admin:ui.requests")}</Tag></div>
     <Space wrap>
       {!orderId && <Select aria-label={t("admin:ui.refundBranch")} placeholder={t("business:stores.allStores")} allowClear style={{ width: 200 }} value={query.storeId}
-        options={stores.map(store => ({ value: store.id, label: store.name }))} onChange={storeId => setQuery(current => ({ ...current, storeId, page: 0 }))} />}
+        options={stores.map(store => ({ value: store.id, label: pickLocalized(store.nameI18n, store.name, locale) }))} onChange={storeId => setQuery(current => ({ ...current, storeId, page: 0 }))} />}
       <Select aria-label={t("admin:ui.refundStatus")} placeholder={t("business:paymentspage.allStatuses")} allowClear style={{ width: 220 }} value={query.status}
         options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
         onChange={status => setQuery(current => ({ ...current, status, page: 0 }))} />

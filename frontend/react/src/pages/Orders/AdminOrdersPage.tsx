@@ -15,6 +15,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { message } from "../../components/feedback";
 import { useLocaleTools } from "../../i18n/hooks";
+import { pickLocalized } from "../../lib/bilingual";
 import { OrderStatusBadge } from "../../components/ui/OrderStatusBadge";
 import { orderStatusKeys } from "../../components/ui/OrderProgress";
 import { adminFinance, orderForAdmin, type OrderQuery } from "../../lib/admin-finance";
@@ -314,7 +315,7 @@ export function AdminOrdersPage() {
         }}
       />
       <Select aria-label={t("business:orderspage.filterStores")} placeholder={t("business:stores.allStores")} allowClear showSearch optionFilterProp="label" value={query.storeId}
-        options={stores.map(store => ({ value: store.id, label: store.name }))} onChange={storeId => setQuery(current => ({ ...current, page: 0, storeId }))} />
+        options={stores.map(store => ({ value: store.id, label: pickLocalized(store.nameI18n, store.name, locale) }))} onChange={storeId => setQuery(current => ({ ...current, page: 0, storeId }))} />
       <Select aria-label={t("admin:ui.filterOrderStatus")} placeholder={t("business:paymentspage.allStatuses")} allowClear value={query.status}
         options={["PENDING_PAYMENT", "CONFIRMED", "PREPARING", "READY", "SHIPPING", "COMPLETED", "DELIVERY_FAILED", "CANCELLED"].map(status => ({ value: status, label: t(orderStatusKeys[status as AdminOrder["status"]]) }))}
         onChange={status => setQuery(current => ({ ...current, page: 0, status }))} />

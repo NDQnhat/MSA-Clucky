@@ -1,3 +1,5 @@
+import { getBrowserLocale } from "./i18n/locale";
+
 export interface SessionUser {
   userId: number;
   role: "CUSTOMER" | "ADMIN" | "STORE_MANAGER" | "STAFF";
@@ -68,6 +70,9 @@ async function send<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   headers.set("X-Clucky-Client", client);
   headers.delete("Authorization");
+  if (!headers.has("Accept-Language")) {
+    headers.set("Accept-Language", typeof document === "undefined" ? "vi" : getBrowserLocale());
+  }
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   let response: Response;
   try {

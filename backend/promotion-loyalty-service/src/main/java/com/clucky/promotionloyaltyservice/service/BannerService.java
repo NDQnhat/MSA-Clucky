@@ -4,6 +4,7 @@ import com.clucky.promotionloyaltyservice.config.CurrentActor;
 import com.clucky.promotionloyaltyservice.dto.BannerRequest;
 import com.clucky.promotionloyaltyservice.dto.BannerResponse;
 import com.clucky.promotionloyaltyservice.dto.BannerUploadResult;
+import com.clucky.promotionloyaltyservice.dto.LocalizedText;
 import com.clucky.promotionloyaltyservice.dto.Role;
 import com.clucky.promotionloyaltyservice.entity.Banner;
 import com.clucky.promotionloyaltyservice.exception.ApiException;
@@ -49,18 +50,28 @@ public class BannerService {
 
     @Transactional(readOnly = true)
     public List<BannerResponse> getActiveBanners(String position) {
+        return getActiveBanners(position, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public List<BannerResponse> getActiveBanners(String position, String lang) {
         String normalizedPosition = normalizePosition(position, false);
         boolean filterByPosition = normalizedPosition != null;
         String positionFilter = filterByPosition ? normalizedPosition : "";
         Instant now = Instant.now();
         return bannerRepository.findActiveBanners(now, filterByPosition, positionFilter)
                 .stream()
-                .map(b -> BannerResponse.fromEntity(b, now))
+                .map(b -> BannerResponse.fromEntity(b, now, lang))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<BannerResponse> getAdminBanners(String position, Boolean isActive, String keyword) {
+        return getAdminBanners(position, isActive, keyword, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public List<BannerResponse> getAdminBanners(String position, Boolean isActive, String keyword, String lang) {
         requireAdmin();
         String normalizedPosition = normalizePosition(position, false);
         boolean filterByPosition = normalizedPosition != null;
@@ -68,24 +79,28 @@ public class BannerService {
         boolean filterByActive = isActive != null;
         boolean activeFilter = Boolean.TRUE.equals(isActive);
         String cleanKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.strip();
-        boolean filterByKeyword = cleanKeyword != null;
-        String keywordPattern = filterByKeyword ? "%" + cleanKeyword.toLowerCase(Locale.ROOT) + "%" : "";
         Instant now = Instant.now();
         return bannerRepository.findAdminBanners(
                         filterByPosition, positionFilter,
                         filterByActive, activeFilter,
-                        filterByKeyword, keywordPattern)
+                        false, "")
                 .stream()
-                .map(b -> BannerResponse.fromEntity(b, now))
+                .filter(b -> cleanKeyword == null || (b.getTitle() != null && b.getTitle().matches(cleanKeyword)))
+                .map(b -> BannerResponse.fromEntity(b, now, lang))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public BannerResponse getBannerById(Long id) {
+        return getBannerById(id, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public BannerResponse getBannerById(Long id, String lang) {
         requireAdmin();
         Banner banner = bannerRepository.findById(id)
                 .orElseThrow(() -> new ApiException(ErrorCode.RESOURCE_NOT_FOUND));
-        return BannerResponse.fromEntity(banner);
+        return BannerResponse.fromEntity(banner, Instant.now(), lang);
     }
 
     public BannerResponse createBanner(BannerRequest request, MultipartFile file) {
@@ -94,7 +109,7 @@ public class BannerService {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
         CloudinaryBannerMediaAdapter.requireUnchangedImage(request.imageUrl(), request.imagePublicId(), null, null);
-        String title = validateTitle(request.title());
+        LocalizedText title = validateTitle(request.title());
         String linkUrl = validateLinkUrl(request.linkUrl());
         String position = normalizePosition(request.position(), true);
         int displayOrder = validateDisplayOrder(request.displayOrder());
@@ -149,7 +164,7 @@ public class BannerService {
         CloudinaryBannerMediaAdapter.requireUnchangedImage(
                 request.imageUrl(), request.imagePublicId(), banner.getImageUrl(), banner.getImagePublicId());
 
-        String title = validateTitle(request.title());
+        LocalizedText title = validateTitle(request.title());
         String linkUrl = validateLinkUrl(request.linkUrl());
         String position = normalizePosition(request.position(), true);
         int displayOrder = validateDisplayOrder(request.displayOrder());
@@ -246,6 +261,21 @@ public class BannerService {
             throw new ApiException(ErrorCode.FORBIDDEN);
         }
         return actor;
+    }
+
+    public static LocalizedText validateTitle(LocalizedText rawTitle) {
+        if (rawTitle == null || rawTitle.vi() == null || rawTitle.vi().isBlank()) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
+        String vi = rawTitle.vi().strip();
+        if (vi.length() > 180 || vi.codePoints().anyMatch(Character::isISOControl)) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
+        String en = rawTitle.en() == null || rawTitle.en().isBlank() ? null : rawTitle.en().strip();
+        if (en != null && (en.length() > 180 || en.codePoints().anyMatch(Character::isISOControl))) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
+        return LocalizedText.of(vi, en);
     }
 
     public static String validateTitle(String rawTitle) {

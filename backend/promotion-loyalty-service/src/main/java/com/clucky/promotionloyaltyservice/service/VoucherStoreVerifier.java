@@ -1,5 +1,6 @@
 package com.clucky.promotionloyaltyservice.service;
 
+import com.clucky.promotionloyaltyservice.dto.LocalizedText;
 import com.clucky.promotionloyaltyservice.exception.ApiException;
 import com.clucky.promotionloyaltyservice.exception.ErrorCode;
 import java.util.List;
@@ -21,18 +22,27 @@ public class VoucherStoreVerifier {
         this.url = url;
     }
 
-    public record Store(Long id, String name) {
+    public record Store(Long id, String name, LocalizedText nameI18n) {
         public Store(Long id) {
-            this(id, null);
+            this(id, null, null);
+        }
+
+        public Store(Long id, String name) {
+            this(id, name, null);
         }
     }
 
     public Store getStore(Long storeId) {
+        return getStore(storeId, "vi");
+    }
+
+    public Store getStore(Long storeId, String lang) {
         if (storeId == null || storeId <= 0) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
+        String resolvedLang = "en".equalsIgnoreCase(lang) ? "en" : "vi";
         try {
-            var store = client.get().uri(url + "/api/stores/" + storeId).retrieve().body(Store.class);
+            var store = client.get().uri(url + "/api/stores/" + storeId + "?lang=" + resolvedLang).retrieve().body(Store.class);
             if (store == null || !storeId.equals(store.id())) {
                 throw new ApiException(ErrorCode.UPSTREAM_ERROR);
             }

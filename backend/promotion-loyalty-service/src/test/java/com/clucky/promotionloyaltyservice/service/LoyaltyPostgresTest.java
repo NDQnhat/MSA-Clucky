@@ -191,7 +191,7 @@ class LoyaltyPostgresTest {
                 voucher.getScope(), voucher.getStoreId(), VoucherStatus.ACTIVE,
                 voucher.getCode().toLowerCase(java.util.Locale.ROOT)));
         assertEquals(java.util.List.of(voucher), voucherRepository.findWithFilters(
-                null, null, null, voucher.getTitle().toUpperCase(java.util.Locale.ROOT)));
+                null, null, null, voucher.resolveTitle("vi").toUpperCase(java.util.Locale.ROOT)));
         assertTrue(voucherRepository.findWithFilters(null, 987655L, null, voucher.getCode()).isEmpty());
         assertTrue(voucherRepository.findWithFilters(null, null, VoucherStatus.DISABLED, voucher.getCode()).isEmpty());
         assertTrue(voucherRepository.findWithFilters(null, null, null, "MISSING_" + UUID.randomUUID()).isEmpty());

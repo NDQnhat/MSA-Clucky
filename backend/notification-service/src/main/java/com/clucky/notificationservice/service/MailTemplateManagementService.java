@@ -1,5 +1,7 @@
 package com.clucky.notificationservice.service;
 
+import com.clucky.notificationservice.config.LocaleResolverHelper;
+import com.clucky.notificationservice.dto.LocalizedText;
 import com.clucky.notificationservice.entity.MailTemplate;
 import com.clucky.notificationservice.repository.MailTemplateRepository;
 import java.time.Instant;
@@ -46,10 +48,24 @@ public class MailTemplateManagementService {
         this.renderer = renderer;
     }
 
-    public record Summary(String key, String subject, boolean active, Instant updatedAt,
-            Long publishedRevisionId, int latestRevision) {}
-    public record Revision(long id, int revision, String subject, String text, String html,
-            long actorId, Instant createdAt, Instant publishedAt) {}
+    public record Summary(String key, String subject, LocalizedText subjectI18n, boolean active, Instant updatedAt,
+            Long publishedRevisionId, int latestRevision) {
+        public Summary(String key, String subject, boolean active, Instant updatedAt,
+                Long publishedRevisionId, int latestRevision) {
+            this(key, subject, LocalizedText.ofSingle(subject), active, updatedAt, publishedRevisionId, latestRevision);
+        }
+    }
+    public record Revision(long id, int revision, String subject, LocalizedText subjectI18n,
+            String text, LocalizedText textI18n, String html, LocalizedText htmlI18n,
+            long actorId, Instant createdAt, Instant publishedAt) {
+        public Revision(long id, int revision, String subject, String text, String html,
+                long actorId, Instant createdAt, Instant publishedAt) {
+            this(id, revision, subject, LocalizedText.ofSingle(subject),
+                    text, LocalizedText.ofSingle(text),
+                    html, html == null ? null : LocalizedText.ofSingle(html),
+                    actorId, createdAt, publishedAt);
+        }
+    }
     public record Detail(Summary template, Revision published, Revision draft, List<Revision> history) {}
     public record Preview(String subject, String text, String html) {}
     public record Layout(String html) {}
@@ -61,28 +77,33 @@ public class MailTemplateManagementService {
 
     @Transactional(readOnly = true)
     public List<Summary> list() {
+        String lang = LocaleResolverHelper.currentRequestLang();
         return jdbc.query("""
-                SELECT t.template_key,t.subject_template,t.is_active,t.updated_at,t.published_revision_id,
+                SELECT t.template_key,t.subject_template,t.subject_i18n,t.is_active,t.updated_at,t.published_revision_id,
                        COALESCE((SELECT max(r.revision_number) FROM notification_service.mail_template_revisions r
                                  WHERE r.template_key=t.template_key),0) AS latest_revision
                 FROM notification_service.mail_templates t
                 WHERE t.is_active=TRUE ORDER BY t.template_key
-                """, (rs, index) -> new Summary(rs.getString("template_key"), rs.getString("subject_template"),
-                rs.getBoolean("is_active"), rs.getTimestamp("updated_at").toInstant(),
-                rs.getObject("published_revision_id", Long.class), rs.getInt("latest_revision")));
+                """, (rs, index) -> {
+            LocalizedText subjectI18n = LocalizedText.fromDbValue(rs.getString("subject_i18n"));
+            if (subjectI18n == null) {
+                subjectI18n = LocalizedText.ofSingle(rs.getString("subject_template"));
+            }
+            return new Summary(rs.getString("template_key"), LocalizedText.resolve(subjectI18n, lang), subjectI18n,
+                    rs.getBoolean("is_active"), rs.getTimestamp("updated_at").toInstant(),
+                    rs.getObject("published_revision_id", Long.class), rs.getInt("latest_revision"));
+        });
     }
 
     @Transactional(readOnly = true)
     public Detail get(String key) {
+        String lang = LocaleResolverHelper.currentRequestLang();
         Summary summary = list().stream().filter(row -> key.equals(row.key())).findFirst().orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown active email template"));
         List<Revision> revisions = jdbc.query("""
                 SELECT * FROM notification_service.mail_template_revisions
                 WHERE template_key=? ORDER BY revision_number DESC LIMIT 60
-                """, (rs, index) -> new Revision(rs.getLong("id"), rs.getInt("revision_number"),
-                rs.getString("subject_template"), rs.getString("body_template"), rs.getString("html_template"),
-                rs.getLong("created_by"), rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("published_at") == null ? null : rs.getTimestamp("published_at").toInstant()), key);
+                """, (rs, index) -> mapRevision(rs, lang), key);
         Revision published = revisions.stream().filter(row -> summary.publishedRevisionId() != null
                 && summary.publishedRevisionId() == row.id()).findFirst().orElse(null);
         Revision draft = revisions.stream().filter(row -> row.publishedAt() == null
@@ -92,15 +113,31 @@ public class MailTemplateManagementService {
 
     @Transactional
     public Detail saveDraft(String key, int expectedRevision, String subject, String text, String html, long actorId) {
+        return saveDraft(key, expectedRevision, subject, null, text, null, html, null, actorId);
+    }
+
+    @Transactional
+    public Detail saveDraft(String key, int expectedRevision, String subjectVi, String subjectEn,
+            String textVi, String textEn, String htmlVi, String htmlEn, long actorId) {
         lock(key);
         int latest = latest(key);
         if (expectedRevision != latest) throw conflict();
-        String cleaned = validate(key, subject, text, html);
+        String cleanedVi = validate(key, subjectVi, textVi, htmlVi);
+        String effSubjectEn = subjectEn != null && !subjectEn.isBlank() ? subjectEn.trim() : subjectVi.trim();
+        String effTextEn = textEn != null && !textEn.isBlank() ? textEn.trim() : textVi.trim();
+        String cleanedEn = htmlEn != null && !htmlEn.isBlank() ? validate(key, effSubjectEn, effTextEn, htmlEn) : cleanedVi;
+        if (subjectEn != null && !subjectEn.isBlank() || textEn != null && !textEn.isBlank()) {
+            validate(key, effSubjectEn, effTextEn, htmlEn);
+        }
+        LocalizedText subjectI18n = LocalizedText.of(subjectVi.trim(), effSubjectEn);
+        LocalizedText textI18n = LocalizedText.of(textVi.trim(), effTextEn);
+        LocalizedText htmlI18n = cleanedVi == null && cleanedEn == null ? null : LocalizedText.of(cleanedVi, cleanedEn);
         jdbc.update("""
                 INSERT INTO notification_service.mail_template_revisions
-                (template_key,revision_number,subject_template,body_template,html_template,created_by)
-                VALUES (?,?,?,?,?,?)
-                """, key, latest + 1, subject.trim(), text.trim(), cleaned, actorId);
+                (template_key,revision_number,subject_template,body_template,html_template,subject_i18n,body_i18n,html_i18n,created_by)
+                VALUES (?,?,?,?,?,?::jsonb,?::jsonb,?::jsonb,?)
+                """, key, latest + 1, subjectVi.trim(), textVi.trim(), cleanedVi,
+                subjectI18n.toJson(), textI18n.toJson(), htmlI18n == null ? null : htmlI18n.toJson(), actorId);
         return get(key);
     }
 
@@ -114,14 +151,24 @@ public class MailTemplateManagementService {
         if (previousId == null || ((Number) previousId).longValue() != expectedPublishedRevisionId) throw conflict();
         Revision revision = requireRevision(key, revisionId);
         if (revision.revision() != latest(key) || revision.publishedAt() != null) throw conflict();
-        String cleaned = validate(key, revision.subject(), revision.text(), revision.html());
+        String viSubject = revision.subjectI18n() != null ? revision.subjectI18n().resolve("vi") : revision.subject();
+        String viText = revision.textI18n() != null ? revision.textI18n().resolve("vi") : revision.text();
+        String viHtml = revision.htmlI18n() != null ? revision.htmlI18n().resolve("vi") : revision.html();
+        String cleanedVi = validate(key, viSubject, viText, viHtml);
+        LocalizedText subjectI18n = revision.subjectI18n() != null ? revision.subjectI18n() : LocalizedText.ofSingle(viSubject);
+        LocalizedText textI18n = revision.textI18n() != null ? revision.textI18n() : LocalizedText.ofSingle(viText);
+        LocalizedText htmlI18n = revision.htmlI18n() != null ? revision.htmlI18n() : (cleanedVi == null ? null : LocalizedText.ofSingle(cleanedVi));
         // Existing notification_service.configuration_audit trigger records the publishing actor.
         jdbc.queryForObject("SELECT set_config('clucky.actor_id', ?, true)", String.class, String.valueOf(actorId));
         jdbc.update("""
                 UPDATE notification_service.mail_templates
-                SET subject_template=?,body_template=?,html_template=?,published_revision_id=?,updated_at=now()
+                SET subject_template=?,body_template=?,html_template=?,
+                    subject_i18n=?::jsonb,body_i18n=?::jsonb,html_i18n=?::jsonb,
+                    published_revision_id=?,updated_at=now()
                 WHERE template_key=? AND is_active=TRUE
-                """, revision.subject(), revision.text(), cleaned, revisionId, key);
+                """, viSubject, viText, cleanedVi,
+                subjectI18n.toJson(), textI18n.toJson(), htmlI18n == null ? null : htmlI18n.toJson(),
+                revisionId, key);
         jdbc.update("UPDATE notification_service.mail_template_revisions SET published_at=now(),published_by=? WHERE id=?", actorId, revisionId);
         return get(key);
     }
@@ -131,18 +178,33 @@ public class MailTemplateManagementService {
         lock(key);
         if (latest(key) != expectedRevision) throw conflict();
         Revision source = requireRevision(key, revisionId);
-        return saveDraft(key, expectedRevision, source.subject(), source.text(), source.html(), actorId);
+        return saveDraft(key, expectedRevision,
+                source.subjectI18n() != null ? source.subjectI18n().resolve("vi") : source.subject(),
+                source.subjectI18n() != null ? source.subjectI18n().resolve("en") : null,
+                source.textI18n() != null ? source.textI18n().resolve("vi") : source.text(),
+                source.textI18n() != null ? source.textI18n().resolve("en") : null,
+                source.htmlI18n() != null ? source.htmlI18n().resolve("vi") : source.html(),
+                source.htmlI18n() != null ? source.htmlI18n().resolve("en") : null,
+                actorId);
     }
 
     @Transactional(readOnly = true)
     public Preview preview(String key, String subject, String text, String html) {
+        return preview(key, subject, text, html, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public Preview preview(String key, String subject, String text, String html, String lang) {
         if (templates.findByTemplateKeyAndIsActiveTrue(key).isEmpty()) throw missing();
+        String resolvedLang = "en".equalsIgnoreCase(lang) ? "en" : "vi";
+        boolean isEn = "en".equals(resolvedLang);
         String cleaned = validate(key, subject, text, html);
         Map<String, String> variables = Map.ofEntries(
-                Map.entry("customerName", "Nguyễn Văn A"), Map.entry("orderCode", "CL-2026-0012"),
-                Map.entry("readyInstruction", "Vui lòng đến quầy nhận món."),
-                Map.entry("reason", "Đơn được hủy theo yêu cầu."), Map.entry("amount", "150000"),
-                Map.entry("paymentExplanation", "Giao dịch đang được kiểm tra."),
+                Map.entry("locale", resolvedLang),
+                Map.entry("customerName", isEn ? "Alex Nguyen" : "Nguyễn Văn A"), Map.entry("orderCode", "CL-2026-0012"),
+                Map.entry("readyInstruction", isEn ? "Please pick up your order at the counter." : "Vui lòng đến quầy nhận món."),
+                Map.entry("reason", isEn ? "Cancelled upon request." : "Đơn được hủy theo yêu cầu."), Map.entry("amount", "150000"),
+                Map.entry("paymentExplanation", isEn ? "The transaction is currently being verified." : "Giao dịch đang được kiểm tra."),
                 Map.entry("role", "STORE_MANAGER"), Map.entry("login", "branch.manager"),
                 Map.entry("accountId", "101"), Map.entry("challengeId", "00000000-0000-0000-0000-000000000001"),
                 Map.entry("otp", key.startsWith("BRANCH_") ? "12345678" : "123456"),
@@ -167,13 +229,36 @@ public class MailTemplateManagementService {
     }
 
     private Revision requireRevision(String key, long revisionId) {
+        String lang = LocaleResolverHelper.currentRequestLang();
         return jdbc.query("""
                 SELECT * FROM notification_service.mail_template_revisions WHERE id=? AND template_key=?
-                """, (rs, index) -> new Revision(rs.getLong("id"), rs.getInt("revision_number"),
-                rs.getString("subject_template"), rs.getString("body_template"), rs.getString("html_template"),
-                rs.getLong("created_by"), rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("published_at") == null ? null : rs.getTimestamp("published_at").toInstant()),
+                """, (rs, index) -> mapRevision(rs, lang),
                 revisionId, key).stream().findFirst().orElseThrow(this::missing);
+    }
+
+    private Revision mapRevision(java.sql.ResultSet rs, String lang) throws java.sql.SQLException {
+        String rawSubject = rs.getString("subject_template");
+        String rawText = rs.getString("body_template");
+        String rawHtml = rs.getString("html_template");
+        LocalizedText subjectI18n = LocalizedText.fromDbValue(rs.getString("subject_i18n"));
+        if (subjectI18n == null) subjectI18n = LocalizedText.ofSingle(rawSubject);
+        LocalizedText textI18n = LocalizedText.fromDbValue(rs.getString("body_i18n"));
+        if (textI18n == null) textI18n = LocalizedText.ofSingle(rawText);
+        LocalizedText htmlI18n = LocalizedText.fromDbValue(rs.getString("html_i18n"));
+        if (htmlI18n == null && rawHtml != null) htmlI18n = LocalizedText.ofSingle(rawHtml);
+        return new Revision(
+                rs.getLong("id"),
+                rs.getInt("revision_number"),
+                LocalizedText.resolve(subjectI18n, lang),
+                subjectI18n,
+                LocalizedText.resolve(textI18n, lang),
+                textI18n,
+                htmlI18n != null ? htmlI18n.resolve(lang) : rawHtml,
+                htmlI18n,
+                rs.getLong("created_by"),
+                rs.getTimestamp("created_at").toInstant(),
+                rs.getTimestamp("published_at") == null ? null : rs.getTimestamp("published_at").toInstant()
+        );
     }
 
     private static String validate(String key, String subject, String text, String html) {

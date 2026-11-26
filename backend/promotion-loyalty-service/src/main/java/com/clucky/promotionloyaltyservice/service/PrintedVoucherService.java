@@ -214,7 +214,13 @@ public class PrintedVoucherService {
 
     @Transactional(readOnly = true)
     public List<PrintBatchResponse> listBatches(Long campaignId, Long storeId, String status) {
+        return listBatches(campaignId, storeId, status, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public List<PrintBatchResponse> listBatches(Long campaignId, Long storeId, String status, String lang) {
         CurrentActor actor = requirePrintOperator();
+        String resolvedLang = "en".equalsIgnoreCase(lang) ? "en" : "vi";
         Long effectiveStoreId = storeId;
         if (actor.role() == Role.STORE_MANAGER) {
             if (actor.storeId() == null || actor.storeId() <= 0) {
@@ -227,7 +233,8 @@ public class PrintedVoucherService {
         }
 
         StringBuilder sql = new StringBuilder("""
-                SELECT b.id, b.batch_code, b.campaign_id, v.title AS campaign_title,
+                SELECT b.id, b.batch_code, b.campaign_id,
+                       COALESCE(v.title ->> ?, v.title ->> 'vi', v.title ->> 'en', '') AS campaign_title,
                        v.type AS campaign_type, v.value AS discount_value,
                        v.min_order_amount, v.max_discount, v.start_at, v.end_at,
                        b.store_id, b.store_name, b.quantity, b.allowed_channels, b.status,
@@ -244,6 +251,7 @@ public class PrintedVoucherService {
                 WHERE 1=1
                 """);
         List<Object> params = new ArrayList<>();
+        params.add(resolvedLang);
         if (campaignId != null) {
             sql.append(" AND b.campaign_id = ?");
             params.add(campaignId);
@@ -268,17 +276,25 @@ public class PrintedVoucherService {
 
     @Transactional(readOnly = true)
     public BatchPdfResult exportBatchPdf(Long batchId) {
+        return exportBatchPdf(batchId, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public BatchPdfResult exportBatchPdf(Long batchId, String lang) {
         if (batchId == null || batchId <= 0) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
+        String resolvedLang = "en".equalsIgnoreCase(lang) ? "en" : "vi";
         CurrentActor actor = requirePrintOperator();
         var batchRows = jdbc.queryForList("""
-                SELECT b.*, v.title AS campaign_title, v.type AS campaign_type, v.value AS discount_value,
+                SELECT b.*,
+                       COALESCE(v.title ->> ?, v.title ->> 'vi', v.title ->> 'en', '') AS campaign_title,
+                       v.type AS campaign_type, v.value AS discount_value,
                        v.min_order_amount, v.max_discount, v.end_at
                 FROM promotion_service.voucher_print_batches b
                 JOIN promotion_service.vouchers v ON v.id = b.campaign_id
                 WHERE b.id = ?
-                """, batchId);
+                """, resolvedLang, batchId);
         if (batchRows.isEmpty()) {
             throw new ResourceNotFoundException("Không tìm thấy lô in #" + batchId);
         }
@@ -310,6 +326,17 @@ public class PrintedVoucherService {
         }
 
         Long storeId = batch.get("store_id") == null ? null : ((Number) batch.get("store_id")).longValue();
+        String storeName = (String) batch.get("store_name");
+        if (storeId != null && "en".equalsIgnoreCase(resolvedLang)) {
+            try {
+                var store = stores.getStore(storeId, resolvedLang);
+                if (store.name() != null && !store.name().isBlank()) {
+                    storeName = store.name();
+                }
+            } catch (Exception ignored) {
+                // Keep snapshot store_name if store lookup is temporarily unavailable during PDF export.
+            }
+        }
         BatchRenderModel model = new BatchRenderModel(
                 (String) batch.get("batch_code"),
                 (String) batch.get("campaign_title"),
@@ -319,9 +346,10 @@ public class PrintedVoucherService {
                 (BigDecimal) batch.get("max_discount"),
                 instant(batch, "end_at"),
                 storeId,
-                (String) batch.get("store_name"),
+                storeName,
                 instant(batch, "created_at"),
-                renderItems
+                renderItems,
+                resolvedLang
         );
         byte[] pdfBytes = pdfExport.renderBatchPdf(model);
         return new BatchPdfResult((String) batch.get("batch_code"), pdfBytes);
@@ -401,6 +429,11 @@ public class PrintedVoucherService {
 
     @Transactional(readOnly = true)
     public ValidateVoucherResponse validate(ValidateVoucherRequest request) {
+        return validate(request, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public ValidateVoucherResponse validate(ValidateVoucherRequest request, String lang) {
         if (request == null || request.getOrderAmount() == null || request.getOrderAmount().signum() < 0
                 || request.getOrderAmount().stripTrailingZeros().scale() > 0
                 || request.getOrderAmount().precision() > 12
@@ -440,7 +473,7 @@ public class PrintedVoucherService {
 
         BigDecimal discount = discount(campaign, request.getOrderAmount());
         ValidateVoucherResponse response = ValidateVoucherResponse.valid(
-                discount, VoucherResponse.fromPublicEntity(campaign, Instant.now()));
+                discount, VoucherResponse.fromPublicEntity(campaign, Instant.now(), lang));
         response.setCode(null);
         response.setVoucherInstanceId(null);
         return response;
@@ -634,7 +667,8 @@ public class PrintedVoucherService {
 
     private PrintBatchResponse getBatchByIdInternal(Long batchId) {
         var rows = jdbc.queryForList("""
-                SELECT b.id, b.batch_code, b.campaign_id, v.title AS campaign_title,
+                SELECT b.id, b.batch_code, b.campaign_id,
+                       COALESCE(v.title ->> 'vi', v.title ->> 'en', '') AS campaign_title,
                        v.type AS campaign_type, v.value AS discount_value,
                        v.min_order_amount, v.max_discount, v.start_at, v.end_at,
                        b.store_id, b.store_name, b.quantity, b.allowed_channels, b.status,

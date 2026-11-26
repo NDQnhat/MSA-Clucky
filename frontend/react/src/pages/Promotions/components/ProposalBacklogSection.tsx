@@ -22,7 +22,10 @@ import type { VoucherProposal } from '../../../types/promotion';
 const { Text, Title, Paragraph } = Typography;
 
 export const ProposalBacklogSection: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage || i18n.language || 'vi';
+  const currencyLabel = t('common:currency');
+  const numberLocale = lang.startsWith('en') ? 'en-US' : 'vi-VN';
   const [proposals, setProposals] = useState<VoucherProposal[]>(MOCK_PROPOSALS);
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
@@ -41,8 +44,16 @@ export const ProposalBacklogSection: React.FC = () => {
   const handleAction = (proposal: VoucherProposal, action: 'APPROVE' | 'REJECT') => {
     setModalInfo({
       open: true,
-      title: action === 'APPROVE' ? 'Minh họa duyệt đề xuất' : 'Minh họa từ chối đề xuất',
-      content: 'Yêu cầu ' + (action === 'APPROVE' ? 'phê duyệt' : 'từ chối') + ' mã [' + proposal.code + '] của chi nhánh "' + proposal.storeName + '". Chức năng này thuộc lộ trình Phase 2 (Backlog BE-35/36), chưa tích hợp API duyệt thật. Giao diện ghi nhận trạng thái tạm thời trên bản demo.',
+      title: action === 'APPROVE'
+        ? t('admin:voucherProposalDemo.approvePreviewTitle')
+        : t('admin:voucherProposalDemo.rejectPreviewTitle'),
+      content: t('admin:voucherProposalDemo.demoActionContent', {
+        action: action === 'APPROVE'
+          ? t('admin:voucherProposalDemo.approveVerb')
+          : t('admin:voucherProposalDemo.rejectVerb'),
+        code: proposal.code,
+        store: proposal.storeName,
+      }),
     });
 
     // Update local state for interactive demo experience
@@ -58,7 +69,7 @@ export const ProposalBacklogSection: React.FC = () => {
   const handleCopyCode = async (code: string) => {
     try {
       await navigator.clipboard.writeText(code);
-      message.success('Đã sao chép mã đề xuất "' + code + '"');
+      message.success(t('admin:voucherProposalDemo.copiedProposalCode', { code }));
     } catch {
       message.error(t("common:feedback.copyFailed"));
     }
@@ -122,7 +133,7 @@ export const ProposalBacklogSection: React.FC = () => {
 
   const columns: TableColumnsType<VoucherProposal> = [
     {
-      title: 'Mã đề xuất & Tên chương trình',
+      title: t('admin:voucherProposalDemo.proposalCodeColumn'),
       key: 'code',
       width: 310,
       render: (_, record) => (
@@ -142,7 +153,7 @@ export const ProposalBacklogSection: React.FC = () => {
             >
               {record.code}
             </span>
-            <Tooltip title="Sao chép mã">
+            <Tooltip title={t('admin:voucherProposalDemo.copyCodeTooltip')}>
               <Button
                 type="text"
                 size="small"
@@ -175,14 +186,14 @@ export const ProposalBacklogSection: React.FC = () => {
               padding: '4px 8px',
             }}
           >
-            <span style={{ fontWeight: 600, color: '#C9A227' }}>💡 Lý do:</span>{' '}
+            <span style={{ fontWeight: 600, color: '#C9A227' }}>{t('admin:voucherProposalDemo.reasonPrefix')}</span>{' '}
             {record.proposalReason}
           </div>
         </div>
       ),
     },
     {
-      title: 'Chi nhánh & Người gửi',
+      title: t('admin:voucherProposalDemo.storeSenderColumn'),
       key: 'store',
       width: 250,
       render: (_, record) => (
@@ -215,7 +226,7 @@ export const ProposalBacklogSection: React.FC = () => {
       ),
     },
     {
-      title: 'Mức ưu đãi & Điều kiện',
+      title: t('admin:voucherProposalDemo.offerTermsColumn'),
       key: 'discount',
       width: 190,
       render: (_, record) => {
@@ -236,12 +247,14 @@ export const ProposalBacklogSection: React.FC = () => {
                 border: `1px solid ${isPercent ? '#FECDD3' : '#FDE68A'}`,
               }}
             >
-              {isPercent ? 'Giảm ' + record.value + '%' : 'Giảm ' + record.value.toLocaleString('vi-VN') + ' đ'}
+              {t('admin:voucherUi.discountBadge', {
+                value: isPercent ? `${record.value}%` : `${record.value.toLocaleString(numberLocale)} ${currencyLabel}`,
+              })}
             </Tag>
             <div style={{ fontSize: 11, color: '#6B6259', lineHeight: 1.4 }}>
-              <div>Đơn từ: <b>{record.minOrderAmount.toLocaleString('vi-VN')} đ</b></div>
+              <div>{t('admin:voucherProposalDemo.orderFrom')} <b>{record.minOrderAmount.toLocaleString(numberLocale)} {currencyLabel}</b></div>
               {record.totalLimit ? (
-                <div>Số lượng: <b>{record.totalLimit} suất</b></div>
+                <div>{t('admin:voucherProposalDemo.quotaAmount')} <b>{t('admin:voucherProposalDemo.quotaUnit', { count: record.totalLimit })}</b></div>
               ) : null}
             </div>
           </div>
@@ -249,7 +262,7 @@ export const ProposalBacklogSection: React.FC = () => {
       },
     },
     {
-      title: 'Trạng thái',
+      title: t('admin:voucherProposalDemo.statusColumn'),
       key: 'status',
       width: 160,
       render: (_, record) => {
@@ -271,7 +284,7 @@ export const ProposalBacklogSection: React.FC = () => {
               }}
             >
               <ClockCircleOutlined style={{ color: '#D97706' }} />
-              Chờ Admin duyệt
+              {t('admin:voucherProposalDemo.pendingStatus')}
             </span>
           );
         }
@@ -293,7 +306,7 @@ export const ProposalBacklogSection: React.FC = () => {
               }}
             >
               <CheckCircleOutlined style={{ color: '#10B981' }} />
-              Đã phê duyệt
+              {t('admin:voucherProposalDemo.approvedStatus')}
             </span>
           );
         }
@@ -314,13 +327,13 @@ export const ProposalBacklogSection: React.FC = () => {
             }}
           >
             <CloseCircleOutlined style={{ color: '#EF4444' }} />
-            Đã từ chối
+            {t('admin:voucherProposalDemo.rejectedStatus')}
           </span>
         );
       },
     },
     {
-      title: 'Thao tác xem xét',
+      title: t('admin:voucherProposalDemo.reviewActionsColumn'),
       key: 'actions',
       width: 175,
       fixed: 'right',
@@ -340,7 +353,7 @@ export const ProposalBacklogSection: React.FC = () => {
             }}
             onClick={() => handleAction(record, 'APPROVE')}
           >
-            Duyệt
+            {t('admin:voucherProposalDemo.approveAction')}
           </Button>
           <Button
             size="small"
@@ -354,7 +367,7 @@ export const ProposalBacklogSection: React.FC = () => {
             }}
             onClick={() => handleAction(record, 'REJECT')}
           >
-            Từ chối
+            {t('admin:voucherProposalDemo.rejectAction')}
           </Button>
         </Space>
       ),
@@ -368,20 +381,19 @@ export const ProposalBacklogSection: React.FC = () => {
         message={
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <span style={{ fontWeight: 800, fontSize: 15, color: '#92400E' }}>
-              Quy trình Duyệt đề xuất Khuyến mãi Chi nhánh
+              {t('admin:voucherProposalDemo.alertTitle')}
             </span>
             <Tag color="orange" style={{ fontWeight: 700, borderRadius: 999, margin: 0 }}>
-              BACKLOG / PHASE 2
+              {t('admin:voucherProposalDemo.alertBadge')}
             </Tag>
             <Tag color="default" style={{ borderRadius: 999, margin: 0 }}>
-              Chưa tích hợp backend thật
+              {t('admin:voucherProposalDemo.alertMockTag')}
             </Tag>
           </div>
         }
         description={
           <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.6, color: '#78350F' }}>
-            Khu vực này minh họa nghiệp vụ cho phép Cửa hàng trưởng (Store Manager) gửi đề xuất voucher riêng cho chi nhánh của mình và Quản trị viên (HQ Admin) thẩm định phê duyệt.
-            Theo quy hoạch kiến trúc (UI-28 / BE-35/36), tính năng này thuộc lộ trình mở rộng (Phase 2). Các thao tác bên dưới hoạt động dưới dạng mockup tương tác để kiểm thử trải nghiệm giao diện người dùng mà không gửi yêu cầu thực tế lên gateway.
+            {t('admin:voucherProposalDemo.alertDescription')}
           </div>
         }
         type="warning"
@@ -402,7 +414,7 @@ export const ProposalBacklogSection: React.FC = () => {
           onClick={() => setStatusFilter(statusFilter === 'PENDING_APPROVAL' ? 'ALL' : 'PENDING_APPROVAL')}
         >
           <div>
-            <div className="kpi-label">Chờ Admin duyệt</div>
+            <div className="kpi-label">{t('admin:voucherProposalDemo.kpiPending')}</div>
             <div className="kpi-value" style={{ color: '#D97706' }}>{pendingCount}</div>
           </div>
           <div className="kpi-icon" style={{ background: '#FEF3C7', color: '#D97706' }}>
@@ -415,7 +427,7 @@ export const ProposalBacklogSection: React.FC = () => {
           onClick={() => setStatusFilter(statusFilter === 'APPROVED' ? 'ALL' : 'APPROVED')}
         >
           <div>
-            <div className="kpi-label">Đã duyệt tháng này</div>
+            <div className="kpi-label">{t('admin:voucherProposalDemo.kpiApprovedMonth')}</div>
             <div className="kpi-value" style={{ color: '#1E7A46' }}>{approvedCount}</div>
           </div>
           <div className="kpi-icon" style={{ background: '#ECFDF5', color: '#10B981' }}>
@@ -428,7 +440,7 @@ export const ProposalBacklogSection: React.FC = () => {
           onClick={() => setStatusFilter(statusFilter === 'REJECTED' ? 'ALL' : 'REJECTED')}
         >
           <div>
-            <div className="kpi-label">Đã từ chối</div>
+            <div className="kpi-label">{t('admin:voucherProposalDemo.kpiRejected')}</div>
             <div className="kpi-value" style={{ color: '#991B1B' }}>{rejectedCount}</div>
           </div>
           <div className="kpi-icon" style={{ background: '#FEF2F2', color: '#EF4444' }}>
@@ -441,7 +453,7 @@ export const ProposalBacklogSection: React.FC = () => {
           onClick={() => setStatusFilter('ALL')}
         >
           <div>
-            <div className="kpi-label">Tổng số đề xuất</div>
+            <div className="kpi-label">{t('admin:voucherProposalDemo.kpiTotal')}</div>
             <div className="kpi-value">{proposals.length}</div>
           </div>
           <div className="kpi-icon" style={{ background: '#F7E5DF', color: '#8F1216' }}>
@@ -457,7 +469,7 @@ export const ProposalBacklogSection: React.FC = () => {
           dataSource={filteredProposals}
           rowKey="id"
           scroll={{ x: 1100 }}
-          searchPlaceholder="Tìm mã đề xuất, tên chương trình, chi nhánh..."
+          searchPlaceholder={t('admin:voucherProposalDemo.searchPlaceholder')}
           searchValue={searchTerm}
           onSearchChange={setSearchTerm}
           filterNodes={
@@ -468,7 +480,7 @@ export const ProposalBacklogSection: React.FC = () => {
                 onChange={setStoreFilter}
                 style={{ width: 220 }}
                 options={[
-                  { value: 'ALL', label: 'Tất cả chi nhánh' },
+                  { value: 'ALL', label: t('admin:voucherProposalDemo.allStores') },
                   ...storeOptions,
                 ]}
               />
@@ -479,10 +491,10 @@ export const ProposalBacklogSection: React.FC = () => {
                 onChange={setStatusFilter}
                 style={{ width: 180 }}
                 options={[
-                  { value: 'ALL', label: 'Tất cả trạng thái' },
-                  { value: 'PENDING_APPROVAL', label: '⏳ Chờ Admin duyệt' },
-                  { value: 'APPROVED', label: '🟢 Đã phê duyệt' },
-                  { value: 'REJECTED', label: '🔴 Đã từ chối' },
+                  { value: 'ALL', label: t('admin:voucherProposalDemo.allStatuses') },
+                  { value: 'PENDING_APPROVAL', label: t('admin:voucherProposalDemo.pendingOption') },
+                  { value: 'APPROVED', label: t('admin:voucherProposalDemo.approvedOption') },
+                  { value: 'REJECTED', label: t('admin:voucherProposalDemo.rejectedOption') },
                 ]}
               />
 
@@ -493,7 +505,7 @@ export const ProposalBacklogSection: React.FC = () => {
                   onClick={handleResetFilters}
                   style={{ borderRadius: 999, fontSize: 13 }}
                 >
-                  Đặt lại
+                  {t('admin:voucherUi.resetFilters')}
                 </Button>
               )}
             </Space>
@@ -512,7 +524,7 @@ export const ProposalBacklogSection: React.FC = () => {
         }
         onOk={() => setModalInfo({ open: false, title: '', content: '' })}
         onCancel={() => setModalInfo({ open: false, title: '', content: '' })}
-        okText="Đã hiểu"
+        okText={t('admin:voucherProposalDemo.understood')}
         cancelButtonProps={{ style: { display: 'none' } }}
         styles={{
           body: { background: '#FFFAF3', padding: '16px 0' },

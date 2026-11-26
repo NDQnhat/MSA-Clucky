@@ -6,6 +6,8 @@ import type { TableColumnsType } from 'antd';
 import { ClockCircleOutlined, CompassOutlined, EditOutlined, EnvironmentOutlined, MoreOutlined, PhoneOutlined, PlusOutlined, SearchOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import { storesApi, type Store } from '../../lib/api';
+import { isLocalizedViValid, pickLocalized, type LocalizedText } from '../../lib/bilingual';
+import { BilingualField } from '../../components/ui/BilingualField';
 import type { StoreStatus } from '../../types/store';
 import { ShippingSettings, StoreDeliverySettings } from './ShippingSettings';
 import { StoreReadiness } from './StoreReadiness';
@@ -19,7 +21,8 @@ export function AdminStores({ stores, loading, busy, onCreate, onEdit, onLocatio
   onLocation: (store: Store) => void; onStatus: (store: Store, status: StoreStatus) => Promise<boolean>;
   onDeactivate: (store: Store) => void; onUpdated: (store: Store) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n: i18nInst } = useTranslation();
+  const lang = i18nInst.language;
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('ALL');
   const [location, setLocation] = useState('ALL');
@@ -34,14 +37,17 @@ export function AdminStores({ stores, loading, busy, onCreate, onEdit, onLocatio
   const missingLocation = (store: Store) => store.latitude == null || store.longitude == null;
   const rows = stores.filter(store => (status === 'ALL' || status === store.status)
     && (location !== 'MISSING' || missingLocation(store))
-    && matchesStoreSearch([store.name, store.address, store.district, store.city, store.phone], search));
+    && matchesStoreSearch([store.name, store.nameI18n, store.address, store.district, store.districtI18n, store.city, store.cityI18n, store.phone], search));
   const hasFilters = Boolean(search || status !== 'ALL' || location !== 'ALL');
   const blocked = busy || loading;
   const columns: TableColumnsType<Store> = [
-    { title: t("business:stores.store"), key: 'name', width: 275, sorter: (first, second) => first.name.localeCompare(second.name, 'vi'), render: (_, store) => <div className="stores-identity">
-      <span className="stores-avatar"><ShopOutlined /></span><div><button type="button" className="stores-name" aria-expanded={expandedStoreIds.includes(store.id)} aria-controls={expandedStoreIds.includes(store.id) ? `store-details-${store.id}` : undefined}>{store.name}</button>
-        <span className="stores-meta">{t("admin:ui.branchId")}{store.id}</span><a className="stores-phone" href={`tel:${store.phone}`} onClick={event => event.stopPropagation()}><PhoneOutlined />{store.phone}</a>
-      </div></div> },
+    { title: t("business:stores.store"), key: 'name', width: 275, sorter: (first, second) => pickLocalized(first.nameI18n, first.name, lang).localeCompare(pickLocalized(second.nameI18n, second.name, lang), lang), render: (_, store) => {
+      const storeName = pickLocalized(store.nameI18n, store.name, lang);
+      return <div className="stores-identity">
+        <span className="stores-avatar"><ShopOutlined /></span><div><button type="button" className="stores-name" aria-expanded={expandedStoreIds.includes(store.id)} aria-controls={expandedStoreIds.includes(store.id) ? `store-details-${store.id}` : undefined}>{storeName}</button>
+          <span className="stores-meta">{t("admin:ui.branchId")}{store.id}</span><a className="stores-phone" href={`tel:${store.phone}`} onClick={event => event.stopPropagation()}><PhoneOutlined />{store.phone}</a>
+        </div></div>;
+    } },
     { title: t("admin:ui.addressDelivery"), key: 'address', width: 295, render: (_, store) => <div className="stores-address">
       <Tooltip title={store.address}><p className="stores-address-text">{store.address}</p></Tooltip>
       <button type="button" className={`stores-location-link ${missingLocation(store) ? 'is-missing' : ''}`} disabled={blocked} onClick={event => { event.stopPropagation(); onLocation(store); }}>
@@ -93,8 +99,8 @@ export function AdminStores({ stores, loading, busy, onCreate, onEdit, onLocatio
       pagination={{ current: Math.min(page, Math.max(1, Math.ceil(rows.length / pageSize))), pageSize, total: rows.length, showSizeChanger: true, pageSizeOptions: [10, 20, 50], onChange: (next, size) => { setPage(size === pageSize ? next : 1); setPageSize(size); } }}
       expandable={{ expandRowByClick: true, showExpandColumn: false, expandedRowKeys: expandedStoreIds, onExpandedRowsChange: setExpandedStoreIds,
         expandedRowRender: store => <div id={`store-details-${store.id}`} className="stores-detail-grid">
-        <div><h4><EnvironmentOutlined /> {t("admin:ui.fullAddress")}</h4><p>{store.address}</p><span>{[store.district, store.city].filter(Boolean).join(' · ')}</span></div>
-        <div><h4><CompassOutlined /> {t("admin:ui.deliveryCoverage")}</h4><p>{store.deliveryArea || t("admin:ui.noDeliveryAreaDescriptionYet")}</p><span>{missingLocation(store) || store.deliveryRadiusKm == null ? t("admin:ui.coordinatesAndARadiusAreRequiredToAccept") : t("admin:ui.configuredRadiusKm", { value1: store.deliveryRadiusKm })}</span><Button size="small" type="link" disabled={blocked} onClick={() => setDeliveryStore(store)}>{t("admin:ui.editCoverage")}</Button></div>
+        <div><h4><EnvironmentOutlined /> {t("admin:ui.fullAddress")}</h4><p>{store.address}</p><span>{[pickLocalized(store.districtI18n, store.district, lang), pickLocalized(store.cityI18n, store.city, lang)].filter(Boolean).join(' · ')}</span></div>
+        <div><h4><CompassOutlined /> {t("admin:ui.deliveryCoverage")}</h4><p>{pickLocalized(store.deliveryAreaI18n, store.deliveryArea, lang) || t("admin:ui.noDeliveryAreaDescriptionYet")}</p><span>{missingLocation(store) || store.deliveryRadiusKm == null ? t("admin:ui.coordinatesAndARadiusAreRequiredToAccept") : t("admin:ui.configuredRadiusKm", { value1: store.deliveryRadiusKm })}</span><Button size="small" type="link" disabled={blocked} onClick={() => setDeliveryStore(store)}>{t("admin:ui.editCoverage")}</Button></div>
         <div><h4><TeamOutlined /> {t("accounts:title")}</h4><p>{store.managerName || t("admin:ui.manageTheManagerAndStaffAccountPairOn")}</p><Link to={`/admin/users?storeId=${store.id}`}>{t("admin:ui.openAccountManagement")}</Link></div>
       </div> }} />
     </div>
@@ -115,14 +121,15 @@ export function AdminStoreFields({ store }: { store: Store | null }) {
   const { t } = useTranslation();
   return <div className="stores-editor"><div className="stores-editor-main">
     <section className="stores-form-section"><h4><span>01</span>{t("admin:ui.branchInformation")}</h4>
-      <Form.Item name="name" label={t("business:stores.storeName")} rules={[{ required: true, whitespace: true, message: t("admin:ui.enterABranchName") }]}><Input size="large" placeholder={t("admin:ui.branchNameShownToCustomers")} /></Form.Item>
+      <Form.Item name="name" label={t("business:stores.storeName")} required rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("admin:ui.enterABranchName")); } }]}><BilingualField requiredVi viPlaceholder={t("admin:ui.branchNameShownToCustomers")} enPlaceholder="English branch name" /></Form.Item>
       <Form.Item name="phone" label={t("admin:ui.branchHotline")} rules={[{ required: true, message: t("admin:ui.enterTheBranchPhoneNumber") }, { pattern: /^(0|\+84)[0-9]{8,11}$/, message: t("admin:ui.enterAValidPhoneNumberStartingWith0") }]}><Input prefix={<PhoneOutlined />} inputMode="tel" autoComplete="tel" placeholder={t("admin:ui.contactPhoneNumber")} /></Form.Item>
       <Form.Item name="address" label={t("admin:ui.branchAddress")} rules={[{ required: true, whitespace: true, message: t("admin:ui.enterTheStreetNumberStreetAndWardCommune") }]}><Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder={t("admin:ui.streetNumberStreetWardCommune")} /></Form.Item>
-      <div className="stores-form-grid"><Form.Item name="district" label={t("admin:ui.district")} rules={[{ required: true, whitespace: true, message: t("admin:ui.enterADistrict") }]}><Input placeholder={t("admin:ui.district")} /></Form.Item><Form.Item name="city" label={t("admin:ui.provinceCity")} rules={[{ required: true, whitespace: true, message: t("admin:ui.enterAProvinceOrCity") }]}><Input placeholder={t("admin:ui.provinceCity")} /></Form.Item></div>
+      <Form.Item name="district" label={t("admin:ui.district")} required rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("admin:ui.enterADistrict")); } }]}><BilingualField requiredVi viPlaceholder={t("admin:ui.district")} enPlaceholder="English district" /></Form.Item>
+      <Form.Item name="city" label={t("admin:ui.provinceCity")} required rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("admin:ui.enterAProvinceOrCity")); } }]}><BilingualField requiredVi viPlaceholder={t("admin:ui.provinceCity")} enPlaceholder="English city" /></Form.Item>
     </section>
     <section className="stores-form-section"><h4><span>02</span>{t("admin:ui.serviceHoursDelivery")}</h4>
       <div className="stores-form-grid"><Form.Item name="openTime" label={t("admin:ui.openingTime")} rules={[{ required: true, message: t("admin:ui.selectAnOpeningTime") }]}><TimePicker format="HH:mm" placeholder={t("business:stores.openingTime")} /></Form.Item><Form.Item name="closeTime" label={t("business:dashboard.storeClosed")} rules={[{ required: true, message: t("admin:ui.selectAClosingTime") }]}><TimePicker format="HH:mm" placeholder={t("business:stores.closingTime")} /></Form.Item></div>
-      <Form.Item name="deliveryArea" label={t("admin:ui.deliveryAreaNotes")} extra={t("admin:ui.thisDescriptionDoesNotReplaceDeliveryCoordinatesAnd")} rules={[{ required: true, whitespace: true, message: t("admin:ui.describeTheBranchSServiceArea") }]}><Input.TextArea rows={2} placeholder={t("admin:ui.serviceAreasAndDeliveryNotes")} /></Form.Item>
+      <Form.Item name="deliveryArea" label={t("admin:ui.deliveryAreaNotes")} extra={t("admin:ui.thisDescriptionDoesNotReplaceDeliveryCoordinatesAnd")} required rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("admin:ui.describeTheBranchSServiceArea")); } }]}><BilingualField multiline rows={2} requiredVi viPlaceholder={t("admin:ui.serviceAreasAndDeliveryNotes")} enPlaceholder="English delivery area description" /></Form.Item>
     </section>
   </div><aside className="stores-editor-aside"><div className="stores-aside-icon"><ShopOutlined /></div><h4>{t("business:stores.activityStatus")}</h4><p className="stores-note">{t("admin:ui.theStatusDeterminesWhetherNewOrdersAreAccepted")}</p>
     <Form.Item name="status" rules={[{ required: true, message: t("admin:ui.selectABranchStatus") }]}><Radio.Group className="stores-status-options" aria-label={t("business:stores.activityStatus")}>

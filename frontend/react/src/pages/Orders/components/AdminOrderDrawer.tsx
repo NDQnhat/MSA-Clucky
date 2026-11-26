@@ -5,6 +5,7 @@ import { Alert, Button, Collapse, Descriptions, Drawer, Empty, Form, Input, Skel
 import { ClockCircleOutlined, ShopOutlined, ShoppingOutlined, UserOutlined, WalletOutlined } from '@ant-design/icons';
 import { api, getErrorMessage, ordersApi, type BackendOrder, type BackendRefund } from '../../../lib/api';
 import { useLocaleTools } from '../../../i18n/hooks';
+import { pickLocalized } from '../../../lib/bilingual';
 import { AdminModal } from '../../../components/ui/AdminModal';
 import { message } from '../../../components/feedback';
 import { CatalogImage } from '../../Catalog/ImageField';
@@ -118,10 +119,11 @@ export function AdminOrderDrawer({ order, refund, loading, error, refundError, s
           <div className="order-section-heading"><h3><ShoppingOutlined /> {t("business:id.orderedItems")}</h3><Tag>{(order.items ?? []).reduce((sum, item) => sum + item.quantity, 0)} {t("admin:ui.portions")}</Tag></div>
           <div className="order-line-items">{(order.items ?? []).map(item => {
             const path = catalogItemPath(item);
-            const options = [...snapshotLabels(item.optionsSnapshot), ...snapshotLabels(item.toppingsSnapshot)];
+            const displayItemName = pickLocalized(item.itemNameI18n, item.itemName, locale);
+            const options = [...snapshotLabels(item.optionsSnapshot, locale), ...snapshotLabels(item.toppingsSnapshot, locale)];
             return <article className="order-line-item" key={item.id}>
-              <div className="order-item-image"><CatalogImage url={path ? images[path] : undefined} name={item.itemName} /></div>
-              <div className="order-item-description"><strong>{item.itemName}</strong><span>{item.itemType === 'COMBO' ? 'Combo · ' : ''}{item.quantity} × {money(Number(item.unitPrice))}</span>
+              <div className="order-item-image"><CatalogImage url={path ? images[path] : undefined} name={displayItemName} /></div>
+              <div className="order-item-description"><strong>{displayItemName}</strong><span>{item.itemType === 'COMBO' ? 'Combo · ' : ''}{item.quantity} × {money(Number(item.unitPrice))}</span>
                 {options.length > 0 && <small>{options.join(' · ')}</small>}{item.note && <p>{t("business:orderitemcard.note")} {item.note}</p>}</div>
               <strong className="order-amount">{money(Number(item.lineTotal))}</strong>
             </article>;

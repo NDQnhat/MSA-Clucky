@@ -44,6 +44,8 @@ import { CounterQrScanner } from './CounterQrScanner';
 import styles from "./counter-order.module.css";
 import { FoodImage } from "../../../components/ui/FoodImage";
 import { posUnavailableReason } from "../../../lib/pos-availability";
+import { matchesBilingualSearch, normalizeForBilingualSearch, pickLocalized } from "../../../lib/bilingual";
+import i18n from "../../../i18n";
 
 interface CounterOrderModalProps {
   open: boolean;
@@ -53,9 +55,8 @@ interface CounterOrderModalProps {
   existingOrderCount?: number;
 }
 
-const currencyFormatter = new Intl.NumberFormat("vi-VN");
 const formatVnd = (val: number) => {
-  return currencyFormatter.format(val) + " đ";
+  return `${new Intl.NumberFormat(i18n.language?.startsWith("en") ? "en-US" : "vi-VN").format(val)} ${i18n.t("common:currency")}`;
 };
 
 type SafeCounterDraft = {
@@ -215,54 +216,63 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             ? (combosData as any).content
             : [];
 
-        // Chuyển đổi sản phẩm đơn từ backend
+        const lang = i18n.resolvedLanguage || i18n.language || "vi";
+
+        // Single products from backend
         if (rawProducts.length > 0) {
           rawProducts.forEach((p: any) => {
             let category: PosProduct["category"] = "CHICKEN";
-            const nameLower = (p.name || "").toLowerCase();
-            const catNameLower = (p.categoryName || "").toLowerCase();
+            const nameLower = `${normalizeForBilingualSearch(p.name)} ${normalizeForBilingualSearch(p.nameI18n?.vi)} ${normalizeForBilingualSearch(p.nameI18n?.en)}`;
+            const catNameLower = `${normalizeForBilingualSearch(p.categoryName)} ${normalizeForBilingualSearch(p.categoryNameI18n?.vi)} ${normalizeForBilingualSearch(p.categoryNameI18n?.en)}`;
 
             if (
               p.categoryId === 2 ||
               catNameLower.includes("burger") ||
-              catNameLower.includes("cơm") ||
+              catNameLower.includes("com") ||
+              catNameLower.includes("rice") ||
               nameLower.includes("burger") ||
-              nameLower.includes("cơm")
+              nameLower.includes("com") ||
+              nameLower.includes("rice")
             ) {
               category = "BURGER_RICE";
             } else if (
               p.categoryId === 4 ||
               p.categoryId === 5 ||
-              catNameLower.includes("nước") ||
-              catNameLower.includes("tráng miệng") ||
-              nameLower.includes("trà") ||
-              nameLower.includes("nước") ||
-              nameLower.includes("khoai tây")
+              catNameLower.includes("nuoc") ||
+              catNameLower.includes("drink") ||
+              catNameLower.includes("trang mieng") ||
+              catNameLower.includes("dessert") ||
+              catNameLower.includes("side") ||
+              nameLower.includes("tra") ||
+              nameLower.includes("tea") ||
+              nameLower.includes("nuoc") ||
+              nameLower.includes("khoai tay") ||
+              nameLower.includes("fries")
             ) {
               category = "DESSERT_DRINK";
-            } else if (p.categoryId === 1 || catNameLower.includes("gà")) {
+            } else if (p.categoryId === 1 || catNameLower.includes("ga") || catNameLower.includes("chicken")) {
               category = "CHICKEN";
             }
 
             convertedProducts.push({
               id: String(p.id),
-              name: p.name,
+              name: pickLocalized(p.nameI18n, p.name, lang),
               category,
               price: p.basePrice,
               image: p.imageUrl || '',
               inStock: !posUnavailableReason(p),
               unavailableReason: posUnavailableReason(p),
-              badge: p.isBestSeller ? "Bán chạy" : undefined,
-              description: p.description,
+              badge: p.isBestSeller ? t("business:counterPos.bestSellerBadge") : undefined,
+              description: pickLocalized(p.descriptionI18n, p.description, lang),
               optionGroups:
                 p.options && p.options.length > 0
                   ? p.options.map((opt: any) => ({
                       id: opt.id,
-                      name: opt.name,
+                      name: pickLocalized(opt.nameI18n, opt.name, lang),
                       required: opt.required,
                       choices: opt.choices.map((c: any) => ({
                         id: c.id,
-                        name: c.name,
+                        name: pickLocalized(c.nameI18n, c.name, lang),
                         extraPrice: c.priceAdjustment || 0,
                       })),
                     }))
@@ -271,23 +281,23 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
           });
         }
 
-        // Chuyển đổi Combo từ backend
+        // Combos from backend
         if (rawCombos.length > 0) {
           const availableProducts = new Set(convertedProducts.filter(product => product.inStock).map(product => product.id));
           rawCombos.forEach((c: any) => {
             const unavailableReason = posUnavailableReason(c) || (!c.items?.length || c.items.some((item: { productId: number }) => !availableProducts.has(String(item.productId))) ? 'comboUnavailable' : undefined);
             convertedProducts.push({
               id: `combo-${c.id}`,
-              name: c.name,
+              name: pickLocalized(c.nameI18n, c.name, lang),
               category: "COMBO",
               price: c.comboPrice,
               image: c.imageUrl || '',
               inStock: !unavailableReason,
               unavailableReason,
-              badge: "Combo Tiết Kiệm",
+              badge: t("business:counterPos.comboSaveBadge"),
               description:
-                c.description ||
-                c.items?.map((it: any) => `${it.quantity}x ${it.productName}`).join(" + "),
+                pickLocalized(c.descriptionI18n, c.description, lang) ||
+                c.items?.map((it: any) => `${it.quantity}x ${pickLocalized(it.productNameI18n, it.productName, lang)}`).join(" + "),
             });
           });
         }
@@ -305,7 +315,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
       active = false;
       controller.abort();
     };
-  }, [open, user?.storeId, currentStore?.id, catalogRevision, t]);
+  }, [open, user?.storeId, currentStore?.id, catalogRevision, t, i18n.language]);
 
   // Switching admin routes unmounts the POS. Restore its unsent draft in the
   // same staff/store scope rather than clearing the basket on every open.
@@ -922,11 +932,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
         return false;
       }
       if (deferredSearch.trim()) {
-        const q = deferredSearch.toLowerCase().trim();
-        return (
-          p.name.toLowerCase().includes(q) ||
-          (p.description || "").toLowerCase().includes(q)
-        );
+        return matchesBilingualSearch(deferredSearch, p.name, p.description || "");
       }
       return true;
     });
@@ -1101,7 +1107,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 onClick={() => setDiningOption("DINE_IN")}
               >
                 <Utensils size={18} />
-                <span>ĂN TẠI QUÁN</span>
+                <span>{t("business:counterPos.dineInBtn")}</span>
               </button>
 
               <button
@@ -1113,7 +1119,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 onClick={() => setDiningOption("TAKE_AWAY")}
               >
                 <ShoppingBag size={18} />
-                <span>MANG VỀ</span>
+                <span>{t("business:counterPos.takeAwayBtn")}</span>
               </button>
             </div>}
 
@@ -1157,7 +1163,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                           type="button"
                           className={styles.qtyBtn}
                           onClick={() => handleUpdateQty(item.id, -1)}
-                          title="Giảm 1"
+                          title={t("business:counterPos.decreaseOne")}
                         >
                           <Minus size={14} />
                         </button>
@@ -1166,7 +1172,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                           type="button"
                           className={styles.qtyBtn}
                           onClick={() => handleUpdateQty(item.id, 1)}
-                          title="Tăng 1"
+                          title={t("business:counterPos.increaseOne")}
                         >
                           <Plus size={14} />
                         </button>
@@ -1176,7 +1182,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                         type="button"
                         className={styles.deleteItemBtn}
                         onClick={() => handleRemoveItem(item.id)}
-                        title="Xóa món này khỏi giỏ"
+                        title={t("business:counterPos.removeItem")}
                       >
                         <Trash2 size={16} />
                       </button>
@@ -1205,7 +1211,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   aria-pressed={paymentMethod === 'CASH'}
                   onClick={() => setPaymentMethod("CASH")}
                 >
-                  TIỀN MẶT
+                  {t("business:counterPos.cashBtn")}
                 </button>
                 <button
                   type="button"
@@ -1225,7 +1231,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   aria-pressed={paymentMethod === 'SPLIT'}
                   onClick={() => setPaymentMethod("SPLIT")}
                 >
-                  KẾT HỢP
+                  {t("business:counterPos.splitBtn")}
                 </button>
               </div>)}
 
@@ -1491,7 +1497,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             <div className={styles.optionModalWindow}>
               <div className={styles.optionHeader}>
                 <h3 className={styles.optionTitle}>
-                  Tùy chọn: {customizingProduct.name}
+                  {t("business:counterPos.optionsTitle", { name: customizingProduct.name })}
                 </h3>
                 <button
                   type="button"
@@ -1546,7 +1552,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 {/* Chọn số lượng */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
                   <span style={{ fontWeight: 700, fontSize: 13, color: "#4b443c" }}>
-                    Số lượng:
+                    {t("business:counterPos.quantityLabel")}
                   </span>
                   <div className={styles.qtyControls}>
                     <button
@@ -1570,7 +1576,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
 
               <div className={styles.optionFooter}>
                 <div className={styles.optionFooterTotal}>
-                  <span className={styles.optionFooterLabel}>Thành tiền:</span>
+                  <span className={styles.optionFooterLabel}>{t("business:counterPos.lineTotalLabel")}</span>
                   <span className={styles.optionFooterAmount}>
                     {formatVnd(
                       (customizingProduct.price +
@@ -1589,7 +1595,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                   className={styles.addOptionBtn}
                   onClick={handleConfirmCustomOptions}
                 >
-                  Thêm vào giỏ hàng
+                  {t("business:counterPos.addToCart")}
                 </button>
               </div>
             </div>

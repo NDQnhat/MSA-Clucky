@@ -13,6 +13,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { NotificationItemData, NotificationType } from '@/lib/types/notification';
+import { pickLocalized } from '@/lib/bilingual';
 import { formatRelativeTime } from '@/lib/notification';
 import styles from './notification-shared.module.css';
 
@@ -103,8 +104,8 @@ export function NotificationItem({
 
   // Normalize data
   const id = notification?.id ?? propId ?? 'notif-default';
-  const title = notification?.title ?? propTitle;
-  const content = notification?.content ?? propContent;
+  const title = pickLocalized(notification?.titleI18n, notification?.title ?? propTitle, locale);
+  const content = pickLocalized(notification?.contentI18n, notification?.content ?? propContent, locale);
   const type = notification?.type ?? propType;
   const refId = notification?.refId ?? propRefId;
   const isRead = notification?.isRead ?? propIsRead;

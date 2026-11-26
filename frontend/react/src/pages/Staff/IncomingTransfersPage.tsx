@@ -40,9 +40,11 @@ import {
 } from "../../utils/orderExcelExport";
 import "../Orders/admin-orders.css";
 import styles from "./incoming-transfers.module.css";
+import i18nInstance from "../../i18n";
+import { pickLocalized } from "../../lib/bilingual";
 
 const formatVnd = (val: number) => {
-  return new Intl.NumberFormat("vi-VN").format(val) + " đ";
+  return `${new Intl.NumberFormat(i18nInstance.language?.startsWith("en") ? "en-US" : "vi-VN").format(val)} ${i18nInstance.t("common:currency")}`;
 };
 const businessDate = (date: Date = new Date()) => date.toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
 
@@ -69,6 +71,7 @@ export function fromBackendBankTxToItem(
 
 export const IncomingTransfersPage: React.FC = () => {
   const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage || i18n.language || "vi";
   const { user, isAdmin } = useAuth();
   const { stores, currentStore } = useOrders();
   const navigate = useNavigate();
@@ -96,7 +99,9 @@ export const IncomingTransfersPage: React.FC = () => {
   );
 
   const activeStoreName =
-    activeStore?.name || user?.storeName || t("business:stafforderspage.branchFallback", { id: selectedStoreId });
+    pickLocalized(activeStore?.nameI18n, activeStore?.name, lang) ||
+    user?.storeName ||
+    t("business:stafforderspage.branchFallback", { id: selectedStoreId });
   const activeStoreAddress = activeStore?.address;
 
   // Transactions & Receipts state
@@ -318,7 +323,7 @@ export const IncomingTransfersPage: React.FC = () => {
               style={{ minWidth: 220 }}
               options={stores.map((s) => ({
                 value: Number(s.id),
-                label: s.name,
+                label: pickLocalized(s.nameI18n, s.name, lang),
               }))}
               onChange={(val) => setSelectedStoreId(Number(val))}
             />

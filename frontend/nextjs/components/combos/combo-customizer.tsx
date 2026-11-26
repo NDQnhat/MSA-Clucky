@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
+import { pickLocalized } from "@/lib/bilingual";
 import type { Product } from "@/lib/products";
 import type { ComboItem } from "@/lib/catalog-and-stores.api";
 import { FoodImage } from "@/components/order/food-image";
@@ -37,6 +38,7 @@ export function ComboCustomizer({
   formatPrice: (amount: number) => string;
 }) {
   const t = useTranslations("business.productdetailclient");
+  const locale = useLocale();
   // All items start expanded, including after a new combo is loaded.
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
@@ -63,7 +65,7 @@ export function ComboCustomizer({
                 className={styles.itemImage}
               />
               <span className={styles.itemTitle}>
-                <strong>{item.productName}</strong>
+                <strong>{pickLocalized(item.productNameI18n, item.productName, locale)}</strong>
                 {!hasChoices && <small>{t("comboIncluded")}</small>}
               </span>
               <span className={styles.quantityBadge}>×{item.quantity}</span>
@@ -97,7 +99,7 @@ export function ComboCustomizer({
                         return (
                           <fieldset className={styles.group} key={group.id}>
                             <legend>
-                              {group.name}
+                              {pickLocalized(group.nameI18n, group.name, locale)}
                               <small>{fixed ? t("comboFixedOption") : group.required ? t("comboChooseOne") : t("comboOptional")}</small>
                             </legend>
                             <div className={styles.choices}>
@@ -116,7 +118,7 @@ export function ComboCustomizer({
                                     <input type="radio" name={choiceKey} value={choice.id} checked={checked}
                                       disabled={Boolean(fixed)} onChange={() => onSelectOption(choiceKey, choice.id)} />
                                     <span className={styles.radioMark}><Check size={12} strokeWidth={3} aria-hidden="true" /></span>
-                                    <span className={styles.choiceName}>{choice.name}</span>
+                                    <span className={styles.choiceName}>{pickLocalized(choice.nameI18n, choice.name, locale)}</span>
                                     {fixed ? <span className={styles.priceLabel}>{t("comboIncluded")}</span>
                                       : choice.priceAdjustment > 0 && <span className={styles.priceLabel}>+{formatPrice(choice.priceAdjustment * item.quantity)}</span>}
                                   </label>
@@ -135,7 +137,7 @@ export function ComboCustomizer({
                                 <input type="checkbox" checked={(selectedToppings[item.id!] ?? []).includes(topping.id)}
                                   onChange={() => onToggleTopping(item.id!, topping.id)} />
                                 <span className={styles.checkboxMark}><Check size={12} strokeWidth={3} aria-hidden="true" /></span>
-                                <span className={styles.choiceName}>{topping.name}</span>
+                                <span className={styles.choiceName}>{pickLocalized(topping.nameI18n, topping.name, locale)}</span>
                                 {topping.price > 0 && <span className={styles.priceLabel}>+{formatPrice(topping.price * item.quantity)}</span>}
                               </label>
                             ))}

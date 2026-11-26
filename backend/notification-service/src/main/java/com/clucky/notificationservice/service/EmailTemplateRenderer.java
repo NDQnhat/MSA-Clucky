@@ -64,6 +64,7 @@ public class EmailTemplateRenderer {
     public Map<String, String> render(String key, String subjectTemplate, String bodyTemplate,
             String htmlTemplate, Map<String, String> variables, String messageId, Instant expiresAt) {
         var values = new HashMap<>(variables);
+        boolean isEn = "en".equalsIgnoreCase(values.getOrDefault("locale", "vi"));
         if ((bodyTemplate != null && bodyTemplate.contains("{{amount}}"))
                 || (htmlTemplate != null && htmlTemplate.contains("{{amount}}"))) {
             values.put("amount", money(values.get("amount")));
@@ -75,15 +76,17 @@ public class EmailTemplateRenderer {
                 throw new IllegalArgumentException("Invalid security email channel");
             }
             String roleLabel = switch (values.getOrDefault("role", "")) {
-                case "ADMIN" -> "Quản trị viên";
-                case "STORE_MANAGER" -> "Quản lý chi nhánh";
-                case "STAFF" -> "Nhân viên";
+                case "ADMIN" -> isEn ? "Administrator" : "Quản trị viên";
+                case "STORE_MANAGER" -> isEn ? "Store Manager" : "Quản lý chi nhánh";
+                case "STAFF" -> isEn ? "Staff" : "Nhân viên";
                 default -> throw new IllegalArgumentException("Invalid account role");
             };
             values.put("roleLabel", roleLabel);
             values.put("channelInstruction", messageId.endsWith(".secondary")
-                    ? "Đây là mã xác minh gửi tới địa chỉ email khôi phục mới."
-                    : "Đây là mã xác nhận gửi tới địa chỉ email đang được dùng để bảo vệ tài khoản.");
+                    ? (isEn ? "This verification code was sent to the new recovery email address."
+                            : "Đây là mã xác minh gửi tới địa chỉ email khôi phục mới.")
+                    : (isEn ? "This verification code was sent to the current primary security email."
+                            : "Đây là mã xác nhận gửi tới địa chỉ email đang được dùng để bảo vệ tài khoản."));
         }
         String subject = substitute(subjectTemplate, values);
         String body = substitute(bodyTemplate, values);
@@ -97,11 +100,14 @@ public class EmailTemplateRenderer {
             if (!otp.matches(branch ? "[0-9]{8}" : "[0-9]{6}") || expiresAt == null) {
                 throw new IllegalArgumentException("Invalid security email");
             }
-            String expiry = "Hết hạn lúc " + EXPIRY.format(expiresAt) + " (giờ Việt Nam).";
-            text.append("\n\nMã xác minh: ").append(otp).append('\n').append(expiry);
+            String expiry = (isEn ? "Expires at " : "Hết hạn lúc ") + EXPIRY.format(expiresAt)
+                    + (isEn ? " (Vietnam time)." : " (giờ Việt Nam).");
+            text.append(isEn ? "\n\nVerification code: " : "\n\nMã xác minh: ").append(otp).append('\n').append(expiry);
             details.append("""
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAF7F2;border:1px solid #EFE7DB;border-radius:12px;">
-                    <tr><td align="right" style="padding:22px 16px 8px;color:#827366;font-size:11px;font-weight:700;letter-spacing:1.8px;line-height:18px;">MÃ XÁC THỰC</td></tr>
+                    <tr><td align="right" style="padding:22px 16px 8px;color:#827366;font-size:11px;font-weight:700;letter-spacing:1.8px;line-height:18px;">"""
+                    + (isEn ? "VERIFICATION CODE" : "MÃ XÁC THỰC") + """
+                    </td></tr>
                     <tr><td align="right" style="padding:0 8px 12px 14px;"><div class="otp" style="color:#8F1216;font-family:Arial,sans-serif;font-size:38px;font-weight:700;letter-spacing:6px;line-height:48px;text-align:right;">
                     """).append(escape(otp)).append("</div></td></tr>")
                     .append("<tr><td align=\"right\" style=\"padding:0 16px 22px;color:#827366;font-size:12px;line-height:20px;\">")
@@ -112,39 +118,41 @@ public class EmailTemplateRenderer {
                     if (value == null || value.isBlank()) throw new IllegalArgumentException("Missing account context");
                 }
                 details.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:20px;\">");
-                appendRow(text, details, "Tài khoản", values.get("login"), false);
+                appendRow(text, details, isEn ? "Account" : "Tài khoản", values.get("login"), false);
                 if ("BRANCH_ACTIVATE".equals(key)) {
-                    appendRow(text, details, "Mã challenge", values.get("challengeId"), false);
+                    appendRow(text, details, isEn ? "Challenge ID" : "Mã challenge", values.get("challengeId"), false);
                 } else {
-                    appendRow(text, details, "Vai trò", values.get("roleLabel"), false);
-                    appendRow(text, details, "Mã tài khoản", values.get("accountId"), false);
-                    appendRow(text, details, "Phiên xác minh", values.get("challengeId"), false);
+                    appendRow(text, details, isEn ? "Role" : "Vai trò", values.get("roleLabel"), false);
+                    appendRow(text, details, isEn ? "Account ID" : "Mã tài khoản", values.get("accountId"), false);
+                    appendRow(text, details, isEn ? "Verification session" : "Phiên xác minh", values.get("challengeId"), false);
                 }
                 details.append("</table>");
             }
         } else {
             String code = values.getOrDefault("orderCode", "");
             String fulfillment = switch (values.getOrDefault("orderType", "")) {
-                case "PICKUP" -> "Nhận tại cửa hàng";
-                case "DELIVERY" -> "Giao đến địa chỉ trong đơn";
+                case "PICKUP" -> isEn ? "Store pickup" : "Nhận tại cửa hàng";
+                case "DELIVERY" -> isEn ? "Delivery to order address" : "Giao đến địa chỉ trong đơn";
                 default -> "";
             };
-            text.append("\n\nMã đơn hàng: ").append(code);
+            text.append(isEn ? "\n\nOrder code: " : "\n\nMã đơn hàng: ").append(code);
             if (!fulfillment.isEmpty()) text.append('\n').append(fulfillment);
             details.append("""
                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FAF7F2;border:1px solid #EFE7DB;border-radius:12px;">
                     <tr><td style="padding:20px 22px;">
-                    <p style="margin:0 0 6px;color:#827366;font-size:11px;font-weight:700;letter-spacing:1.5px;line-height:18px;">MÃ ĐƠN HÀNG</p>
+                    <p style="margin:0 0 6px;color:#827366;font-size:11px;font-weight:700;letter-spacing:1.5px;line-height:18px;">"""
+                    + (isEn ? "ORDER CODE" : "MÃ ĐƠN HÀNG") + """
+                    </p>
                     <p style="margin:0;color:#8F1216;font-size:20px;font-weight:700;line-height:28px;">
                     """).append(escape(code)).append("</p>");
             if (!fulfillment.isEmpty()) details.append("<p style=\"margin:8px 0 0;color:#74685E;font-size:13px;line-height:21px;\">")
                     .append(escape(fulfillment)).append("</p>");
             details.append("</td></tr></table>");
-            if (key.startsWith("ORDER_")) appendOrder(text, details, values);
+            if (key.startsWith("ORDER_")) appendOrder(text, details, values, isEn);
             String amountLabel = switch (key) {
-                case "PAYMENT_CONFIRMED" -> "Đã thanh toán";
-                case "REFUND_APPROVED" -> "Số tiền yêu cầu hoàn";
-                case "REFUND_PROCESSED" -> "Số tiền đã hoàn";
+                case "PAYMENT_CONFIRMED" -> isEn ? "Amount paid" : "Đã thanh toán";
+                case "REFUND_APPROVED" -> isEn ? "Requested refund amount" : "Số tiền yêu cầu hoàn";
+                case "REFUND_PROCESSED" -> isEn ? "Refunded amount" : "Số tiền đã hoàn";
                 default -> "";
             };
             if (!amountLabel.isEmpty()) {
@@ -157,7 +165,7 @@ public class EmailTemplateRenderer {
         if ("BRANCH_ACTIVATE".equals(key) && adminUrl != null) {
             String url = adminUrl + "/reset-password?login="
                     + URLEncoder.encode(values.get("login"), StandardCharsets.UTF_8) + "&purpose=ACTIVATE";
-            String label = "Kích hoạt tài khoản";
+            String label = isEn ? "Activate Account" : "Kích hoạt tài khoản";
             text.append("\n\n").append(label).append(": ").append(url);
             action = """
                     <tr><td align="right" style="padding:30px 24px 0;">
@@ -168,7 +176,9 @@ public class EmailTemplateRenderer {
         } else if (!security) {
             String orderId = values.getOrDefault("orderId", "");
             String path = orderId.matches("[1-9][0-9]{0,18}") ? "/orders/" + orderId : "/orders";
-            String label = key.startsWith("REFUND_") ? "Xem yêu cầu hoàn tiền" : "Xem chi tiết đơn hàng";
+            String label = key.startsWith("REFUND_")
+                    ? (isEn ? "View refund request" : "Xem yêu cầu hoàn tiền")
+                    : (isEn ? "View order details" : "Xem chi tiết đơn hàng");
             String url = customerUrl + path;
             text.append("\n\n").append(label).append(": ").append(url);
             action = """
@@ -179,28 +189,42 @@ public class EmailTemplateRenderer {
                     + escape(label) + "</a></td></tr></table></td></tr>";
         }
         String notice = "BRANCH_ACTIVATE".equals(key)
-                ? "Không chia sẻ mã xác minh hoặc mật khẩu. Nếu không yêu cầu kích hoạt, hãy bỏ qua email."
+                ? (isEn ? "Never share this code or your password. If you did not request activation, ignore this email."
+                        : "Không chia sẻ mã xác minh hoặc mật khẩu. Nếu không yêu cầu kích hoạt, hãy bỏ qua email.")
                 : security
-                ? "Mỗi mã chỉ dùng một lần. Không chia sẻ mã với bất kỳ ai, kể cả người tự nhận là nhân viên Clucky.\nNếu không yêu cầu thao tác này, hãy bỏ qua email và không cung cấp mã."
+                ? (isEn ? "Each code is single-use. Never share it with anyone, even if they claim to work for Clucky.\nIf you did not request this action, ignore this email."
+                        : "Mỗi mã chỉ dùng một lần. Không chia sẻ mã với bất kỳ ai, kể cả người tự nhận là nhân viên Clucky.\nNếu không yêu cầu thao tác này, hãy bỏ qua email và không cung cấp mã.")
                 : switch (key) {
-                    case "ORDER_CANCELLED" -> "Email hủy đơn không phải xác nhận đã hoàn tiền.\nNếu có khoản hoàn, Clucky sẽ cập nhật tiến trình riêng.";
-                    case "PAYMENT_FAILED" -> "Nếu tài khoản ngân hàng đã bị trừ tiền,\nkhông chuyển thêm trước khi đối chiếu trạng thái.";
-                    case "REFUND_APPROVED" -> "Yêu cầu đang được xử lý.\nĐây chưa phải xác nhận tiền đã về tài khoản.";
-                    case "REFUND_REJECTED", "REFUND_WAITING_BANK_DETAILS" -> "Chỉ cập nhật thông tin trong ứng dụng.\nKhông trả lời email bằng số tài khoản, chứng từ hoặc mã OTP.";
-                    case "REFUND_PROCESSED" -> "Nếu chưa thấy tiền về, hãy đối chiếu thông tin\ntrong yêu cầu hoàn tiền và với ngân hàng.";
-                    default -> "Theo dõi trạng thái và thông tin giao dịch\ntrong trang chi tiết đơn hàng.";
+                    case "ORDER_CANCELLED" -> isEn ? "An order cancellation notice is not a refund confirmation.\nAny applicable refund is tracked separately."
+                            : "Email hủy đơn không phải xác nhận đã hoàn tiền.\nNếu có khoản hoàn, Clucky sẽ cập nhật tiến trình riêng.";
+                    case "PAYMENT_FAILED" -> isEn ? "If your bank account was debited,\nplease do not make another transfer before checking status."
+                            : "Nếu tài khoản ngân hàng đã bị trừ tiền,\nkhông chuyển thêm trước khi đối chiếu trạng thái.";
+                    case "REFUND_APPROVED" -> isEn ? "Your request is being processed.\nThis is not confirmation that funds have arrived yet."
+                            : "Yêu cầu đang được xử lý.\nĐây chưa phải xác nhận tiền đã về tài khoản.";
+                    case "REFUND_REJECTED", "REFUND_WAITING_BANK_DETAILS" -> isEn
+                            ? "Only update information in the Clucky app.\nNever reply to this email with bank details, receipts, or OTP codes."
+                            : "Chỉ cập nhật thông tin trong ứng dụng.\nKhông trả lời email bằng số tài khoản, chứng từ hoặc mã OTP.";
+                    case "REFUND_PROCESSED" -> isEn ? "If you have not received funds yet, please verify the details\nin the refund request and with your bank."
+                            : "Nếu chưa thấy tiền về, hãy đối chiếu thông tin\ntrong yêu cầu hoàn tiền và với ngân hàng.";
+                    default -> isEn ? "Track order status and transaction details\non the order details page."
+                            : "Theo dõi trạng thái và thông tin giao dịch\ntrong trang chi tiết đơn hàng.";
                 };
-        String footer = (security ? "" : "Đây là thông báo giao dịch, không phải hóa đơn thuế.\n")
-                + "Email tự động, vui lòng không trả lời.";
+        String footer = (security ? "" : (isEn ? "This is a transactional notification, not a tax invoice.\n" : "Đây là thông báo giao dịch, không phải hóa đơn thuế.\n"))
+                + (isEn ? "Automated email — please do not reply." : "Email tự động, vui lòng không trả lời.");
         text.append("\n\n").append(notice).append("\n\nClucky — Crispy outside. Happy inside.\n").append(footer);
-        String eyebrow = security ? "register-otp".equals(key) ? "CHÀO MỪNG ĐẾN VỚI CLUCKY" : "BẢO MẬT TÀI KHOẢN"
-                : key.startsWith("ORDER_") ? "CẢM ƠN BẠN ĐÃ CHỌN CLUCKY" : "THÔNG TIN GIAO DỊCH";
+        String eyebrow = security
+                ? ("register-otp".equals(key)
+                    ? (isEn ? "WELCOME TO CLUCKY" : "CHÀO MỪNG ĐẾN VỚI CLUCKY")
+                    : (isEn ? "ACCOUNT SECURITY" : "BẢO MẬT TÀI KHOẢN"))
+                : (key.startsWith("ORDER_")
+                    ? (isEn ? "THANK YOU FOR CHOOSING CLUCKY" : "CẢM ƠN BẠN ĐÃ CHỌN CLUCKY")
+                    : (isEn ? "TRANSACTION UPDATE" : "THÔNG TIN GIAO DỊCH"));
         String cleaned = sanitizeHtml(htmlTemplate);
         Map<String, String> eventHtmlValues = values.entrySet().stream()
                 .filter(entry -> entry.getValue() != null)
                 .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> escape(entry.getValue())));
         Map<String, String> layoutValues = Map.of(
-                "subject", escape(subject), "title", escape(heading(key, subject)), "eyebrow", eyebrow,
+                "subject", escape(subject), "title", escape(heading(key, subject, isEn)), "eyebrow", eyebrow,
                 "content", lines(body), "details", details.toString(), "action", action,
                 "notice", lines(notice), "footer", lines(footer));
         String html;
@@ -213,32 +237,39 @@ public class EmailTemplateRenderer {
             String htmlBody = cleaned == null ? lines(body) : substitute(cleaned, eventHtmlValues);
             var substitutions = new HashMap<>(layoutValues);
             substitutions.put("content", htmlBody);
-            html = substitute(layout, substitutions);
+            String effectiveLayout = isEn ? layout.replace("<html lang=\"vi\">", "<html lang=\"en\">") : layout;
+            html = substitute(effectiveLayout, substitutions);
         }
         return Map.of("subject", subject, "body", text.toString(), "html", html);
     }
 
-    private void appendOrder(StringBuilder text, StringBuilder html, Map<String, String> values) {
+    private void appendOrder(StringBuilder text, StringBuilder html, Map<String, String> values, boolean isEn) {
         com.fasterxml.jackson.databind.JsonNode items;
         try { items = mapper.readTree(values.getOrDefault("orderItems", "[]")); }
         catch (IOException invalid) { throw new IllegalArgumentException("Invalid email order items"); }
         if (items == null || !items.isArray() || items.size() > 30) throw new IllegalArgumentException("Invalid email order items");
         if (!items.isEmpty()) {
-            text.append("\n\nMón bạn đã chọn:");
-            html.append("""
-                    <h2 style="margin:28px 0 16px;color:#16100D;font-size:16px;font-weight:700;line-height:24px;">Món bạn đã chọn</h2>
-                    <table width="100%" cellpadding="0" cellspacing="0" aria-label="Chi tiết món ăn" style="table-layout:fixed;font-size:14px;line-height:22px;">
-                    <thead><tr><th scope="col" align="left" style="width:60%;padding:0 12px 10px 0;border-bottom:1px solid #EEE9E2;color:#827366;font-size:12px;font-weight:400;">Món ăn</th>
-                    <th scope="col" align="right" style="padding:0 0 10px;border-bottom:1px solid #EEE9E2;color:#827366;font-size:12px;font-weight:400;">Thành tiền</th></tr></thead><tbody>
-                    """);
+            text.append(isEn ? "\n\nItems ordered:" : "\n\nMón bạn đã chọn:");
+            html.append("<h2 style=\"margin:28px 0 16px;color:#16100D;font-size:16px;font-weight:700;line-height:24px;\">"
+                    + (isEn ? "Items ordered" : "Món bạn đã chọn") + "</h2>"
+                    + "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" aria-label=\""
+                    + (isEn ? "Order items" : "Chi tiết món ăn") + "\" style=\"table-layout:fixed;font-size:14px;line-height:22px;\">"
+                    + "<thead><tr><th scope=\"col\" align=\"left\" style=\"width:60%;padding:0 12px 10px 0;border-bottom:1px solid #EEE9E2;color:#827366;font-size:12px;font-weight:400;\">"
+                    + (isEn ? "Item" : "Món ăn") + "</th>"
+                    + "<th scope=\"col\" align=\"right\" style=\"padding:0 0 10px;border-bottom:1px solid #EEE9E2;color:#827366;font-size:12px;font-weight:400;\">"
+                    + (isEn ? "Subtotal" : "Thành tiền") + "</th></tr></thead><tbody>");
             for (var item : items) {
                 if (!item.path("itemName").isTextual() || item.path("itemName").asText().length() > 200
                         || !item.path("quantity").isIntegralNumber() || !item.path("quantity").canConvertToInt()
                         || item.path("quantity").intValue() <= 0) throw new IllegalArgumentException("Invalid email order item");
                 String name = item.path("itemName").asText();
                 String quantity = item.path("quantity").asText();
-                String unit = item.hasNonNull("unitPrice") ? quantity + " × " + money(item.path("unitPrice").asText()) : "Số lượng: " + quantity;
-                String total = item.hasNonNull("lineTotal") ? money(item.path("lineTotal").asText()) : "Xem chi tiết đơn";
+                String unit = item.hasNonNull("unitPrice")
+                        ? quantity + " × " + money(item.path("unitPrice").asText())
+                        : (isEn ? "Qty: " : "Số lượng: ") + quantity;
+                String total = item.hasNonNull("lineTotal")
+                        ? money(item.path("lineTotal").asText())
+                        : (isEn ? "See order details" : "Xem chi tiết đơn");
                 text.append('\n').append(name).append(" — ").append(unit).append(" — ").append(total);
                 html.append("<tr><td style=\"padding:16px 12px 16px 0;border-bottom:1px solid #EEE9E2;vertical-align:top;\"><p style=\"margin:0;color:#16100D;font-weight:700;\">")
                         .append(escape(name)).append("</p><p style=\"margin:4px 0 0;color:#827366;font-size:12px;line-height:20px;\">")
@@ -248,12 +279,16 @@ public class EmailTemplateRenderer {
             html.append("</tbody></table>");
         }
         if ("true".equals(values.get("moreItems"))) {
-            text.append("\nCác món còn lại: xem đầy đủ trong chi tiết đơn.");
-            html.append("<p style=\"color:#827366;font-size:12px;line-height:20px;\">Các món còn lại: xem đầy đủ trong chi tiết đơn.</p>");
+            String moreMsg = isEn ? "Additional items: see full list in order details." : "Các món còn lại: xem đầy đủ trong chi tiết đơn.";
+            text.append('\n').append(moreMsg);
+            html.append("<p style=\"color:#827366;font-size:12px;line-height:20px;\">").append(moreMsg).append("</p>");
         }
         html.append("<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:12px;\">");
-        String[][] totals = {{"subtotal", "Tạm tính"}, {"discountAmount", "Giảm giá"}, {"pointsAmount", "Giảm từ điểm"},
-                {"shippingFee", "Phí giao hàng"}, {"totalAmount", "Tổng đơn hàng"}};
+        String[][] totals = isEn
+                ? new String[][]{{"subtotal", "Subtotal"}, {"discountAmount", "Discount"}, {"pointsAmount", "Points redeemed"},
+                        {"shippingFee", "Delivery fee"}, {"totalAmount", "Total"}}
+                : new String[][]{{"subtotal", "Tạm tính"}, {"discountAmount", "Giảm giá"}, {"pointsAmount", "Giảm từ điểm"},
+                        {"shippingFee", "Phí giao hàng"}, {"totalAmount", "Tổng đơn hàng"}};
         for (var total : totals) {
             String amount = values.get(total[0]);
             if (amount == null) continue;
@@ -263,39 +298,62 @@ public class EmailTemplateRenderer {
             appendRow(text, html, total[1], (reduction ? "−" : "") + formatted, "totalAmount".equals(total[0]));
         }
         html.append("</table>");
-        // A fully discounted order never collects cash or a bank transfer.
-        // The mail event already carries the authoritative final order total.
         String finalTotal = values.get("totalAmount");
         boolean noPayment = finalTotal != null && new java.math.BigDecimal(finalTotal).signum() == 0
                 && "COLLECTED".equals(values.get("paymentStatus"));
         if (noPayment) {
-            String payment = "Đơn hàng miễn thanh toán — ưu đãi đã giảm toàn bộ số tiền phải trả (0đ).";
+            String payment = isEn
+                    ? "Zero-payment order — discounts covered the full order total (0 VND)."
+                    : "Đơn hàng miễn thanh toán — ưu đãi đã giảm toàn bộ số tiền phải trả (0đ).";
             text.append('\n').append(payment);
             html.append("<p style=\"margin:8px 0 0;color:#827366;font-size:12px;line-height:20px;\">")
                     .append(escape(payment)).append("</p>");
             return;
         }
         String method = switch (values.getOrDefault("paymentMethod", "")) {
-            case "COD" -> "Thanh toán khi nhận";
-            case "CASH" -> "Tiền mặt";
-            case "BANK_TRANSFER" -> "Chuyển khoản ngân hàng";
-            case "TRANSFER" -> "Chuyển khoản ngân hàng";
-            case "MIXED", "SPLIT" -> "Tiền mặt và chuyển khoản";
+            case "COD" -> isEn ? "Cash on delivery" : "Thanh toán khi nhận";
+            case "CASH" -> isEn ? "Cash" : "Tiền mặt";
+            case "BANK_TRANSFER", "TRANSFER" -> isEn ? "Bank transfer" : "Chuyển khoản ngân hàng";
+            case "MIXED", "SPLIT" -> isEn ? "Cash & bank transfer" : "Tiền mặt và chuyển khoản";
             default -> "";
         };
         String status = switch (values.getOrDefault("paymentStatus", "")) {
-            case "PAID" -> "Đã thanh toán";
-            case "PENDING" -> "Chưa xác nhận thanh toán";
-            case "COLLECTED" -> "Đã ghi nhận thu tại quầy; khoản chuyển khai báo có thể còn chờ đối soát";
-            case "REFUNDED" -> "Đã ghi nhận hoàn tiền";
-            default -> "Xem trạng thái thanh toán trong chi tiết đơn";
+            case "PAID" -> isEn ? "Paid" : "Đã thanh toán";
+            case "PENDING" -> isEn ? "Payment pending confirmation" : "Chưa xác nhận thanh toán";
+            case "COLLECTED" -> isEn ? "Counter payment collected; declared transfers may await bank reconciliation"
+                    : "Đã ghi nhận thu tại quầy; khoản chuyển khai báo có thể còn chờ đối soát";
+            case "REFUNDED" -> isEn ? "Refund recorded" : "Đã ghi nhận hoàn tiền";
+            default -> isEn ? "View payment status in order details" : "Xem trạng thái thanh toán trong chi tiết đơn";
         };
         String payment = (method.isEmpty() ? "" : method + " · ") + status;
         text.append('\n').append(payment);
         html.append("<p style=\"margin:8px 0 0;color:#827366;font-size:12px;line-height:20px;\">").append(escape(payment)).append("</p>");
     }
 
-    private static String heading(String key, String fallback) {
+    private static String heading(String key, String fallback, boolean isEn) {
+        if (isEn) {
+            return switch (key) {
+                case "register-otp" -> "Verify your email";
+                case "reset-password-otp", "BRANCH_RESET" -> "Reset password";
+                case "BRANCH_ACTIVATE" -> "Activate branch account";
+                case "BRANCH_RECOVERY" -> "Verify recovery email";
+                case "BRANCH_ADMIN_RESET" -> "Confirm password reset";
+                case "BRANCH_ADMIN_RECOVERY" -> "Confirm recovery email change";
+                case "ORDER_CREATED" -> "Clucky has received your order";
+                case "ORDER_CONFIRMED" -> "Order confirmed";
+                case "ORDER_PREPARING" -> "Preparing your food";
+                case "ORDER_READY" -> "Your order is ready";
+                case "ORDER_COMPLETED" -> "Thank you for dining with us!";
+                case "ORDER_CANCELLED" -> "Order cancelled";
+                case "PAYMENT_CONFIRMED" -> "Payment confirmed";
+                case "PAYMENT_FAILED" -> "Payment unsuccessful";
+                case "REFUND_APPROVED" -> "Refund request accepted";
+                case "REFUND_REJECTED" -> "Refund request declined";
+                case "REFUND_WAITING_BANK_DETAILS" -> "Update refund bank details";
+                case "REFUND_PROCESSED" -> "Refund completed";
+                default -> fallback;
+            };
+        }
         return switch (key) {
             case "register-otp" -> "Xác thực email của bạn";
             case "reset-password-otp", "BRANCH_RESET" -> "Đặt lại mật khẩu";

@@ -1,11 +1,20 @@
 package com.clucky.catalogstoreservice.dto;
 
+import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
+
 import java.math.BigDecimal;
 import java.text.Normalizer;
 import java.util.ArrayList;
@@ -15,29 +24,85 @@ import java.util.regex.Pattern;
 
 public class ProductDto {
 
+    private static LocalizedText parseLocalizedJson(JsonNode node) {
+        if (node == null || node.isNull()) return null;
+        if (node.isTextual()) return LocalizedText.ofSingle(node.asText());
+        if (node.isObject()) {
+            String vi = node.has("vi") && !node.get("vi").isNull() ? node.get("vi").asText() : null;
+            String en = node.has("en") && !node.get("en").isNull() ? node.get("en").asText() : null;
+            return new LocalizedText(vi != null ? vi.trim() : "", en != null ? en.trim() : "");
+        }
+        return null;
+    }
+
     public static class OptionChoiceDto {
         private String id;
-        @NotBlank(message = "Tên lựa chọn không được để trống")
-        @jakarta.validation.constraints.Size(max = 100)
         private String name;
-        @NotNull(message = "Giá điều chỉnh không được để trống")
-        @DecimalMin(value = "0.0", message = "Giá điều chỉnh không được âm")
-        @jakarta.validation.constraints.Digits(integer = 12, fraction = 0)
+        private LocalizedText nameI18n;
+        @NotNull(message = "Price adjustment is required")
+        @DecimalMin(value = "0.0", message = "Price adjustment must be non-negative")
+        @Digits(integer = 12, fraction = 0)
         private BigDecimal priceAdjustment = BigDecimal.ZERO;
 
         public OptionChoiceDto() {}
 
         public OptionChoiceDto(String id, String name, BigDecimal priceAdjustment) {
+            this(id, name, LocalizedText.ofSingle(name), priceAdjustment);
+        }
+
+        public OptionChoiceDto(String id, String name, LocalizedText nameI18n, BigDecimal priceAdjustment) {
             this.id = id;
             this.name = name;
+            this.nameI18n = nameI18n;
             this.priceAdjustment = priceAdjustment != null ? priceAdjustment : BigDecimal.ZERO;
         }
 
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
 
+        @JsonGetter("name")
         public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
+
+        @JsonIgnore
+        public void setName(String name) {
+            this.name = name;
+            if (this.nameI18n == null && name != null) {
+                this.nameI18n = LocalizedText.ofSingle(name);
+            }
+        }
+
+        @JsonSetter("name")
+        public void setNameFromJson(JsonNode node) {
+            LocalizedText parsed = parseLocalizedJson(node);
+            if (parsed != null) {
+                if (this.nameI18n == null) this.nameI18n = parsed;
+                this.name = parsed.resolve("vi");
+            } else {
+                this.name = null;
+            }
+        }
+
+        public LocalizedText getNameI18n() { return nameI18n; }
+        public void setNameI18n(LocalizedText nameI18n) {
+            this.nameI18n = nameI18n;
+            if (this.name == null && nameI18n != null) {
+                this.name = nameI18n.resolve("vi");
+            }
+        }
+
+        @JsonIgnore
+        public LocalizedText effectiveName() {
+            return nameI18n != null && nameI18n.hasText() ? nameI18n : LocalizedText.ofSingle(name);
+        }
+
+        @JsonIgnore
+        @AssertTrue(message = "Option choice name is required and must be at most 100 characters")
+        public boolean isNameValid() {
+            LocalizedText effective = effectiveName();
+            if (effective == null || !effective.hasVi()) return false;
+            return (effective.vi() == null || effective.vi().length() <= 100)
+                    && (effective.en() == null || effective.en().length() <= 100);
+        }
 
         public BigDecimal getPriceAdjustment() { return priceAdjustment; }
         public void setPriceAdjustment(BigDecimal priceAdjustment) { this.priceAdjustment = priceAdjustment; }
@@ -45,19 +110,23 @@ public class ProductDto {
 
     public static class OptionGroupDto {
         private String id;
-        @NotBlank(message = "Tên nhóm tùy chọn không được để trống")
-        @jakarta.validation.constraints.Size(max = 80)
         private String name;
+        private LocalizedText nameI18n;
         private boolean required = true;
         @Valid
-        @jakarta.validation.constraints.NotEmpty
+        @NotEmpty
         private List<@NotNull OptionChoiceDto> choices = new ArrayList<>();
 
         public OptionGroupDto() {}
 
         public OptionGroupDto(String id, String name, boolean required, List<OptionChoiceDto> choices) {
+            this(id, name, LocalizedText.ofSingle(name), required, choices);
+        }
+
+        public OptionGroupDto(String id, String name, LocalizedText nameI18n, boolean required, List<OptionChoiceDto> choices) {
             this.id = id;
             this.name = name;
+            this.nameI18n = nameI18n;
             this.required = required;
             this.choices = choices != null ? choices : new ArrayList<>();
         }
@@ -65,8 +134,49 @@ public class ProductDto {
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
 
+        @JsonGetter("name")
         public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
+
+        @JsonIgnore
+        public void setName(String name) {
+            this.name = name;
+            if (this.nameI18n == null && name != null) {
+                this.nameI18n = LocalizedText.ofSingle(name);
+            }
+        }
+
+        @JsonSetter("name")
+        public void setNameFromJson(JsonNode node) {
+            LocalizedText parsed = parseLocalizedJson(node);
+            if (parsed != null) {
+                if (this.nameI18n == null) this.nameI18n = parsed;
+                this.name = parsed.resolve("vi");
+            } else {
+                this.name = null;
+            }
+        }
+
+        public LocalizedText getNameI18n() { return nameI18n; }
+        public void setNameI18n(LocalizedText nameI18n) {
+            this.nameI18n = nameI18n;
+            if (this.name == null && nameI18n != null) {
+                this.name = nameI18n.resolve("vi");
+            }
+        }
+
+        @JsonIgnore
+        public LocalizedText effectiveName() {
+            return nameI18n != null && nameI18n.hasText() ? nameI18n : LocalizedText.ofSingle(name);
+        }
+
+        @JsonIgnore
+        @AssertTrue(message = "Option group name is required and must be at most 80 characters")
+        public boolean isNameValid() {
+            LocalizedText effective = effectiveName();
+            if (effective == null || !effective.hasVi()) return false;
+            return (effective.vi() == null || effective.vi().length() <= 80)
+                    && (effective.en() == null || effective.en().length() <= 80);
+        }
 
         public boolean isRequired() { return required; }
         public void setRequired(boolean required) { this.required = required; }
@@ -77,27 +187,72 @@ public class ProductDto {
 
     public static class ToppingDto {
         private String id;
-        @NotBlank(message = "Tên topping không được để trống")
-        @jakarta.validation.constraints.Size(max = 120)
         private String name;
-        @NotNull(message = "Giá topping không được để trống")
-        @DecimalMin(value = "0.0", message = "Giá topping không được âm")
-        @jakarta.validation.constraints.Digits(integer = 12, fraction = 0)
+        private LocalizedText nameI18n;
+        @NotNull(message = "Topping price is required")
+        @DecimalMin(value = "0.0", message = "Topping price must be non-negative")
+        @Digits(integer = 12, fraction = 0)
         private BigDecimal price = BigDecimal.ZERO;
 
         public ToppingDto() {}
 
         public ToppingDto(String id, String name, BigDecimal price) {
+            this(id, name, LocalizedText.ofSingle(name), price);
+        }
+
+        public ToppingDto(String id, String name, LocalizedText nameI18n, BigDecimal price) {
             this.id = id;
             this.name = name;
+            this.nameI18n = nameI18n;
             this.price = price != null ? price : BigDecimal.ZERO;
         }
 
         public String getId() { return id; }
         public void setId(String id) { this.id = id; }
 
+        @JsonGetter("name")
         public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
+
+        @JsonIgnore
+        public void setName(String name) {
+            this.name = name;
+            if (this.nameI18n == null && name != null) {
+                this.nameI18n = LocalizedText.ofSingle(name);
+            }
+        }
+
+        @JsonSetter("name")
+        public void setNameFromJson(JsonNode node) {
+            LocalizedText parsed = parseLocalizedJson(node);
+            if (parsed != null) {
+                if (this.nameI18n == null) this.nameI18n = parsed;
+                this.name = parsed.resolve("vi");
+            } else {
+                this.name = null;
+            }
+        }
+
+        public LocalizedText getNameI18n() { return nameI18n; }
+        public void setNameI18n(LocalizedText nameI18n) {
+            this.nameI18n = nameI18n;
+            if (this.name == null && nameI18n != null) {
+                this.name = nameI18n.resolve("vi");
+            }
+        }
+
+        @JsonIgnore
+        public LocalizedText effectiveName() {
+            return nameI18n != null && nameI18n.hasText() ? nameI18n : LocalizedText.ofSingle(name);
+        }
+
+        @JsonIgnore
+        @AssertTrue(message = "Topping name is required and must be at most 120 characters")
+        public boolean isNameValid() {
+            LocalizedText effective = effectiveName();
+            if (effective == null || !effective.hasVi()) return false;
+            return (effective.vi() == null || effective.vi().length() <= 120)
+                    && (effective.en() == null || effective.en().length() <= 120);
+        }
 
         public BigDecimal getPrice() { return price; }
         public void setPrice(BigDecimal price) { this.price = price; }
@@ -113,10 +268,13 @@ public class ProductDto {
         private Long id;
         private String slug;
         private String name;
+        private LocalizedText nameI18n;
         private Long categoryId;
         private String categoryName;
+        private LocalizedText categoryNameI18n;
         private String category;
         private String description;
+        private LocalizedText descriptionI18n;
         private BigDecimal basePrice;
         private BigDecimal price;
         private String imageUrl;
@@ -145,6 +303,9 @@ public class ProductDto {
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
 
+        public LocalizedText getNameI18n() { return nameI18n; }
+        public void setNameI18n(LocalizedText nameI18n) { this.nameI18n = nameI18n; }
+
         public Long getCategoryId() { return categoryId; }
         public void setCategoryId(Long categoryId) { this.categoryId = categoryId; }
 
@@ -154,11 +315,17 @@ public class ProductDto {
             this.category = categoryName;
         }
 
+        public LocalizedText getCategoryNameI18n() { return categoryNameI18n; }
+        public void setCategoryNameI18n(LocalizedText categoryNameI18n) { this.categoryNameI18n = categoryNameI18n; }
+
         public String getCategory() { return category; }
         public void setCategory(String category) { this.category = category; }
 
         public String getDescription() { return description; }
         public void setDescription(String description) { this.description = description; }
+
+        public LocalizedText getDescriptionI18n() { return descriptionI18n; }
+        public void setDescriptionI18n(LocalizedText descriptionI18n) { this.descriptionI18n = descriptionI18n; }
 
         public BigDecimal getBasePrice() { return basePrice; }
         public void setBasePrice(BigDecimal basePrice) {
@@ -216,24 +383,26 @@ public class ProductDto {
     }
 
     public static class Request {
-        @jakarta.validation.constraints.PositiveOrZero
+        @PositiveOrZero
         private Long expectedVersion;
         public Long getExpectedVersion() { return expectedVersion; }
         public void setExpectedVersion(Long expectedVersion) { this.expectedVersion = expectedVersion; }
-        @NotBlank(message = "Tên món không được để trống")
-        @jakarta.validation.constraints.Size(max = 180)
-        private String name;
 
-        @NotNull(message = "Danh mục không được để trống")
-        @jakarta.validation.constraints.Positive
+        @ValidLocalizedText(required = true, max = 180, message = "Product name is required and must be at most 180 characters")
+        private LocalizedText name;
+        private LocalizedText nameI18n;
+
+        @NotNull(message = "Category ID is required")
+        @Positive
         private Long categoryId;
 
-        @NotBlank(message = "Mô tả không được để trống")
-        private String description;
+        @ValidLocalizedText(required = true, message = "Product description is required")
+        private LocalizedText description;
+        private LocalizedText descriptionI18n;
 
-        @NotNull(message = "Giá gốc không được để trống")
+        @NotNull(message = "Base price is required")
         @DecimalMin(value = "0.0")
-        @jakarta.validation.constraints.Digits(integer = 12, fraction = 0)
+        @Digits(integer = 12, fraction = 0)
         private BigDecimal basePrice;
 
         private String imageUrl;
@@ -250,14 +419,30 @@ public class ProductDto {
         @Valid
         private List<@NotNull ToppingDto> toppings;
 
-        public String getName() { return name; }
-        public void setName(String name) { this.name = name; }
+        public LocalizedText getName() { return name != null ? name : nameI18n; }
+        public void setName(LocalizedText name) { this.name = name; }
+        @JsonIgnore
+        public void setName(String name) { this.name = LocalizedText.ofSingle(name); }
+
+        public LocalizedText getNameI18n() { return nameI18n; }
+        public void setNameI18n(LocalizedText nameI18n) {
+            this.nameI18n = nameI18n;
+            if (this.name == null) this.name = nameI18n;
+        }
 
         public Long getCategoryId() { return categoryId; }
         public void setCategoryId(Long categoryId) { this.categoryId = categoryId; }
 
-        public String getDescription() { return description; }
-        public void setDescription(String description) { this.description = description; }
+        public LocalizedText getDescription() { return description != null ? description : descriptionI18n; }
+        public void setDescription(LocalizedText description) { this.description = description; }
+        @JsonIgnore
+        public void setDescription(String description) { this.description = LocalizedText.ofSingle(description); }
+
+        public LocalizedText getDescriptionI18n() { return descriptionI18n; }
+        public void setDescriptionI18n(LocalizedText descriptionI18n) {
+            this.descriptionI18n = descriptionI18n;
+            if (this.description == null) this.description = descriptionI18n;
+        }
 
         public BigDecimal getBasePrice() { return basePrice; }
         public void setBasePrice(BigDecimal basePrice) { this.basePrice = basePrice; }
@@ -289,7 +474,8 @@ public class ProductDto {
 
     public static String toSlug(String input) {
         if (input == null) return "";
-        String nowhitespace = WHITESPACE.matcher(input).replaceAll("-");
+        String replaced = input.replace('đ', 'd').replace('Đ', 'D');
+        String nowhitespace = WHITESPACE.matcher(replaced).replaceAll("-");
         String normalized = Normalizer.normalize(nowhitespace, Normalizer.Form.NFD);
         String slug = NONLATIN.matcher(normalized).replaceAll("");
         return slug.toLowerCase(Locale.ENGLISH).replaceAll("-+", "-").replaceAll("^-|-$", "");

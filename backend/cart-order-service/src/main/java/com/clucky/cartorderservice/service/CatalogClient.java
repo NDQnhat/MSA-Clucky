@@ -1,6 +1,8 @@
 package com.clucky.cartorderservice.service;
 
 import com.clucky.cartorderservice.cart.CartItemDto;
+import com.clucky.cartorderservice.config.LocaleResolverHelper;
+import com.clucky.cartorderservice.dto.LocalizedText;
 import com.clucky.cartorderservice.exception.ApiException;
 import com.clucky.cartorderservice.exception.ErrorCode;
 import org.slf4j.Logger;
@@ -58,11 +60,14 @@ public class CatalogClient {
             Long productId,
             Long comboId,
             String name,
+            LocalizedText nameI18n,
             BigDecimal unitPrice,
             BigDecimal extraPrice,
             Integer quantity,
             BigDecimal lineTotal,
             boolean available,
+            String errorCode,
+            boolean insufficientStock,
             String reason,
             List<JsonNode> optionsSnapshot,
             List<JsonNode> toppingsSnapshot,
@@ -73,8 +78,18 @@ public class CatalogClient {
                                     BigDecimal extraPrice, Integer quantity, BigDecimal lineTotal,
                                     boolean available, String reason, List<JsonNode> optionsSnapshot,
                                     List<JsonNode> toppingsSnapshot) {
-            this(productId, comboId, name, unitPrice, extraPrice, quantity, lineTotal, available,
-                    reason, optionsSnapshot, toppingsSnapshot, List.of(), List.of());
+            this(productId, comboId, name, LocalizedText.ofSingle(name), unitPrice, extraPrice, quantity, lineTotal,
+                    available, null, false, reason, optionsSnapshot, toppingsSnapshot, List.of(), List.of());
+        }
+
+        public ValidatedCatalogItem(Long productId, Long comboId, String name, BigDecimal unitPrice,
+                                    BigDecimal extraPrice, Integer quantity, BigDecimal lineTotal,
+                                    boolean available, String reason, List<JsonNode> optionsSnapshot,
+                                    List<JsonNode> toppingsSnapshot, List<JsonNode> comboOptionsSnapshot,
+                                    List<JsonNode> comboToppingsSnapshot) {
+            this(productId, comboId, name, LocalizedText.ofSingle(name), unitPrice, extraPrice, quantity, lineTotal,
+                    available, null, false, reason, optionsSnapshot, toppingsSnapshot,
+                    comboOptionsSnapshot, comboToppingsSnapshot);
         }
     }
 
@@ -114,10 +129,14 @@ public class CatalogClient {
             throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         }
 
+        String lang = LocaleResolverHelper.currentRequestLang();
         try {
             CatalogValidationResponse response = restClient.post()
-                    .uri(catalogServiceUrl + "/api/catalog/internal/validate-items")
-                    .headers(headers -> headers.setBearerAuth(serviceToken))
+                    .uri(catalogServiceUrl + "/api/catalog/internal/validate-items?lang=" + lang)
+                    .headers(headers -> {
+                        headers.setBearerAuth(serviceToken);
+                        headers.set("Accept-Language", lang);
+                    })
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(requestBody)
                     .retrieve()

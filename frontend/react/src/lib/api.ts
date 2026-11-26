@@ -1,6 +1,7 @@
 import axios, { AxiosError } from 'axios';
 import { signIn, endSession, loadSession, refreshSession, expireSession, isSessionExpired, getSessionState, type SessionUser } from './session';
 import { getBrowserLocale, getErrorMessage as resolveError, getTranslator } from '../i18n/core';
+import type { LocalizedText } from './bilingual';
 import type { StoreStatus } from '../types/store';
 import type {
   AdminVoucher,
@@ -15,13 +16,15 @@ import type {
 export interface ProductOptionGroup {
   id: string;
   name: string;
+  nameI18n?: LocalizedText;
   required: boolean;
-  choices: { id: string; name: string; priceAdjustment: number }[];
+  choices: { id: string; name: string; nameI18n?: LocalizedText; priceAdjustment: number }[];
 }
 
 export interface ProductTopping {
   id: string;
   name: string;
+  nameI18n?: LocalizedText;
   price: number;
 }
 
@@ -31,9 +34,12 @@ export interface Product {
   id: number;
   slug: string;
   name: string;
+  nameI18n?: LocalizedText;
   categoryId: number;
   categoryName: string;
+  categoryNameI18n?: LocalizedText;
   description: string;
+  descriptionI18n?: LocalizedText;
   basePrice: number;
   imageUrl?: string | null;
   kcal?: number | null;
@@ -53,14 +59,16 @@ export interface Combo {
   imagePublicId?: string | null;
   id: number;
   name: string;
+  nameI18n?: LocalizedText;
   slug: string;
   description: string;
+  descriptionI18n?: LocalizedText;
   comboPrice: number;
   imageUrl?: string | null;
   startAt?: string | null;
   endAt?: string | null;
   isActive: boolean;
-  items: { id?: number; productId: number; productName: string; quantity: number; optionId?: number | null }[];
+  items: { id?: number; productId: number; productName: string; productNameI18n?: LocalizedText; quantity: number; optionId?: number | null }[];
 }
 
 export interface Store {
@@ -72,14 +80,18 @@ export interface Store {
   longitude?: number | null;
   id: number;
   name: string;
+  nameI18n?: LocalizedText;
   address: string;
   district?: string | null;
+  districtI18n?: LocalizedText | null;
   city?: string | null;
+  cityI18n?: LocalizedText | null;
   phone: string;
   openTime: string;
   closeTime: string;
   status: StoreStatus;
   deliveryArea?: string | null;
+  deliveryAreaI18n?: LocalizedText | null;
   managerId?: number;
   managerName?: string;
   isOpenNow?: boolean;
@@ -92,7 +104,9 @@ export interface InventoryItem {
   storeId: number;
   productId: number;
   productName: string;
+  productNameI18n?: LocalizedText;
   categoryName: string;
+  categoryNameI18n?: LocalizedText;
   imageUrl?: string | null;
   quantityAvailable: number;
   lowStockThreshold: number;
@@ -108,6 +122,7 @@ export interface CatalogCategory {
   version?: number;
   id: number;
   name: string;
+  nameI18n?: LocalizedText;
   imageUrl?: string;
   sortOrder: number;
   isActive: boolean;
@@ -240,6 +255,7 @@ export interface BackendOrderItem {
   productId?: number;
   comboId?: number;
   itemName: string;
+  itemNameI18n?: LocalizedText;
   unitPrice: number;
   quantity: number;
   optionsSnapshot?: unknown;
@@ -650,7 +666,7 @@ export const promotionsApi = {
   createPrintBatch: (campaignId: number | string, data: CreatePrintBatchPayload, signal?: AbortSignal) =>
     api.post<VoucherPrintBatch>(`/api/promotions/vouchers/${campaignId}/print-batches`, data, { signal }).then((r) => r.data),
   listPrintBatches: (
-    params?: { campaignId?: number; storeId?: number; status?: string },
+    params?: { campaignId?: number; storeId?: number; status?: string; lang?: string },
     signal?: AbortSignal
   ) => api.get<VoucherPrintBatch[]>('/api/promotions/vouchers/print-batches', { params, signal }).then((r) => r.data),
   revokePrintBatch: (batchId: number | string, reason?: string, signal?: AbortSignal) =>
@@ -810,13 +826,13 @@ export const storesApi = {
     api.get<Store[]>('/api/stores', { params: { activeOnly }, signal }).then((r) => r.data),
   get: (id: number) =>
     api.get<Store>(`/api/stores/${id}`).then((r) => r.data),
-  create: (data: Partial<Store>, idempotencyKey: string) =>
+  create: (data: Partial<Store> | Record<string, unknown>, idempotencyKey: string) =>
     api.post<Store>('/api/stores', data, { headers: { 'Idempotency-Key': idempotencyKey } }).then((r) => r.data),
-  update: (id: number, data: Partial<Store>) =>
+  update: (id: number, data: Partial<Store> | Record<string, unknown>) =>
     api.put<Store>(`/api/stores/${id}`, data).then((r) => r.data),
   delete: (id: number) =>
     api.delete(`/api/stores/${id}`).then((r) => r.data),
-  updateOperation: (id: number, data: { openTime?: string; closeTime?: string; status?: string; phone?: string; latitude?: number | null; longitude?: number | null; deliveryArea?: string; lowStockThreshold?: number }) =>
+  updateOperation: (id: number, data: { openTime?: string; closeTime?: string; status?: string; phone?: string; latitude?: number | null; longitude?: number | null; deliveryArea?: string | LocalizedText; lowStockThreshold?: number }) =>
     api.put<Store>(`/api/stores/${id}/operation`, data).then((r) => r.data),
 };
 

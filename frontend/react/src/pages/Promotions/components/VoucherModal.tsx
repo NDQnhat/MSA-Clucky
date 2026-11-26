@@ -19,11 +19,17 @@ import { useTranslation } from 'react-i18next';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
 import { AdminModal } from '../../../components/ui/AdminModal';
+import { BilingualField } from '../../../components/ui/BilingualField';
 import { useAuth } from '../../../context/AuthContext';
+import {
+  isLocalizedViValid,
+  pickLocalized,
+  toLocalizedInput,
+  toLocalizedPayload,
+  type LocalizedText,
+} from '../../../lib/bilingual';
 import type { AdminVoucher, VoucherPayload, VoucherStatus, VoucherType } from '../../../types/promotion';
 import type { Store } from '../../../lib/api';
-
-const { TextArea } = Input;
 
 export interface VoucherModalProps {
   open: boolean;
@@ -43,7 +49,8 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
   onSubmit,
 }) => {
   const { user, isAdmin } = useAuth();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage || i18n.language || 'vi';
   const [form] = Form.useForm();
   const selectedApplicability = Form.useWatch('applicability', form);
   const selectedType = Form.useWatch('type', form);
@@ -54,8 +61,8 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
     if (open) {
       if (editingVoucher) {
         form.setFieldsValue({
-          title: editingVoucher.title || '',
-          description: editingVoucher.description || '',
+          titleI18n: toLocalizedInput(editingVoucher.titleI18n, editingVoucher.title),
+          descriptionI18n: toLocalizedInput(editingVoucher.descriptionI18n, editingVoucher.description),
           type: editingVoucher.type,
           value: editingVoucher.value,
           minOrderAmount: editingVoucher.minOrderAmount || 0,
@@ -81,6 +88,8 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
         // Defaults for new voucher
         form.resetFields();
         form.setFieldsValue({
+          titleI18n: { vi: '', en: '' },
+          descriptionI18n: { vi: '', en: '' },
           type: 'PERCENT',
           value: 10,
           minOrderAmount: 0,
@@ -97,8 +106,8 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
   }, [open, editingVoucher, form, isAdmin, user.storeId]);
 
   const handleFinish = async (values: {
-    title?: string;
-    description?: string;
+    titleI18n?: LocalizedText;
+    descriptionI18n?: LocalizedText;
     type: VoucherType;
     value: number;
     minOrderAmount?: number;
@@ -124,10 +133,14 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
     const storeId = editingVoucher && !isLegacyEdit
       ? (editingVoucher.storeId == null ? null : Number(editingVoucher.storeId))
       : scope === 'STORE' && selectedStoreIds.length === 1 ? selectedStoreIds[0] : null;
+    const titlePayload = toLocalizedPayload(values.titleI18n);
+    const descriptionPayload = toLocalizedPayload(values.descriptionI18n);
     const payload: VoucherPayload = {
       code: editingVoucher?.campaignKind === 'LEGACY' ? editingVoucher.code : null,
-      title: values.title?.trim(),
-      description: values.description?.trim(),
+      title: titlePayload ?? { vi: '', en: '' },
+      titleI18n: titlePayload ?? null,
+      description: descriptionPayload ?? null,
+      descriptionI18n: descriptionPayload ?? null,
       type: values.type,
       value: values.value,
       minOrderAmount: values.minOrderAmount ?? 0,
@@ -196,20 +209,43 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
         <Row gutter={16}>
           <Col xs={24}>
             <Form.Item
-              name="title"
+              name="titleI18n"
               label={t('admin:voucherUi.campaignTitle')}
-              rules={[{ required: true, whitespace: true, message: t('admin:voucherUi.campaignTitleRequired') },
-                { max: 255, message: t('admin:voucherUi.campaignTitleLimit') }]}
+              rules={[
+                {
+                  validator: async (_, val: LocalizedText | undefined) => {
+                    if (!isLocalizedViValid(val)) {
+                      return Promise.reject(new Error(t('admin:voucherUi.campaignTitleRequired')));
+                    }
+                    if ((val?.vi?.trim().length ?? 0) > 255 || (val?.en?.trim().length ?? 0) > 255) {
+                      return Promise.reject(new Error(t('admin:voucherUi.campaignTitleLimit')));
+                    }
+                  },
+                },
+              ]}
             >
-              <Input placeholder={t('admin:voucherUi.campaignTitlePlaceholder')} />
+              <BilingualField
+                requiredVi
+                maxLength={255}
+                viLabel={t('admin:voucherUi.viLanguage')}
+                enLabel={t('admin:voucherUi.enLanguage')}
+                viPlaceholder={t('admin:voucherUi.campaignTitlePlaceholderVi')}
+                enPlaceholder={t('admin:voucherUi.campaignTitlePlaceholderEn')}
+                showEnFallbackHint
+                fallbackHintText={t('admin:voucherUi.fallbackEnHint')}
+              />
             </Form.Item>
           </Col>
         </Row>
 
-        <Form.Item name="description" label="Mô tả chi tiết / Thể lệ áp dụng">
-          <TextArea
+        <Form.Item name="descriptionI18n" label={t('admin:voucherUi.descriptionLabel')}>
+          <BilingualField
+            multiline
             rows={2}
-            placeholder="VD: Áp dụng cho mọi đơn giao hàng tận nơi. Không áp dụng đồng thời chương trình khác."
+            viLabel={t('admin:voucherUi.viLanguage')}
+            enLabel={t('admin:voucherUi.enLanguage')}
+            viPlaceholder={t('admin:voucherUi.descriptionPlaceholderVi')}
+            enPlaceholder={t('admin:voucherUi.descriptionPlaceholderEn')}
           />
         </Form.Item>
 
@@ -217,15 +253,15 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
           <Col xs={24} sm={12}>
             <Form.Item
               name="type"
-              label="Loại giảm giá"
-              rules={[{ required: true, message: 'Vui lòng chọn loại giảm giá' }]}
+              label={t('admin:voucherUi.discountType')}
+              rules={[{ required: true, message: t('admin:voucherUi.discountTypeRequired') }]}
             >
               <Radio.Group buttonStyle="solid" style={{ width: '100%' }}>
                 <Radio.Button value="PERCENT" style={{ width: '50%', textAlign: 'center' }}>
-                  Phần trăm (%)
+                  {t('admin:voucherUi.percentUnitLabel')}
                 </Radio.Button>
                 <Radio.Button value="AMOUNT" style={{ width: '50%', textAlign: 'center' }}>
-                  Tiền mặt (VNĐ)
+                  {t('admin:voucherUi.amountUnitLabel')}
                 </Radio.Button>
               </Radio.Group>
             </Form.Item>
@@ -234,17 +270,17 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
           <Col xs={24} sm={12}>
             <Form.Item
               name="value"
-              label={selectedType === 'PERCENT' ? 'Mức giảm (%)' : 'Mức giảm (VNĐ)'}
+              label={selectedType === 'PERCENT' ? t('admin:voucherUi.discountPercentLabel') : t('admin:voucherUi.discountAmountLabel')}
               rules={[
-                { required: true, message: 'Vui lòng nhập giá trị giảm' },
+                { required: true, message: t('admin:voucherUi.discountValueRequired') },
                 {
                   validator: async (_, val) => {
                     if (val === undefined || val === null) return;
                     if (val <= 0) {
-                      return Promise.reject(new Error('Giá trị giảm phải lớn hơn 0'));
+                      return Promise.reject(new Error(t('admin:voucherUi.discountValuePositive')));
                     }
                     if (selectedType === 'PERCENT' && val > 100) {
-                      return Promise.reject(new Error('Mức giảm theo phần trăm không được vượt quá 100%'));
+                      return Promise.reject(new Error(t('admin:voucherUi.discountPercentMax')));
                     }
                   },
                 },
@@ -254,7 +290,7 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
                 style={{ width: '100%' }}
                 min={1}
                 max={selectedType === 'PERCENT' ? 100 : 10000000}
-                placeholder={selectedType === 'PERCENT' ? 'VD: 20' : 'VD: 30000'}
+                placeholder={selectedType === 'PERCENT' ? t('admin:voucherUi.examplePercentPlaceholder') : t('admin:voucherUi.exampleAmountPlaceholder')}
                 formatter={(val) =>
                   selectedType === 'PERCENT'
                     ? `${val}%`
@@ -270,22 +306,22 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
           <Col xs={24} sm={12}>
             <Form.Item
               name="minOrderAmount"
-              label="Đơn hàng tối thiểu (VNĐ)"
+              label={t('admin:voucherUi.minOrderLabel')}
               rules={[
                 {
                   validator: async (_, val) => {
                     if (val !== undefined && val !== null && val < 0) {
-                      return Promise.reject(new Error('Giá trị đơn hàng tối thiểu không được âm'));
+                      return Promise.reject(new Error(t('admin:voucherUi.minOrderNegative')));
                     }
                   },
                 },
               ]}
-              extra="0 = Không yêu cầu mức đơn tối thiểu"
+              extra={t('admin:voucherUi.minOrderHint')}
             >
               <InputNumber<number>
                 style={{ width: '100%' }}
                 min={0}
-                placeholder="VD: 150000"
+                placeholder={t('admin:voucherUi.minOrderPlaceholder')}
                 formatter={(val) => `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                 parser={(val) => Number(val?.replace(/\D/g, '') || 0)}
               />
@@ -295,13 +331,13 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
           <Col xs={24} sm={12}>
             <Form.Item
               name="maxDiscount"
-              label="Giảm tối đa (VNĐ)"
-              extra={selectedType === 'PERCENT' ? 'Giới hạn mức giảm tối đa cho mã %' : 'Bỏ trống nếu không giới hạn'}
+              label={t('admin:voucherUi.maxDiscountLabel')}
+              extra={selectedType === 'PERCENT' ? t('admin:voucherUi.maxDiscountPercentHint') : t('admin:voucherUi.maxDiscountUnlimitedHint')}
               rules={[
                 {
                   validator: async (_, val) => {
                     if (val !== undefined && val !== null && val < 0) {
-                      return Promise.reject(new Error('Mức giảm tối đa không được âm'));
+                      return Promise.reject(new Error(t('admin:voucherUi.maxDiscountNegative')));
                     }
                   },
                 },
@@ -310,7 +346,7 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
               <InputNumber<number>
                 style={{ width: '100%' }}
                 min={0}
-                placeholder="VD: 50000"
+                placeholder={t('admin:voucherUi.maxDiscountPlaceholder')}
                 formatter={(val) => (val ? `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
                 parser={(val) => Number(val?.replace(/\D/g, '') || 0)}
               />
@@ -333,7 +369,7 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
                       return Promise.reject(new Error(t('admin:voucherPrinting.printableRequiresLimit')));
                     }
                     if (val !== undefined && val !== null && val < 1) {
-                      return Promise.reject(new Error('Giới hạn số lượt dùng tối thiểu là 1'));
+                      return Promise.reject(new Error(t('admin:voucherUi.minUsageLimitOne')));
                     }
                   },
                 },
@@ -351,8 +387,8 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
             <Form.Item
               name="status"
               hidden={!isAdmin}
-              label="Trạng thái kích hoạt"
-              rules={[{ required: true, message: 'Vui lòng chọn trạng thái' }]}
+              label={t('admin:voucherUi.activationStatus')}
+              rules={[{ required: true, message: t('admin:voucherUi.statusRequired') }]}
             >
               <Select
                 options={[
@@ -366,15 +402,15 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
 
         <Form.Item
           name="dateRange"
-          label="Thời gian hiệu lực (Bắt đầu — Kết thúc)"
+          label={t('admin:voucherUi.validityRange')}
           rules={[
-            { required: true, message: 'Vui lòng chọn thời gian hiệu lực' },
+            { required: true, message: t('admin:voucherUi.validityRangeRequired') },
             {
               validator: async (_, dates) => {
                 if (!dates || !dates[0] || !dates[1]) return;
                 const [start, end] = dates;
                 if (!end.isAfter(start)) {
-                  return Promise.reject(new Error('Thời gian kết thúc phải sau thời gian bắt đầu'));
+                  return Promise.reject(new Error(t('admin:voucherUi.validityEndAfterStart')));
                 }
               },
             },
@@ -384,7 +420,7 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
             showTime={{ format: 'HH:mm' }}
             format="YYYY-MM-DD HH:mm"
             style={{ width: '100%' }}
-            placeholder={['Bắt đầu lúc', 'Kết thúc lúc']}
+            placeholder={[t('admin:voucherUi.startAtPlaceholder'), t('admin:voucherUi.endAtPlaceholder')]}
           />
         </Form.Item>
 
@@ -394,7 +430,7 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
             <Form.Item
               name="applicability"
               label={t('admin:voucherUi.applicability')}
-              rules={[{ required: true, message: 'Vui lòng chọn phạm vi áp dụng' }]}
+              rules={[{ required: true, message: t('admin:voucherUi.applicabilityRequired') }]}
               extra={!isAdmin ? t('admin:voucherUi.managerHelp') : undefined}
             >
               <Radio.Group
@@ -433,7 +469,7 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
                   disabled={!isAdmin}
                   options={stores.filter(s => isAdmin || Number(user.storeId) === Number(s.id)).map((s) => ({
                     value: s.id,
-                    label: `${s.name} (#${s.id})`,
+                    label: `${pickLocalized(s.nameI18n, s.name, lang)} (#${s.id})`,
                   }))}
                 />
               </Form.Item>

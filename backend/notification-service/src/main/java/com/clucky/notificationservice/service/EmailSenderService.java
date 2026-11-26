@@ -97,11 +97,14 @@ public class EmailSenderService {
             String displaySubject;
             try {
                 var template = templates.findByTemplateKeyAndIsActiveTrue(effectiveTemplate).orElseThrow();
-                content = renderer.render(effectiveTemplate, template.getSubjectTemplate(), template.getBodyTemplate(),
-                        template.getHtmlTemplate(),
-                        variables, messageId, expiry);
+                String lang = variables.getOrDefault("locale", "vi");
+                String subjectTmpl = template.resolveSubjectTemplate(lang);
+                String bodyTmpl = template.resolveBodyTemplate(lang);
+                String htmlTmpl = template.resolveHtmlTemplate(lang);
+                content = renderer.render(effectiveTemplate, subjectTmpl, bodyTmpl,
+                        htmlTmpl, variables, messageId, expiry);
                 displaySubject = sensitive ? "Clucky — Account verification"
-                        : PLACEHOLDER.matcher(template.getSubjectTemplate()).replaceAll("(…)");
+                        : PLACEHOLDER.matcher(subjectTmpl).replaceAll("(…)");
             } catch (Exception invalidTemplate) {
                 terminal(delivery, "FAILED", "INVALID_TEMPLATE");
                 return;

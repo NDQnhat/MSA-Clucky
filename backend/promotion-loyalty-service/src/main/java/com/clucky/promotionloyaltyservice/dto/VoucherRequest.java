@@ -4,6 +4,7 @@ import com.clucky.promotionloyaltyservice.model.VoucherScope;
 import com.clucky.promotionloyaltyservice.model.VoucherApplicability;
 import com.clucky.promotionloyaltyservice.model.VoucherStatus;
 import com.clucky.promotionloyaltyservice.model.VoucherType;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
@@ -26,10 +27,12 @@ public class VoucherRequest {
     private VoucherApplicability applicability = VoucherApplicability.ALL;
     private Set<@Positive Long> storeIds = Set.of();
 
-    @Size(max = 255, message = "Tiêu đề tối đa 255 ký tự")
-    private String title;
+    @ValidLocalizedText(required = false, max = 255, message = "Title must be at most 255 characters")
+    private LocalizedText title;
+    private LocalizedText titleI18n;
 
-    private String description;
+    private LocalizedText description;
+    private LocalizedText descriptionI18n;
 
     @NotNull(message = "Loại voucher (PERCENT hoặc AMOUNT) không được để trống")
     private VoucherType type;
@@ -89,20 +92,48 @@ public class VoucherRequest {
         this.code = code;
     }
 
-    public String getTitle() {
-        return title;
+    public LocalizedText getTitle() {
+        return title != null ? title : titleI18n;
     }
 
-    public void setTitle(String title) {
+    public void setTitle(LocalizedText title) {
         this.title = title;
     }
 
-    public String getDescription() {
-        return description;
+    @JsonIgnore
+    public void setTitle(String title) {
+        this.title = LocalizedText.ofSingle(title);
     }
 
-    public void setDescription(String description) {
+    public LocalizedText getTitleI18n() {
+        return titleI18n;
+    }
+
+    public void setTitleI18n(LocalizedText titleI18n) {
+        this.titleI18n = titleI18n;
+        if (this.title == null) this.title = titleI18n;
+    }
+
+    public LocalizedText getDescription() {
+        return description != null ? description : descriptionI18n;
+    }
+
+    public void setDescription(LocalizedText description) {
         this.description = description;
+    }
+
+    @JsonIgnore
+    public void setDescription(String description) {
+        this.description = LocalizedText.ofSingle(description);
+    }
+
+    public LocalizedText getDescriptionI18n() {
+        return descriptionI18n;
+    }
+
+    public void setDescriptionI18n(LocalizedText descriptionI18n) {
+        this.descriptionI18n = descriptionI18n;
+        if (this.description == null) this.description = descriptionI18n;
     }
 
     public VoucherType getType() {

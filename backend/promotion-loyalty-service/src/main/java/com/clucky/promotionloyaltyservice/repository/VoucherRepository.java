@@ -68,7 +68,7 @@ public interface VoucherRepository extends JpaRepository<Voucher, Long>, JpaSpec
           AND (
                :keyword IS NULL
             OR LOWER(v.code) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%'))
-            OR LOWER(v.title) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%'))
+            OR LOWER(CAST(v.title AS string)) LIKE LOWER(CONCAT('%', CAST(:keyword AS string), '%'))
           )
         ORDER BY v.id DESC
     """)

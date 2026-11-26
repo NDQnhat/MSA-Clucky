@@ -1,6 +1,6 @@
 'use client';
 import { useFeedback } from "@/components/feedback";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 
 
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
@@ -11,6 +11,7 @@ import { ProductCard } from '@/components/product-card';
 import { CategoryIcon } from '@/components/category-icon';
 import { StyledSelect } from '@/components/styled-select';
 import { catalogApi, getErrorMessage, request, type CategoryItem, type ProductItem, type StoreItem } from '@/lib/api';
+import { matchesBilingualSearch, pickLocalized, type LocalizedText } from '@/lib/bilingual';
 import {
   Search,
   X,
@@ -25,6 +26,7 @@ import {
 
 function MenuContent() {
   const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
   const initialCategory = Number(searchParams.get('cat')) || 0;
@@ -38,7 +40,7 @@ function MenuContent() {
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [currentStore, setCurrentStore] = useState<StoreItem | null>(null);
   const [openStores, setOpenStores] = useState<StoreItem[]>([]);
-  const [categories, setCategories] = useState<{ id: number; name: string; messageKey?: string }[]>([
+  const [categories, setCategories] = useState<{ id: number; name: string; nameI18n?: LocalizedText | null; messageKey?: string }[]>([
     { id: 0, name: 'All', messageKey: 'menu.categories.all' },
   ]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +55,7 @@ function MenuContent() {
 
   useEffect(() => {
     let active = true;
-    request<StoreItem[]>('/api/stores?activeOnly=true')
+    request<StoreItem[]>(`/api/stores?activeOnly=true&lang=${encodeURIComponent(locale)}`)
       .then((data) => {
         if (!active || !Array.isArray(data)) return;
         const available = data
@@ -65,7 +67,7 @@ function MenuContent() {
         if (active) setOpenStores([]);
       });
     return () => { active = false; };
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     let active = true;
@@ -82,16 +84,16 @@ function MenuContent() {
 
       try {
         const [liveProds, liveCats, storeDetail] = await Promise.all([
-          catalogApi.getProducts({ storeId, activeOnly: true }),
-          catalogApi.getCategories(true),
-          storeId ? catalogApi.getStoreById(storeId).catch(() => null) : Promise.resolve(null),
+          catalogApi.getProducts({ storeId, activeOnly: true, lang: locale }),
+          catalogApi.getCategories(true, locale),
+          storeId ? catalogApi.getStoreById(storeId, locale).catch(() => null) : Promise.resolve(null),
         ]);
         if (active) {
           setProducts(liveProds);
           setCurrentStore(storeDetail);
           setCategories([
             { id: 0, name: 'All', messageKey: 'menu.categories.all' },
-            ...liveCats.map((c: CategoryItem) => ({ id: c.id, name: c.name })),
+            ...liveCats.map((c: CategoryItem) => ({ id: c.id, name: c.name, nameI18n: c.nameI18n })),
           ]);
         }
       } catch (err) {
@@ -102,7 +104,7 @@ function MenuContent() {
     };
     fetchCatalog();
     return () => { active = false; };
-  }, [storeId, hasInvalidStoreId]);
+  }, [storeId, hasInvalidStoreId, locale]);
 
   // Reset to page 1 on filter changes
   useEffect(() => {
@@ -114,17 +116,26 @@ function MenuContent() {
     return products
       .filter((p) => {
         // Category Filter
-        const selectedCategoryName = categories.find((category) => category.id === selectedCategory)?.name;
+        const selectedCat = categories.find((category) => category.id === selectedCategory);
+        const selectedCategoryName = selectedCat
+          ? pickLocalized(selectedCat.nameI18n, selectedCat.name, locale)
+          : undefined;
+        const productCategoryName = pickLocalized(p.categoryNameI18n, p.categoryName ?? p.category, locale);
         const matchCat =
           selectedCategory === 0 ||
           p.categoryId === selectedCategory ||
           (selectedCategoryName?.toLocaleLowerCase() === 'combo' &&
-            p.categoryName?.toLocaleLowerCase() === 'combo');
-        // Search Term
-        const matchSearch =
-          p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          p.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          (p.categoryName ?? p.category ?? '').toLowerCase().includes(searchTerm.toLowerCase());
+            productCategoryName.toLocaleLowerCase() === 'combo');
+        // Search Term (matches both vi and en fields + diacritic-insensitive)
+        const matchSearch = matchesBilingualSearch(
+          searchTerm,
+          p.nameI18n,
+          p.name,
+          p.descriptionI18n,
+          p.description,
+          p.categoryNameI18n,
+          p.categoryName ?? p.category,
+        );
         // Spicy Filter
         const matchSpicy =
           spicyFilter === 'ALL' || p.spicyLevel?.toString() === spicyFilter;
@@ -136,7 +147,7 @@ function MenuContent() {
         if (sortOption === 'PRICE_DESC') return (b.basePrice || b.price) - (a.basePrice || a.price);
         return 0;
       });
-  }, [products, categories, selectedCategory, searchTerm, spicyFilter, sortOption]);
+  }, [products, categories, selectedCategory, searchTerm, spicyFilter, sortOption, locale]);
 
   const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
   const paginatedProducts = useMemo(() => {
@@ -166,18 +177,24 @@ function MenuContent() {
   const storeOptions = useMemo(() => {
     const options = [
       { value: 'ALL', label: t("menu.storeFilter.all") },
-      ...openStores.map((s) => ({
-        value: String(s.id),
-        label: s.isOpenNow === false
-          ? `${s.name} (${t("menu.storeFilter.outsideHoursShort")})`
-          : s.name,
-      })),
+      ...openStores.map((s) => {
+        const sName = pickLocalized(s.nameI18n, s.name, locale);
+        return {
+          value: String(s.id),
+          label: s.isOpenNow === false
+            ? `${sName} (${t("menu.storeFilter.outsideHoursShort")})`
+            : sName,
+        };
+      }),
     ];
     if (storeId && currentStore && !openStores.some((s) => s.id === currentStore.id)) {
-      options.push({ value: String(currentStore.id), label: currentStore.name });
+      options.push({
+        value: String(currentStore.id),
+        label: pickLocalized(currentStore.nameI18n, currentStore.name, locale),
+      });
     }
     return options;
-  }, [openStores, storeId, currentStore, t]);
+  }, [openStores, storeId, currentStore, t, locale]);
 
   const errorMessage = hasInvalidStoreId ? t("menu.errors.invalidStoreId") : loadError;
 
@@ -232,7 +249,7 @@ function MenuContent() {
             }}
           >
             <span>
-              {currentStore ? `📍 ${currentStore.name}` : `${t("menu.storePrefix")}${storeId}`}
+              {currentStore ? `📍 ${pickLocalized(currentStore.nameI18n, currentStore.name, locale)}` : `${t("menu.storePrefix")}${storeId}`}
             </span>
             {currentStore && (
               currentStore.status === 'OPEN' ? (
@@ -468,7 +485,7 @@ function MenuContent() {
                 }}
               >
                 <CategoryIcon id={cat.id} size={18} active={isActive} />
-                <span>{cat.messageKey ? t(cat.messageKey) : cat.name}</span>
+                <span>{cat.messageKey ? t(cat.messageKey) : pickLocalized(cat.nameI18n, cat.name, locale)}</span>
               </button>
             );
           })}

@@ -11,6 +11,7 @@ import {
 } from "@/lib/api";
 import { useLocaleTools } from "@/lib/i18n/hooks";
 import { getErrorMessage } from "@/lib/i18n/core";
+import { pickLocalized } from "@/lib/bilingual";
 import { ReviewRepliesList } from "./review-replies-list";
 import { StarDisplay } from "./star-rating-input";
 import styles from "./reviews.module.css";
@@ -52,7 +53,7 @@ export function ProductReviewsSection({
         setData(summary);
         const map: Record<number, string> = {};
         for (const store of stores) {
-          map[store.id] = store.name;
+          map[store.id] = pickLocalized(store.nameI18n, store.name, locale);
         }
         setStoreNames(map);
       })

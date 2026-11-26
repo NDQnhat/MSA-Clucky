@@ -8,7 +8,7 @@ export interface BankInfo {
 // VietQR removes separators from the bank transfer reference. Keep the text
 // shown beside the QR identical to the value encoded in the bank payload.
 export function transferReference(orderCode: string): string {
-  return orderCode.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'D').replace(/[^A-Za-z0-9]/g, '');
+  return orderCode.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\u0110\u0111]/g, 'D').replace(/[^A-Za-z0-9]/g, '');
 }
 
 export function buildVietQrUrl({

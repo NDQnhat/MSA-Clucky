@@ -37,7 +37,7 @@ interface CounterPaymentModalProps {
 }
 
 const formatVnd = (val: number) => {
-  return new Intl.NumberFormat("vi-VN").format(val) + " đ";
+  return `${new Intl.NumberFormat(i18n.language?.startsWith("en") ? "en-US" : "vi-VN").format(val)} ${i18n.t("common:currency")}`;
 };
 
 
@@ -250,7 +250,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const quickBills = useMemo(() => {
     if (!order) return [];
     const list: { label: string; value: number }[] = [];
-    list.push({ label: "Đủ tiền: " + formatVnd(totalDue), value: totalDue });
+    list.push({ label: t("business:counterPayment.exactAmount", { amount: formatVnd(totalDue) }), value: totalDue });
 
     const presets = [50000, 100000, 200000, 500000];
     presets.forEach((val) => {
@@ -274,7 +274,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
     try {
       await navigator.clipboard.writeText(text);
       setCopiedText(label);
-      message.success("Đã sao chép " + label);
+      message.success(t("business:counterPayment.copiedLabel", { label }));
       setTimeout(() => setCopiedText(""), 2000);
     } catch (failure) { message.error(getErrorMessage(failure)); }
   };
@@ -319,7 +319,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
   const formattedQueue = `#${String(order.queueNumber).padStart(3, "0")}`;
 
   return (
-    <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Thu tiền quầy">
+    <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label={t("business:counterPayment.dialogAria")}>
       <div className={styles.modalWindow}>
         {/* Header */}
         <div className={styles.modalHeader}>
@@ -332,20 +332,20 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
               </span>
             </div>
             <span style={{ fontSize: 13, color: "#6b6259" }}>
-              Khách hàng: <strong>{order.customerName || "Khách vãng lai"}</strong>
+              {t("business:counterPayment.customerLabel")} <strong>{order.customerName || t("business:counterPayment.walkInCustomer")}</strong>
             </span>
           </div>
 
           <div style={{ display: "flex", alignItems: "center" }}>
             <div className={styles.headerTotalDue}>
-              <div className={styles.dueLabel}>Tổng tiền cần thu</div>
+              <div className={styles.dueLabel}>{t("business:counterPayment.amountDueLabel")}</div>
               <div className={styles.dueAmount}>{formatVnd(totalDue)}</div>
             </div>
             <button
               type="button"
               className={styles.closeBtn}
               onClick={onClose}
-              aria-label="Đóng"
+              aria-label={t("common:close")}
             >
               <X size={18} />
             </button>
@@ -365,7 +365,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
             onClick={() => void changeMethod('CASH')}
           >
             <Wallet size={16} />
-            <span>Tiền mặt (CASH)</span>
+            <span>{t("business:counterPayment.cashTab")}</span>
           </button>
 
           <button
@@ -397,7 +397,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
             onClick={() => { if (!sepaySession) void changeMethod('SPLIT'); else setActiveTab('SPLIT'); }}
           >
             <Layers size={16} />
-            <span>Kết hợp (SPLIT)</span>
+            <span>{t("business:counterPayment.splitTab")}</span>
           </button>
         </div>
 
@@ -409,12 +409,11 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
 
         {/* Modal Body */}
         <div className={styles.modalBody}>
-          {/* TAB 1: TIỀN MẶT */}
           {activeTab === "CASH" && (
             <div className={styles.cashSection}>
               <div className={styles.fieldLabel}>
                 <Wallet size={16} color="#8f1216" />
-                <span>Số tiền khách đưa (VND):</span>
+                <span>{t("business:counterPayment.cashTenderedLabel")}</span>
               </div>
 
               <div className={styles.cashInputWrapper}>
@@ -429,13 +428,12 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
                   }}
                   autoFocus
                 />
-                <span className={styles.currencyUnit}>đ</span>
+                <span className={styles.currencyUnit}>{t("common:currency")}</span>
               </div>
 
-              {/* Nút chọn nhanh tiền chẵn */}
               <div>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#6b6259", marginBottom: 6, display: "block" }}>
-                  Gợi ý mệnh giá tiền nhanh:
+                  {t("business:counterPayment.quickDenominations")}
                 </span>
                 <div className={styles.quickCashGrid}>
                   {quickBills.map((bill, idx) => (
@@ -453,12 +451,11 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
                 </div>
               </div>
 
-              {/* Box hiển thị tiền thối tự động */}
               {isCashSufficient ? (
                 <div className={styles.changeResultBox}>
                   <div className={styles.changeLabel}>
                     <CheckCircle2 size={20} />
-                    <span>Tiền thối lại khách:</span>
+                    <span>{t("business:counterPayment.changeLabel")}</span>
                   </div>
                   <div className={styles.changeAmount}>
                     {formatVnd(cashChange)}
@@ -468,10 +465,10 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
                 <div className={styles.shortageBox}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700 }}>
                     <AlertTriangle size={18} />
-                    <span>Khách đưa chưa đủ tiền:</span>
+                    <span>{t("business:counterPayment.insufficientCashLabel")}</span>
                   </div>
                   <strong style={{ fontSize: 18 }}>
-                    Thiếu {formatVnd(totalDue - cashTendered)}
+                    {t("business:counterPayment.shortAmount", { amount: formatVnd(totalDue - cashTendered) })}
                   </strong>
                 </div>
               )}
@@ -506,7 +503,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
                 <div className={styles.qrImageFrame}>
                   <img
                     src={transferQr}
-                    alt="Mã VietQR Thanh Toán"
+                    alt={t("business:counterPayment.vietQrAlt")}
                     className={styles.qrImg}
                     onError={() => setQrFailed(true)}
                   />
@@ -514,43 +511,43 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
 
                 <div className={styles.bankDetails}>
                   <div className={styles.bankDetailRow}>
-                    <span className={styles.bankDetailLabel}>Ngân hàng thụ hưởng</span>
+                    <span className={styles.bankDetailLabel}>{t("business:counterPayment.bankNameLabel")}</span>
                     <span className={styles.bankDetailValue}>{bankInfo?.bankName}</span>
                     <span>{bankInfo?.accountName}</span>
                   </div>
 
                   <div className={styles.bankDetailRow}>
-                    <span className={styles.bankDetailLabel}>Số tài khoản quán</span>
+                    <span className={styles.bankDetailLabel}>{t("business:counterPayment.accountNumberLabel")}</span>
                     <div className={styles.bankDetailValue}>
                       <span>{bankInfo?.accountNo}</span>
                       <button
                         type="button"
                         className={styles.copyBtn}
                         aria-label={t("business:financeModal.copyAccount")}
-                        onClick={() => handleCopy(bankInfo?.accountNo ?? "", "STK")}
+                        onClick={() => handleCopy(bankInfo?.accountNo ?? "", t("business:counterPayment.accountNoKey"))}
                       >
-                        {copiedText === "STK" ? <Check size={14} color="#1e7a46" /> : <Copy size={14} />}
+                        {copiedText === t("business:counterPayment.accountNoKey") ? <Check size={14} color="#1e7a46" /> : <Copy size={14} />}
                       </button>
                     </div>
                   </div>
 
                   <div className={styles.bankDetailRow}>
-                    <span className={styles.bankDetailLabel}>Nội dung chuyển khoản</span>
+                    <span className={styles.bankDetailLabel}>{t("business:counterPayment.transferContentLabel")}</span>
                     <div className={styles.bankDetailValue}>
                       <span style={{ color: "#8f1216" }}>{reference}</span>
                       <button
                         type="button"
                         className={styles.copyBtn}
                         aria-label={t("business:financeModal.copyTransferReference")}
-                        onClick={() => handleCopy(reference, "Nội dung")}
+                        onClick={() => handleCopy(reference, t("business:counterPayment.transferContentKey"))}
                       >
-                        {copiedText === "Nội dung" ? <Check size={14} color="#1e7a46" /> : <Copy size={14} />}
+                        {copiedText === t("business:counterPayment.transferContentKey") ? <Check size={14} color="#1e7a46" /> : <Copy size={14} />}
                       </button>
                     </div>
                   </div>
 
                   <div className={styles.bankDetailRow}>
-                    <span className={styles.bankDetailLabel}>Số tiền chuyển</span>
+                    <span className={styles.bankDetailLabel}>{t("business:counterPayment.transferAmountLabel")}</span>
                     <span style={{ fontSize: 16, fontWeight: 800, color: "#1e7a46" }}>
                       {formatVnd(bankAmountDue)}
                     </span>
@@ -642,7 +639,7 @@ export const CounterPaymentModal: React.FC<CounterPaymentModalProps> = ({
         <div className={styles.modalFooter}>
           <div className={styles.footerHint}>
             {activeTab === "CASH" && (
-              <span>Thu tiền mặt trực tiếp và trả lại tiền thừa cho khách</span>
+              <span>{t("business:counterPayment.cashFooterHint")}</span>
             )}
             {activeTab === "BANK_TRANSFER" && (
               <span>{t('business:counterPayment.sepayAwaitWebhook')}</span>

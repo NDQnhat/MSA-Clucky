@@ -1,9 +1,12 @@
 package com.clucky.cartorderservice.cart;
 
+import com.clucky.cartorderservice.config.LocaleResolverHelper;
 import com.clucky.cartorderservice.config.RedisConfig;
+import com.clucky.cartorderservice.dto.LocalizedText;
 import com.clucky.cartorderservice.exception.ApiException;
 import com.clucky.cartorderservice.exception.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,7 +54,33 @@ public class CartService {
             }
         }
         items.sort(Comparator.comparing(CartItemDto::getItemKey));
+        String lang = LocaleResolverHelper.currentRequestLang();
+        for (CartItemDto item : items) {
+            localizeCartItem(item, lang);
+        }
         return CartDto.of(items);
+    }
+
+    public CartDto localizeCart(CartDto cart, String lang) {
+        if (cart != null && cart.getItems() != null) {
+            for (CartItemDto item : cart.getItems()) {
+                localizeCartItem(item, lang);
+            }
+        }
+        return cart;
+    }
+
+    private void localizeCartItem(CartItemDto item, String lang) {
+        if (item == null) return;
+        item.localizeFor(lang);
+        if (item.getOptionsSnapshot() != null) {
+            JsonNode optsNode = objectMapper.valueToTree(item.getOptionsSnapshot());
+            item.setOptionsSnapshot(LocalizedText.localizeSnapshotNode(optsNode, lang));
+        }
+        if (item.getToppingsSnapshot() != null) {
+            JsonNode topsNode = objectMapper.valueToTree(item.getToppingsSnapshot());
+            item.setToppingsSnapshot(LocalizedText.localizeSnapshotNode(topsNode, lang));
+        }
     }
 
     public CartDto addItem(String cartKey, CartItemDto item, Duration ttl) {
@@ -85,6 +114,15 @@ public class CartService {
                 }
                 if (item.getItemName() != null && !item.getItemName().isBlank()) {
                     existing.setItemName(item.getItemName());
+                }
+                if (item.getItemNameI18n() != null) {
+                    existing.setItemNameI18n(item.getItemNameI18n());
+                }
+                if (item.getOptionsSnapshot() != null) {
+                    existing.setOptionsSnapshot(item.getOptionsSnapshot());
+                }
+                if (item.getToppingsSnapshot() != null) {
+                    existing.setToppingsSnapshot(item.getToppingsSnapshot());
                 }
                 existing.setItemKey(itemKey);
                 redisTemplate.opsForHash().put(cartKey, itemKey, objectMapper.writeValueAsString(existing));

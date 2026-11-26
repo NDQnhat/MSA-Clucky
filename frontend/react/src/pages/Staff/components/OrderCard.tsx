@@ -37,7 +37,7 @@ interface OrderCardProps {
 }
 
 const defaultFormatMoney = (amount: number): string => {
-  return new Intl.NumberFormat("vi-VN").format(amount) + " đ";
+  return `${new Intl.NumberFormat(i18n.language?.startsWith("en") ? "en-US" : "vi-VN").format(amount)} ${i18n.t("common:currency")}`;
 };
 
 export const OrderCard: React.FC<OrderCardProps> = ({
@@ -165,7 +165,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
     <article
       className={cardClassName}
       tabIndex={0}
-      aria-label={"Đơn hàng " + formattedQueue + " mã " + order.orderCode}
+      aria-label={t("business:staffcard.ariaOrderCode", { queue: formattedQueue, code: order.orderCode })}
     >
       {/* 1. Header Thẻ */}
       <div className={styles.cardHeader}>
@@ -254,7 +254,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
             href={`tel:${order.customerPhone}`}
             className={styles.customerPhone}
             tabIndex={0}
-            aria-label={"Gọi khách hàng " + order.customerPhone}
+            aria-label={t("business:staffcard.callCustomer", { phone: order.customerPhone })}
           >
             {order.customerPhone}
           </a>
@@ -312,8 +312,8 @@ export const OrderCard: React.FC<OrderCardProps> = ({
             type="button"
             className={`${styles.actionButton} ${styles.btnSecondary}`}
             onClick={() => onViewDetails?.(order.id)}
-            aria-label={"Xem chi tiết đơn " + formattedQueue}
-            title="Xem chi tiết"
+            aria-label={t("business:staffcard.viewOrderAria", { queue: formattedQueue })}
+            title={t("business:staffcard.viewDetails")}
           >
             <Eye size={18} />
           </button>
@@ -343,7 +343,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
               type="button"
               className={`${styles.actionButton} ${styles.btnPrimary}`}
               onClick={() => onStatusChange?.(order.id, "PREPARING")}
-              aria-label={"Bắt đầu nấu đơn " + formattedQueue}
+              aria-label={t("business:staffcard.startCookingAria", { queue: formattedQueue })}
             >
               <ChefHat size={18} /> {t("business:staffcard.startCooking")}
             </button>
@@ -355,7 +355,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
                 type="button"
                 className={`${styles.actionButton} ${styles.btnSuccess}`}
                 onClick={() => onStatusChange?.(order.id, "READY")}
-                aria-label={"Báo xong món đơn " + formattedQueue}
+                aria-label={t("business:staffcard.foodReadyAria", { queue: formattedQueue })}
               >
                 <PackageCheck size={18} /> {t("business:staffcard.foodReady")}
               </button>
@@ -390,7 +390,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
                   type="button"
                   className={`${styles.actionButton} ${styles.btnSuccess}`}
                   onClick={() => onStatusChange?.(order.id, "COMPLETED")}
-                  aria-label={"Bàn giao đơn " + formattedQueue}
+                  aria-label={t("business:staffcard.handoverAria", { queue: formattedQueue })}
                 >
                   <CheckCircle2 size={18} /> {fulfillment === 'DINE_IN' ? i18n.t("shipping:ui.customerCollectedFoodAtTheCounter") : t("business:pickupFlow.handover")}
                 </button>
@@ -399,7 +399,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
                 type="button"
                 className={`${styles.actionButton} ${styles.btnSecondary}`}
                 onClick={() => onReprint?.(order)}
-                title="In lại hóa đơn / Xem bill"
+                title={t("business:staffcard.reprintTitle")}
               >
                 <Printer size={18} /> {t("business:staffcard.reprintReceipt")}
               </button>
@@ -418,7 +418,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
                 type="button"
                 className={`${styles.actionButton} ${styles.btnSecondary}`}
                 onClick={() => onReprint?.(order)}
-                title="In lại hóa đơn có watermark bản sao"
+                title={t("business:staffcard.reprintCopyTitle")}
               >
                 <Printer size={18} /> {t("business:staffcard.reprintReceipt")}
               </button>
@@ -426,7 +426,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({
                 type="button"
                 className={`${styles.actionButton} ${styles.btnSecondary}`}
                 onClick={() => onViewDetails?.(order.id)}
-                aria-label={"Xem lại hóa đơn " + formattedQueue}
+                aria-label={t("business:staffcard.viewReceiptAria", { queue: formattedQueue })}
               >
                 <CheckCircle2 size={18} /> {t("business:staffcard.completed")}
               </button>

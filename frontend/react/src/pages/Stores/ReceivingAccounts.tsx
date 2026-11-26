@@ -4,6 +4,7 @@ import { DeleteOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { notify } from '../../components/feedback';
 import { api, getErrorMessage, type Store } from '../../lib/api';
+import { matchesBilingualSearch, pickLocalized } from '../../lib/bilingual';
 import './receiving-accounts.css';
 
 interface ReceivingAccount {
@@ -40,11 +41,12 @@ type AccountFields = Pick<ReceivingAccount, 'bankName' | 'bankCode' | 'accountNo
 type AssignmentFields = { storeId: number; bankAccountId?: number | null };
 
 function normalizeSearch(text: string) {
-  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd').toLowerCase();
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\u0110\u0111]/g, 'd').toLowerCase();
 }
 
 export function ReceivingAccounts({ stores }: { stores: Store[] }) {
-  const { t } = useTranslation('payments');
+  const { t, i18n } = useTranslation('payments');
+  const lang = i18n.resolvedLanguage || i18n.language || 'vi';
   const [data, setData] = useState<Overview | null>(null);
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -265,7 +267,7 @@ export function ReceivingAccounts({ stores }: { stores: Store[] }) {
   const accounts = new Map(data?.accounts.map(item => [item.id, item]) ?? []);
   const filteredStores = stores.filter(store => {
     const currentAccountId = assignments.get(store.id);
-    return normalizeSearch(`${store.id} ${store.name} ${store.address ?? ''}`).includes(normalizeSearch(search))
+    return matchesBilingualSearch(search, String(store.id), store.nameI18n, store.name, store.address ?? '')
       && (!assignmentStatus || (assignmentStatus === 'assigned' ? !!currentAccountId : !currentAccountId))
       && (!accountFilter || currentAccountId === accountFilter);
   });
@@ -288,7 +290,10 @@ export function ReceivingAccounts({ stores }: { stores: Store[] }) {
             { title: t('status'), render: (_, account) => <Tag color={account.active ? 'success' : 'default'}>{t(account.active ? 'active' : 'inactive')}</Tag> },
             { title: t('stores'), render: (_, account) => data?.assignments
               .filter(assignment => assignment.bankAccountId === account.id)
-              .map(assignment => stores.find(store => store.id === assignment.storeId)?.name ?? `#${assignment.storeId}`)
+              .map(assignment => {
+                const matched = stores.find(store => store.id === assignment.storeId);
+                return matched ? pickLocalized(matched.nameI18n, matched.name, lang) : `#${assignment.storeId}`;
+              })
               .join(', ') || t('none') },
             { title: t('actions'), render: (_, account) => <Space size="small">
               <Button disabled={busy || loading} onClick={() => beginEditing(account)}>{t('edit')}</Button>
@@ -315,7 +320,7 @@ export function ReceivingAccounts({ stores }: { stores: Store[] }) {
       <div className="stores-receiving-table" role="region" aria-label={t('assignment')} tabIndex={0}>
         <Table<Store> rowKey="id" dataSource={data ? filteredStores : []} loading={loading}
           pagination={{ pageSize: 8 }} scroll={{ x: 680 }} columns={[
-            { title: t('store'), render: (_, store) => <><strong>{store.name}</strong><small className="stores-receiving-muted">{store.address}</small></> },
+            { title: t('store'), render: (_, store) => <><strong>{pickLocalized(store.nameI18n, store.name, lang)}</strong><small className="stores-receiving-muted">{store.address}</small></> },
             { title: t('receivingAccount'), render: (_, store) => {
               const account = accounts.get(assignments.get(store.id) ?? -1);
               return account
@@ -333,7 +338,7 @@ export function ReceivingAccounts({ stores }: { stores: Store[] }) {
       onOk={() => assignmentForm.submit()} confirmLoading={busy}
       okText={t('saveAssignment')} cancelText={t('cancel')}
       cancelButtonProps={{ disabled: busy }} closable={!busy} maskClosable={false} keyboard={!busy}>
-      <Typography.Title level={5}>{assignmentStore?.name}</Typography.Title>
+      <Typography.Title level={5}>{assignmentStore ? pickLocalized(assignmentStore.nameI18n, assignmentStore.name, lang) : undefined}</Typography.Title>
       <Typography.Paragraph type="secondary">{assignmentStore?.address}</Typography.Paragraph>
       {assignmentError && <Alert type="error" showIcon message={assignmentError} style={{ marginBottom: 16 }} />}
       <Form form={assignmentForm} layout="vertical" disabled={busy} onFinish={assign}>

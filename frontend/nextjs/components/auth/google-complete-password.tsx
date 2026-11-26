@@ -10,9 +10,9 @@ import type { LegalConsentInput } from "@/lib/api";
 import styles from "./auth-shared.module.css";
 
 export interface GoogleCompletePasswordProps {
-  /** Email Google đã xác thực — hiển thị cho user biết đang tạo mật khẩu cho tài khoản nào */
+  /** Verified Google email shown so the user sees which account the password is for. */
   email: string;
-  /** Gọi khi submit hợp lệ; parent xử lý POST /api/auth/google/complete với pendingToken + password */
+  /** Called on valid submit; parent calls POST /api/auth/google/complete with pendingToken + password. */
   onSubmit?: (password: string, consent?: LegalConsentInput) => void | Promise<void>;
   loading?: boolean;
   className?: string;

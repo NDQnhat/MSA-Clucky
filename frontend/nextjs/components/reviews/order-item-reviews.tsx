@@ -14,6 +14,7 @@ import { notify } from "@/components/feedback";
 import { useSession } from "@/components/auth/use-session";
 import { Modal } from "@/components/ui/modal";
 import { reviewApi, type ReviewDto } from "@/lib/api";
+import { pickLocalized } from "@/lib/bilingual";
 import { useLocaleTools } from "@/lib/i18n/hooks";
 import { getErrorMessage } from "@/lib/i18n/core";
 import type { Order, OrderItem } from "@/lib/types/order";
@@ -98,7 +99,7 @@ export function OrderItemReviews({ order }: OrderItemReviewsProps) {
         } else {
           productMap.set(item.productId, {
             productId: item.productId,
-            name: item.itemName,
+            name: pickLocalized(item.itemNameI18n, item.itemName, locale),
             quantity: item.quantity,
           });
         }

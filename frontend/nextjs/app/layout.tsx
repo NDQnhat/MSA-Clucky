@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
+import { normalizeLocale } from "@/lib/i18n/locale";
 import { resources } from "@/lib/i18n/resources";
 import "./globals.css";
 import { Toaster } from "@/components/feedback";
@@ -18,15 +19,18 @@ import { CustomerHeader } from "@/components/customer-header";
 import { CustomerFooter } from "@/components/customer-footer";
 import loaderStyles from "@/components/ui-loader/navigation-loader.module.css";
 
-export const metadata: Metadata = {
-  title: "Clucky — Crispy Outside, Happy Inside",
-  description:
-    resources.vi.business.layout.cluckyPremiumFriedChickenAndFastFoodOrderingPlatformCrispyOutsideHappy,
-  icons: {
-    icon: "/favicon.png",
-    apple: "/favicon.png",
-  },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = normalizeLocale(await getLocale());
+  return {
+    title: "Clucky — Crispy Outside, Happy Inside",
+    description:
+      resources[locale].business.layout.cluckyPremiumFriedChickenAndFastFoodOrderingPlatformCrispyOutsideHappy,
+    icons: {
+      icon: "/favicon.png",
+      apple: "/favicon.png",
+    },
+  };
+}
 
 export default async function RootLayout({
   children,

@@ -1,3 +1,5 @@
+import type { LocalizedText } from "../bilingual";
+
 export type OrderType = "DELIVERY" | "PICKUP";
 
 export type OrderStatus =
@@ -23,13 +25,16 @@ export type RefundStatus = "PENDING" | "APPROVED" | "REJECTED" | "REFUNDED" | "P
 export interface CartItemOption {
   id?: number;
   groupName: string;
+  groupNameI18n?: LocalizedText | null;
   name: string;
+  nameI18n?: LocalizedText | null;
   extraPrice: number;
 }
 
 export interface CartItemTopping {
   id?: number;
   name: string;
+  nameI18n?: LocalizedText | null;
   extraPrice: number;
 }
 
@@ -48,7 +53,9 @@ export interface CartItem {
   storeId?: number;
   slug: string;
   name: string;
+  nameI18n?: LocalizedText | null;
   category: string;
+  categoryI18n?: LocalizedText | null;
   basePrice: number;
   unitPrice: number;
   quantity: number;
@@ -69,6 +76,7 @@ export interface OrderItem {
   comboId?: number;
   slug?: string;
   itemName: string;
+  itemNameI18n?: LocalizedText | null;
   itemType: "PRODUCT" | "COMBO";
   unitPrice: number;
   quantity: number;

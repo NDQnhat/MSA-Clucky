@@ -1,8 +1,10 @@
 import { api } from './api';
+import type { LocalizedText } from './bilingual';
 
 export interface MailTemplateSummary {
   key: string;
   subject: string;
+  subjectI18n?: LocalizedText;
   active: boolean;
   updatedAt: string;
   publishedRevisionId: number | null;
@@ -13,8 +15,11 @@ export interface MailTemplateRevision {
   id: number;
   revision: number;
   subject: string;
+  subjectI18n?: LocalizedText;
   text: string;
+  textI18n?: LocalizedText;
   html: string | null;
+  htmlI18n?: LocalizedText | null;
   actorId: number;
   createdAt: string;
   publishedAt: string | null;
@@ -32,8 +37,12 @@ export interface MailPreview { subject: string; text: string; html: string }
 export interface MailDraftInput {
   expectedRevision: number;
   subject: string;
+  subjectEn?: string;
   text: string;
+  textEn?: string;
   html: string | null;
+  htmlEn?: string | null;
+  lang?: 'vi' | 'en';
 }
 
 const path = (key: string) => `/api/notifications/email-templates/${encodeURIComponent(key)}`;

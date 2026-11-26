@@ -1,6 +1,9 @@
 package com.clucky.catalogstoreservice.entity;
 
+import com.clucky.catalogstoreservice.dto.LocalizedText;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "categories")
@@ -15,8 +18,9 @@ public class Category {
 
     public long getVersion() { return version; }
 
-    @Column(nullable = false, length = 120)
-    private String name;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, columnDefinition = "jsonb")
+    private LocalizedText name;
 
     @Column(name = "image_url", columnDefinition = "TEXT")
     private String imageUrl;
@@ -29,7 +33,7 @@ public class Category {
 
     public Category() {}
 
-    public Category(Long id, String name, String imageUrl, Integer sortOrder, Boolean isActive) {
+    public Category(Long id, LocalizedText name, String imageUrl, Integer sortOrder, Boolean isActive) {
         this.id = id;
         this.name = name;
         this.imageUrl = imageUrl;
@@ -37,11 +41,17 @@ public class Category {
         this.isActive = isActive != null ? isActive : true;
     }
 
+    public Category(Long id, String name, String imageUrl, Integer sortOrder, Boolean isActive) {
+        this(id, LocalizedText.ofSingle(name), imageUrl, sortOrder, isActive);
+    }
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public LocalizedText getName() { return name; }
+    public void setName(LocalizedText name) { this.name = name; }
+    public void setName(String name) { this.name = LocalizedText.ofSingle(name); }
+    public String resolveName(String lang) { return LocalizedText.resolve(name, lang); }
 
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }

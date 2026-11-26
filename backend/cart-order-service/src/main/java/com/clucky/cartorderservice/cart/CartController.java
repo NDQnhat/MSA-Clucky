@@ -1,6 +1,7 @@
 package com.clucky.cartorderservice.cart;
 
 import com.clucky.cartorderservice.config.CurrentActor;
+import com.clucky.cartorderservice.config.LocaleResolverHelper;
 import com.clucky.cartorderservice.config.RedisConfig;
 import com.clucky.cartorderservice.dto.Role;
 import com.clucky.cartorderservice.exception.ApiException;
@@ -78,19 +79,25 @@ public class CartController {
     }
 
     @GetMapping
-    public ResponseEntity<CartDto> getCart(HttpServletRequest request, HttpServletResponse response) {
+    public ResponseEntity<CartDto> getCart(
+            @RequestParam(name = "lang", required = false) String lang,
+            HttpServletRequest request,
+            HttpServletResponse response) {
         CartContext ctx = resolveContext(request, response);
-        CartDto cart = cartService.getCart(ctx.cartKey());
+        String resolvedLang = LocaleResolverHelper.resolve(lang, request.getHeader("Accept-Language"));
+        CartDto cart = cartService.localizeCart(cartService.getCart(ctx.cartKey()), resolvedLang);
         return ResponseEntity.ok(cart);
     }
 
     @PostMapping("/items")
     public ResponseEntity<CartDto> addItem(
             @Valid @RequestBody CartItemDto item,
+            @RequestParam(name = "lang", required = false) String lang,
             HttpServletRequest request,
             HttpServletResponse response) {
         CartContext ctx = resolveContext(request, response);
-        CartDto cart = cartService.addItem(ctx.cartKey(), item, ctx.ttl());
+        String resolvedLang = LocaleResolverHelper.resolve(lang, request.getHeader("Accept-Language"));
+        CartDto cart = cartService.localizeCart(cartService.addItem(ctx.cartKey(), item, ctx.ttl()), resolvedLang);
         return ResponseEntity.ok(cart);
     }
 
@@ -98,20 +105,24 @@ public class CartController {
     public ResponseEntity<CartDto> updateItem(
             @PathVariable("itemKey") String itemKey,
             @RequestBody UpdateCartItemRequest updateRequest,
+            @RequestParam(name = "lang", required = false) String lang,
             HttpServletRequest request,
             HttpServletResponse response) {
         CartContext ctx = resolveContext(request, response);
-        CartDto cart = cartService.updateItem(ctx.cartKey(), itemKey, updateRequest, ctx.ttl());
+        String resolvedLang = LocaleResolverHelper.resolve(lang, request.getHeader("Accept-Language"));
+        CartDto cart = cartService.localizeCart(cartService.updateItem(ctx.cartKey(), itemKey, updateRequest, ctx.ttl()), resolvedLang);
         return ResponseEntity.ok(cart);
     }
 
     @DeleteMapping("/items/{itemKey}")
     public ResponseEntity<CartDto> removeItem(
             @PathVariable("itemKey") String itemKey,
+            @RequestParam(name = "lang", required = false) String lang,
             HttpServletRequest request,
             HttpServletResponse response) {
         CartContext ctx = resolveContext(request, response);
-        CartDto cart = cartService.removeItem(ctx.cartKey(), itemKey);
+        String resolvedLang = LocaleResolverHelper.resolve(lang, request.getHeader("Accept-Language"));
+        CartDto cart = cartService.localizeCart(cartService.removeItem(ctx.cartKey(), itemKey), resolvedLang);
         return ResponseEntity.ok(cart);
     }
 
@@ -126,6 +137,7 @@ public class CartController {
     public ResponseEntity<CartDto> mergeCart(
             @RequestHeader(value = "X-Guest-Session-Id", required = false) String guestSessionHeader,
             @RequestBody(required = false) MergeCartRequest mergeRequest,
+            @RequestParam(name = "lang", required = false) String lang,
             HttpServletRequest request) {
         CurrentActor actor = CurrentActor.require();
         if (actor.role() != Role.CUSTOMER) {
@@ -145,7 +157,8 @@ public class CartController {
             }
         }
 
-        CartDto cart = cartService.mergeCart(guestSessionId, userId);
+        String resolvedLang = LocaleResolverHelper.resolve(lang, request.getHeader("Accept-Language"));
+        CartDto cart = cartService.localizeCart(cartService.mergeCart(guestSessionId, userId), resolvedLang);
         return ResponseEntity.ok(cart);
     }
 }

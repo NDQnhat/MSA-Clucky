@@ -1,6 +1,9 @@
 package com.clucky.catalogstoreservice.entity;
 
+import com.clucky.catalogstoreservice.dto.LocalizedText;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -19,11 +22,13 @@ public class Combo {
 
     public long getVersion() { return version; }
 
-    @Column(nullable = false, length = 180)
-    private String name;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, columnDefinition = "jsonb")
+    private LocalizedText name;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
-    private String description;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, columnDefinition = "jsonb")
+    private LocalizedText description;
 
     @Column(name = "combo_price", nullable = false, precision = 12, scale = 0)
     private BigDecimal comboPrice;
@@ -48,7 +53,7 @@ public class Combo {
 
     public Combo() {}
 
-    public Combo(Long id, String name, String description, BigDecimal comboPrice, String imageUrl, String imagePublicId, OffsetDateTime startAt, OffsetDateTime endAt, Boolean isActive) {
+    public Combo(Long id, LocalizedText name, LocalizedText description, BigDecimal comboPrice, String imageUrl, String imagePublicId, OffsetDateTime startAt, OffsetDateTime endAt, Boolean isActive) {
         this.id = id;
         this.name = name;
         this.description = description;
@@ -60,14 +65,22 @@ public class Combo {
         this.isActive = isActive != null ? isActive : true;
     }
 
+    public Combo(Long id, String name, String description, BigDecimal comboPrice, String imageUrl, String imagePublicId, OffsetDateTime startAt, OffsetDateTime endAt, Boolean isActive) {
+        this(id, LocalizedText.ofSingle(name), LocalizedText.ofSingle(description), comboPrice, imageUrl, imagePublicId, startAt, endAt, isActive);
+    }
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public LocalizedText getName() { return name; }
+    public void setName(LocalizedText name) { this.name = name; }
+    public void setName(String name) { this.name = LocalizedText.ofSingle(name); }
+    public String resolveName(String lang) { return LocalizedText.resolve(name, lang); }
 
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
+    public LocalizedText getDescription() { return description; }
+    public void setDescription(LocalizedText description) { this.description = description; }
+    public void setDescription(String description) { this.description = LocalizedText.ofSingle(description); }
+    public String resolveDescription(String lang) { return LocalizedText.resolve(description, lang); }
 
     public BigDecimal getComboPrice() { return comboPrice; }
     public void setComboPrice(BigDecimal comboPrice) { this.comboPrice = comboPrice; }

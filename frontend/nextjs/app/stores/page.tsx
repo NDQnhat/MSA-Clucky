@@ -6,6 +6,7 @@ import { Select } from "@base-ui/react/select";
 import { Clock, MapPin, Phone, Search, ArrowUpRight, Check, ChevronDown, LocateFixed } from "lucide-react";
 import Link from "@/components/ui-loader/navigation-link";
 import { request, type StoreItem } from "@/lib/api";
+import { matchesBilingualSearch, pickLocalized } from "@/lib/bilingual";
 import { getStoreStatusMeta } from "@/lib/types/store";
 import { coordinates, distanceKm } from "@/lib/locations";
 import { BranchMap } from "@/components/maps/branch-map";
@@ -51,23 +52,40 @@ export default function StoresPage() {
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    request<StoreItem[]>("/api/stores?activeOnly=false")
+    request<StoreItem[]>(`/api/stores?activeOnly=false&lang=${encodeURIComponent(locale)}`, { lang: locale })
       .then(result => { if (active) setStores(result); })
       .catch(() => { if (active) { setStores([]); setError(true); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [reload]);
+  }, [reload, locale]);
   const districtOptions = useMemo(() => Array.from(new Set(
-    stores.map(store => store.district?.trim()).filter((value): value is string => Boolean(value))
+    stores.map(store => pickLocalized(store.districtI18n, store.district, locale).trim()).filter((value): value is string => Boolean(value))
   )).sort((a, b) => a.localeCompare(b, locale)), [stores, locale]);
   const districtChoices = [
     { value: ALL_DISTRICTS, label: t("allStoreDistricts") },
     ...districtOptions.map(value => ({ value, label: value })),
   ];
-  const ranked = useMemo(() => stores.filter(store => (!district || store.district?.trim() === district)
-    && [store.name, store.address, store.district, store.city, store.phone].some(value => value?.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())))
+  const ranked = useMemo(() => stores.filter(store => {
+    const storeDistrict = pickLocalized(store.districtI18n, store.district, locale).trim();
+    return (!district || storeDistrict === district)
+      && matchesBilingualSearch(
+        query,
+        store.name,
+        store.nameI18n,
+        store.address,
+        store.district,
+        store.districtI18n,
+        store.city,
+        store.cityI18n,
+        store.phone
+      );
+  })
     .map(store => { const point = coordinates(store); return { store, point, distance: point && origin ? distanceKm(origin, point) : null }; })
-    .sort((first, second) => (first.distance ?? Infinity) - (second.distance ?? Infinity) || first.store.name.localeCompare(second.store.name, locale)), [stores, query, district, origin, locale]);
+    .sort((first, second) => (first.distance ?? Infinity) - (second.distance ?? Infinity)
+      || pickLocalized(first.store.nameI18n, first.store.name, locale).localeCompare(
+        pickLocalized(second.store.nameI18n, second.store.name, locale),
+        locale
+      )), [stores, query, district, origin, locale]);
   const selectedId = ranked.some(item => String(item.store.id) === selected) ? selected : "";
   const missingLocation = selectedId && !coordinates(stores.find(store => String(store.id) === selectedId));
   function select(id: string, fromMap = false) {
@@ -127,10 +145,11 @@ export default function StoresPage() {
           {!loading && !error && !ranked.length && <p>{t("noStores")}</p>}
           {ranked.map(({ store, point, distance }, index) => {
             const available = getStoreStatusMeta(store.status).canOrder;
+            const storeName = pickLocalized(store.nameI18n, store.name, locale);
             return <article id={"branch-" + store.id} key={store.id} className={styles.card + (selectedId === String(store.id) ? " " + styles.selected : "")}>
-              <button type="button" className={styles.cardHeading} onClick={() => select(String(store.id))} aria-pressed={selectedId === String(store.id)} aria-label={store.name + " — " + t("selectStore")}>
+              <button type="button" className={styles.cardHeading} onClick={() => select(String(store.id))} aria-pressed={selectedId === String(store.id)} aria-label={storeName + " — " + t("selectStore")}>
                 <div className={styles.logo}><img src="/logo_primary.png" alt="" width={100} height={100} /></div>
-                <div><span className={available ? styles.open : styles.closed}>{t(available ? "open" : "closed")}</span><h2>{store.name}</h2><span className={styles.distance} title={distance !== null ? originLabel + " · " + t("approximate") : undefined}>{distance !== null ? t("distanceAway", { distance: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(distance) }) : t(!point ? "unknownDistance" : "distanceUnavailable")}</span>{index === 0 && distance !== null && <small className={styles.nearest}>{t("nearYou")}</small>}</div>
+                <div><span className={available ? styles.open : styles.closed}>{t(available ? "open" : "closed")}</span><h2>{storeName}</h2><span className={styles.distance} title={distance !== null ? originLabel + " · " + t("approximate") : undefined}>{distance !== null ? t("distanceAway", { distance: new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(distance) }) : t(!point ? "unknownDistance" : "distanceUnavailable")}</span>{index === 0 && distance !== null && <small className={styles.nearest}>{t("nearYou")}</small>}</div>
               </button>
               <div className={styles.details}><p><MapPin size={16} />{store.address}</p><p><Clock size={16} />{store.openTime} – {store.closeTime}<a href={"tel:" + store.phone}><Phone size={14} />{store.phone}</a></p></div>
               <div className={styles.actions}>{available ? <Link href={"/menu?storeId=" + store.id} className="btn-primary">{t("order")}<ArrowUpRight size={17} /></Link> : <span>{t("closed")}</span>}<a href={"https://www.google.com/maps/dir/?api=1&destination=" + encodeURIComponent(point ? point.latitude + "," + point.longitude : store.address)} target="_blank" rel="noreferrer">{t("directions")}<ArrowUpRight size={16} /></a></div>
@@ -138,7 +157,7 @@ export default function StoresPage() {
           })}
         </div>
       </section>
-      <section id="store-map" className={styles.mapPanel} aria-label={t("mapLabel")}><BranchMap points={ranked.flatMap(({ store, point }) => point ? [{ ...point, id: String(store.id), label: store.name }] : [])} selectedId={selectedId} focusRequest={focusRequest} onSelect={id => select(id, true)} origin={origin} originLabel={originLabel} />{missingLocation && <p role="status" className={styles.mapNotice}>{t("storeLocationUnavailable")}</p>}</section>
+      <section id="store-map" className={styles.mapPanel} aria-label={t("mapLabel")}><BranchMap points={ranked.flatMap(({ store, point }) => point ? [{ ...point, id: String(store.id), label: pickLocalized(store.nameI18n, store.name, locale) }] : [])} selectedId={selectedId} focusRequest={focusRequest} onSelect={id => select(id, true)} origin={origin} originLabel={originLabel} />{missingLocation && <p role="status" className={styles.mapNotice}>{t("storeLocationUnavailable")}</p>}</section>
     </div>
   </main>;
 }

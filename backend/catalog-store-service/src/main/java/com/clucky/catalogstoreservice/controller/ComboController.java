@@ -1,5 +1,6 @@
 package com.clucky.catalogstoreservice.controller;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.ComboDto;
 import com.clucky.catalogstoreservice.service.ComboService;
 import jakarta.validation.Valid;
@@ -26,17 +27,23 @@ public class ComboController {
     @GetMapping
     public ResponseEntity<List<ComboDto.Response>> listCombos(
             @RequestParam(name = "storeId", required = false) Long storeId,
-            @RequestParam(name = "activeOnly", defaultValue = "false") boolean activeOnly) {
+            @RequestParam(name = "activeOnly", defaultValue = "false") boolean activeOnly,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        String resolvedLang = LocaleResolverHelper.resolve(lang, acceptLanguage);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.maxAge(60, TimeUnit.SECONDS).cachePublic())
-                .body(comboService.getAllCombos(storeId, activeOnly));
+                .varyBy("Accept-Language")
+                .body(comboService.getAllCombos(storeId, activeOnly, resolvedLang));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<ComboDto.Response> getCombo(
             @PathVariable Long id,
-            @RequestParam(name = "storeId", required = false) Long storeId) {
-        return ResponseEntity.ok(comboService.getComboById(id, storeId));
+            @RequestParam(name = "storeId", required = false) Long storeId,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(comboService.getComboById(id, storeId, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @PostMapping

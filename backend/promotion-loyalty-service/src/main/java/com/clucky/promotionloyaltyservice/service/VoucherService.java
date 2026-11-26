@@ -1,5 +1,6 @@
 package com.clucky.promotionloyaltyservice.service;
 
+import com.clucky.promotionloyaltyservice.dto.LocalizedText;
 import com.clucky.promotionloyaltyservice.dto.Role;
 import com.clucky.promotionloyaltyservice.dto.RejectVoucherRequest;
 import com.clucky.promotionloyaltyservice.dto.ValidateVoucherRequest;
@@ -50,17 +51,26 @@ public class VoucherService {
      */
     @Transactional(readOnly = true)
     public ValidateVoucherResponse validateVoucher(ValidateVoucherRequest request) {
+        return validateVoucher(request, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public ValidateVoucherResponse validateVoucher(ValidateVoucherRequest request, String lang) {
+        boolean isEn = "en".equalsIgnoreCase(lang);
         if (request == null || request.getCode() == null || request.getCode().trim().isEmpty()) {
-            return ValidateVoucherResponse.invalid(null, ErrorCode.VALIDATION_ERROR.name(), "Mã ưu đãi không được để trống.");
+            return ValidateVoucherResponse.invalid(null, ErrorCode.VALIDATION_ERROR.name(),
+                    isEn ? "Voucher code is required." : "Mã ưu đãi không được để trống.");
         }
 
         String cleanCode = request.getCode().trim().toUpperCase(Locale.ROOT);
         if (cleanCode.startsWith("CLUCKY:LOYALTY:"))
-            return ValidateVoucherResponse.invalid(null, ErrorCode.VOUCHER_NOT_FOUND.name(), "Không tìm thấy mã voucher.");
+            return ValidateVoucherResponse.invalid(null, ErrorCode.VOUCHER_NOT_FOUND.name(),
+                    isEn ? "Voucher code not found." : "Không tìm thấy mã voucher.");
         Optional<Voucher> optVoucher = voucherRepository.findByCodeIgnoreCase(cleanCode);
 
         if (optVoucher.isEmpty()) {
-            return ValidateVoucherResponse.invalid(null, ErrorCode.VOUCHER_NOT_FOUND.name(), "Không tìm thấy mã voucher.");
+            return ValidateVoucherResponse.invalid(null, ErrorCode.VOUCHER_NOT_FOUND.name(),
+                    isEn ? "Voucher code not found." : "Không tìm thấy mã voucher.");
         }
 
         Voucher voucher = optVoucher.get();
@@ -68,24 +78,30 @@ public class VoucherService {
 
         // 1. Status Check
         if (voucher.getStatus() == VoucherStatus.DISABLED) {
-            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_INACTIVE.name(), "Mã ưu đãi hiện đang tạm khóa.");
+            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_INACTIVE.name(),
+                    isEn ? "This voucher is temporarily disabled." : "Mã ưu đãi hiện đang tạm khóa.");
         }
         if (voucher.getStatus() == VoucherStatus.PENDING_APPROVAL) {
-            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_INACTIVE.name(), "Mã ưu đãi đang trong trạng thái chờ duyệt.");
+            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_INACTIVE.name(),
+                    isEn ? "This voucher is pending approval." : "Mã ưu đãi đang trong trạng thái chờ duyệt.");
         }
         if (voucher.getStatus() == VoucherStatus.REJECTED) {
-            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_INACTIVE.name(), "Mã ưu đãi đã bị từ chối phê duyệt.");
+            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_INACTIVE.name(),
+                    isEn ? "This voucher proposal was rejected." : "Mã ưu đãi đã bị từ chối phê duyệt.");
         }
         if (voucher.getStatus() != VoucherStatus.ACTIVE) {
-            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_INACTIVE.name(), "Mã ưu đãi không ở trạng thái khả dụng.");
+            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_INACTIVE.name(),
+                    isEn ? "This voucher is not active." : "Mã ưu đãi không ở trạng thái khả dụng.");
         }
 
         // 2. Temporal Check
         if (now.isBefore(voucher.getStartAt())) {
-            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_NOT_STARTED.name(), "Mã ưu đãi chưa đến thời gian áp dụng.");
+            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_NOT_STARTED.name(),
+                    isEn ? "This voucher is not yet valid." : "Mã ưu đãi chưa đến thời gian áp dụng.");
         }
         if (now.isAfter(voucher.getEndAt())) {
-            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_EXPIRED.name(), "Mã ưu đãi đã hết hạn sử dụng.");
+            return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_EXPIRED.name(),
+                    isEn ? "This voucher has expired." : "Mã ưu đãi đã hết hạn sử dụng.");
         }
 
         // 3. Usage Limits
@@ -94,20 +110,28 @@ public class VoucherService {
                     + voucher.getReservedCount()
                     + voucher.getPrintedUnredeemed();
             if (used >= voucher.getTotalLimit()) {
-                return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_EXHAUSTED.name(), "Mã ưu đãi đã hết lượt sử dụng.");
+                return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_EXHAUSTED.name(),
+                        isEn ? "This voucher has reached its usage limit." : "Mã ưu đãi đã hết lượt sử dụng.");
             }
         }
 
         // 4. Scope and Store validation
         if (voucher.getScope() == VoucherScope.STORE) {
             if (voucher.getStoreId() == null) {
-                return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_SCOPE_MISMATCH.name(), "Cấu hình chi nhánh áp dụng của mã không hợp lệ.");
+                return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_SCOPE_MISMATCH.name(),
+                        isEn ? "Invalid branch configuration for this voucher." : "Cấu hình chi nhánh áp dụng của mã không hợp lệ.");
             }
             if (request.getStoreId() == null) {
-                return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_SCOPE_MISMATCH.name(), "Mã ưu đãi chỉ áp dụng cho chi nhánh #" + voucher.getStoreId() + ". Vui lòng chọn chi nhánh đặt hàng.");
+                return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_SCOPE_MISMATCH.name(),
+                        isEn
+                            ? "This voucher applies only to branch #" + voucher.getStoreId() + ". Please select a branch."
+                            : "Mã ưu đãi chỉ áp dụng cho chi nhánh #" + voucher.getStoreId() + ". Vui lòng chọn chi nhánh đặt hàng.");
             }
             if (!voucher.getStoreId().equals(request.getStoreId())) {
-                return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_SCOPE_MISMATCH.name(), "Mã ưu đãi chỉ áp dụng tại chi nhánh #" + voucher.getStoreId() + ", không áp dụng cho chi nhánh hiện tại.");
+                return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_SCOPE_MISMATCH.name(),
+                        isEn
+                            ? "This voucher applies only to branch #" + voucher.getStoreId() + ", not the selected branch."
+                            : "Mã ưu đãi chỉ áp dụng tại chi nhánh #" + voucher.getStoreId() + ", không áp dụng cho chi nhánh hiện tại.");
             }
         }
 
@@ -120,8 +144,11 @@ public class VoucherService {
             return ValidateVoucherResponse.invalid(
                 cleanCode,
                 ErrorCode.MIN_ORDER_NOT_MET.name(),
-                String.format("Đơn hàng chưa đạt mức tối thiểu %sđ (còn thiếu %sđ).",
-                    minOrder.toPlainString(), missing.toPlainString())
+                isEn
+                    ? String.format("Minimum order amount is %sđ (%sđ more needed).",
+                        minOrder.toPlainString(), missing.toPlainString())
+                    : String.format("Đơn hàng chưa đạt mức tối thiểu %sđ (còn thiếu %sđ).",
+                        minOrder.toPlainString(), missing.toPlainString())
             );
         }
 
@@ -145,7 +172,7 @@ public class VoucherService {
             calculatedDiscount = orderAmount;
         }
 
-        VoucherResponse voucherDto = VoucherResponse.fromEntity(voucher, now);
+        VoucherResponse voucherDto = VoucherResponse.fromEntity(voucher, now, lang);
         return ValidateVoucherResponse.valid(calculatedDiscount, voucherDto);
     }
 
@@ -154,12 +181,17 @@ public class VoucherService {
      */
     @Transactional(readOnly = true)
     public List<VoucherResponse> getAvailableVouchers(Long storeId) {
+        return getAvailableVouchers(storeId, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public List<VoucherResponse> getAvailableVouchers(Long storeId, String lang) {
         Instant now = Instant.now();
         List<Voucher> list = voucherRepository.findAvailableVouchers(now, storeId);
         return list.stream()
             .filter(v -> v.getCampaignKind() != VoucherCampaignKind.PERSONAL || storeId == null
                     || v.getApplicability() == VoucherApplicability.ALL || v.getStoreIds().contains(storeId))
-            .map(v -> VoucherResponse.fromPublicEntity(v, now))
+            .map(v -> VoucherResponse.fromPublicEntity(v, now, lang))
             .toList();
     }
 
@@ -168,13 +200,24 @@ public class VoucherService {
      */
     @Transactional(readOnly = true)
     public List<VoucherResponse> getVouchers(VoucherScope scope, Long storeId, VoucherStatus status, String keyword) {
+        return getVouchers(scope, storeId, status, keyword, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public List<VoucherResponse> getVouchers(VoucherScope scope, Long storeId, VoucherStatus status, String keyword, String lang) {
         Instant now = Instant.now();
-        List<Voucher> list = voucherRepository.findWithFilters(scope, null, status, keyword);
+        String cleanKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.strip();
+        String needle = cleanKeyword != null ? LocalizedText.normalizeForSearch(cleanKeyword) : null;
+        List<Voucher> list = voucherRepository.findWithFilters(scope, null, status, null);
         return list.stream()
             .filter(v -> storeId == null || (v.getCampaignKind() == VoucherCampaignKind.PERSONAL
                     ? v.getApplicability() == VoucherApplicability.ALL || v.getStoreIds().contains(storeId)
                     : v.getScope() == VoucherScope.ALL || Objects.equals(v.getStoreId(), storeId)))
-            .map(v -> VoucherResponse.fromEntity(v, now))
+            .filter(v -> needle == null
+                    || (v.getCode() != null && LocalizedText.normalizeForSearch(v.getCode()).contains(needle))
+                    || (v.getTitle() != null && v.getTitle().matches(cleanKeyword))
+                    || (v.getDescription() != null && v.getDescription().matches(cleanKeyword)))
+            .map(v -> VoucherResponse.fromEntity(v, now, lang))
             .toList();
     }
 
@@ -183,9 +226,14 @@ public class VoucherService {
      */
     @Transactional(readOnly = true)
     public VoucherResponse getVoucherById(Long id) {
+        return getVoucherById(id, "vi");
+    }
+
+    @Transactional(readOnly = true)
+    public VoucherResponse getVoucherById(Long id, String lang) {
         Voucher v = voucherRepository.findById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher với id: " + id));
-        return VoucherResponse.fromEntity(v);
+        return VoucherResponse.fromEntity(v, Instant.now(), lang);
     }
 
     /**

@@ -1,21 +1,31 @@
 import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Button, DatePicker, Form, Input, InputNumber, Modal, Progress, Select, Switch } from 'antd';
+import { Alert, Button, DatePicker, Form, InputNumber, Modal, Progress, Select, Switch } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { getErrorMessage, type Product } from '../../lib/api';
 import type { AdminCombo, ComboPayload } from '../../lib/catalog-administration';
+import { isLocalizedViValid, pickLocalized, toLocalizedInput, toLocalizedPayload, type LocalizedText } from '../../lib/bilingual';
+import { BilingualField } from '../../components/ui/BilingualField';
 import { CatalogImage, ImageField } from './ImageField';
 import { LanguageSwitcher } from '../../i18n/language-switcher';
 import { matchesCatalogSearch } from './presentation';
 
-type Values = Omit<ComboPayload, 'startAt' | 'endAt'> & { startAt?: Dayjs | null; endAt?: Dayjs | null };
+type Values = {
+  name: LocalizedText;
+  description: LocalizedText;
+  comboPrice: number;
+  isActive: boolean;
+  items: ComboPayload['items'];
+  startAt?: Dayjs | null;
+  endAt?: Dayjs | null;
+};
 
 export function ComboForm({ open, combo, products, onClose, onSave }: {
   open: boolean; combo: AdminCombo | null; products: Product[]; onClose: () => void;
   onSave: (data: ComboPayload, file?: File, progress?: (percent: number) => void) => Promise<void>;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [form] = Form.useForm<Values>();
   const items = Form.useWatch('items', form) as Values['items'] | undefined;
   const [file, setFile] = useState<File | null>(null);
@@ -26,16 +36,30 @@ export function ComboForm({ open, combo, products, onClose, onSave }: {
   useEffect(() => {
     if (!open) return;
     form.resetFields();
-    form.setFieldsValue(combo ? { ...structuredClone(combo), startAt: combo.startAt ? dayjs(combo.startAt) : null, endAt: combo.endAt ? dayjs(combo.endAt) : null }
-      : { name: '', description: '', comboPrice: 0, isActive: true, items: [] });
+    form.setFieldsValue(combo ? {
+      name: toLocalizedInput(combo.nameI18n, combo.name),
+      description: toLocalizedInput(combo.descriptionI18n, combo.description),
+      comboPrice: combo.comboPrice,
+      isActive: combo.isActive,
+      items: structuredClone(combo.items),
+      startAt: combo.startAt ? dayjs(combo.startAt) : null,
+      endAt: combo.endAt ? dayjs(combo.endAt) : null,
+    } : { name: { vi: '', en: '' }, description: { vi: '', en: '' }, comboPrice: 0, isActive: true, items: [] });
     setFile(null); setError(''); setProgress(0);
   }, [open, combo, form]);
   const save = async (values: Values) => {
     if (lock.current) return;
     lock.current = true; setSaving(true); setError('');
     try {
-      await onSave({ ...values, startAt: values.startAt?.toISOString() ?? null, endAt: values.endAt?.toISOString() ?? null,
-        items: values.items.map(item => ({ ...item, optionId: item.optionId ?? null, productName: products.find(product => product.id === item.productId)?.name ?? '' })) }, file ?? undefined, setProgress);
+      await onSave({
+        name: toLocalizedPayload(values.name) ?? { vi: '', en: '' },
+        description: toLocalizedPayload(values.description) ?? { vi: '', en: '' },
+        comboPrice: values.comboPrice,
+        isActive: Boolean(values.isActive),
+        startAt: values.startAt?.toISOString() ?? null,
+        endAt: values.endAt?.toISOString() ?? null,
+        items: values.items.map(item => ({ ...item, optionId: item.optionId ?? null, productName: products.find(product => product.id === item.productId)?.name ?? '' })),
+      }, file ?? undefined, setProgress);
       onClose();
     } catch (failure) {
       if (!(failure && typeof failure === 'object' && 'errorFields' in failure)) setError(getErrorMessage(failure));
@@ -51,8 +75,8 @@ export function ComboForm({ open, combo, products, onClose, onSave }: {
       <div className="catalog-editor"><div className="catalog-editor-main">
       <section className="catalog-section">
         <div className="catalog-section-heading"><span>01</span><h4>{t("admin:ui.comboInformation")}</h4></div>
-        <Form.Item name="name" label={t("admin:ui.comboName")} rules={[{ required: true, whitespace: true, message: t("admin:ui.enterAComboName") }, { max: 180 }]}><Input size="large" maxLength={180} placeholder={t("admin:ui.comboNameShownOnTheMenu")} /></Form.Item>
-        <Form.Item name="description" label={t("admin:ui.comboDescription")} rules={[{ required: true, whitespace: true, message: t("admin:ui.addAComboDescription") }]}><Input.TextArea rows={3} placeholder={t("admin:ui.describeTheDishesAndPortionsInThisCombo")} /></Form.Item>
+        <Form.Item name="name" label={t("admin:ui.comboName")} required rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("admin:ui.enterAComboName")); if ((val?.vi?.length ?? 0) > 180 || (val?.en?.length ?? 0) > 180) throw new Error('Max 180'); } }]}><BilingualField maxLength={180} requiredVi viPlaceholder={t("admin:ui.comboNameShownOnTheMenu")} enPlaceholder="English combo name" /></Form.Item>
+        <Form.Item name="description" label={t("admin:ui.comboDescription")} required rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("admin:ui.addAComboDescription")); } }]}><BilingualField multiline rows={3} requiredVi viPlaceholder={t("admin:ui.describeTheDishesAndPortionsInThisCombo")} enPlaceholder="English combo description" /></Form.Item>
         <Form.Item name="comboPrice" label={t("admin:ui.comboPrice")} rules={[{ required: true }, { type: 'integer', min: 0, max: 999999999999 }]}><InputNumber<number> min={0} max={999999999999} precision={0} formatter={value => `${value ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')} parser={value => Number(value?.replace(/\./g, ''))} /></Form.Item>
       </section>
       <section className="catalog-section">
@@ -62,17 +86,20 @@ export function ComboForm({ open, combo, products, onClose, onSave }: {
           {!fields.length && <div className="catalog-empty-note">{products.length ? t("admin:ui.chooseTheDishesThenSetTheirQuantitiesAnd") : t("admin:ui.noDishesAvailableCreateAMenuItemBefore")}</div>}
           {fields.map(field => {
             const product = products.find(candidate => candidate.id === items?.[field.name]?.productId);
-            const options = product?.options?.flatMap(group => group.choices.map(choice => ({ value: Number(choice.id.replace(/^opt-/, '')), label: `${group.name}: ${choice.name}` }))) ?? [];
+            const options = product?.options?.flatMap(group => group.choices.map(choice => ({
+              value: Number(choice.id.replace(/^opt-/, '')),
+              label: `${pickLocalized(group.nameI18n, group.name, i18n.language)}: ${pickLocalized(choice.nameI18n, choice.name, i18n.language)}`,
+            }))) ?? [];
             return <div key={field.key} className="catalog-option-card">
               <div className="catalog-option-header"><span>{t("admin:ui.dish")} {field.name + 1}</span><Button size="small" type="text" danger icon={<DeleteOutlined />} disabled={saving} onClick={() => remove(field.name)} aria-label={t("admin:ui.removeDishFromTheCombo", { value1: field.name + 1 })}>{t("admin:ui.removeDish")}</Button></div>
               <Form.Item name={[field.name, 'id']} hidden><InputNumber /></Form.Item>
               <div className="catalog-combo-product">
-              <div className="catalog-thumb"><CatalogImage url={product?.imageUrl} name={product?.name || t("admin:ui.noDishSelected")} /></div>
+              <div className="catalog-thumb"><CatalogImage url={product?.imageUrl} name={pickLocalized(product?.nameI18n, product?.name, i18n.language) || t("admin:ui.noDishSelected")} /></div>
               <Form.Item name={[field.name, 'productId']} label={t("business:catalog.dish")} rules={[{ required: true, message: t("admin:ui.selectADish") }]}><Select showSearch placeholder={t("admin:ui.searchAndSelectADish")} optionFilterProp="label"
-                filterOption={(input, option) => matchesCatalogSearch([option?.label], input)}
+                filterOption={(input, option) => matchesCatalogSearch([option?.label, option?.nameI18n], input)}
                 onChange={() => form.setFieldValue(['items', field.name, 'optionId'], null)}
                 optionRender={option => <div className="catalog-select-option"><div className="catalog-thumb"><CatalogImage url={option.data.imageUrl} name={option.data.label} preview={false} /></div><span>{option.data.label}</span></div>}
-                options={products.map(candidate => ({ value: candidate.id, label: `${candidate.name}${candidate.isActive ? '' : t("admin:ui.notForSale")}`, imageUrl: candidate.imageUrl }))} /></Form.Item>
+                options={products.map(candidate => ({ value: candidate.id, label: `${pickLocalized(candidate.nameI18n, candidate.name, i18n.language)}${candidate.isActive ? '' : t("admin:ui.notForSale")}`, nameI18n: candidate.nameI18n, imageUrl: candidate.imageUrl }))} /></Form.Item>
               </div>
               <div className="catalog-field-grid">
               <Form.Item name={[field.name, 'quantity']} label={t("admin:ui.quantity")} rules={[{ required: true }, { type: 'integer', min: 1, max: 2147483647 }]}><InputNumber min={1} max={2147483647} precision={0} /></Form.Item>

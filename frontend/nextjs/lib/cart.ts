@@ -1,5 +1,6 @@
 import type { CartItem, CartItemOption, CartItemTopping } from "./types/order";
 import type { BackendCartDto, CartItemPayload } from "./api";
+import type { LocalizedText } from "./bilingual";
 
 function parseSnapshotArray<T>(raw: unknown, mapper: (entry: Record<string, unknown>, idx: number) => T): T[] {
   if (!raw) return [];
@@ -58,6 +59,7 @@ export function toCartPayload(item: CartItem): CartItemPayload {
     productId,
     comboId,
     itemName: item.name,
+    itemNameI18n: item.nameI18n,
     unitPrice: item.unitPrice,
     quantity: item.quantity,
     optionIds: optionIds as number[],
@@ -83,15 +85,18 @@ export function mapBackendCart(cart: BackendCartDto, previous: CartItem[] = []):
         && ids(candidate.optionIds) === ids(item.optionIds)
         && ids(candidate.toppingIds) === ids(item.toppingIds)
         && comboSignature(candidate.comboSelections) === comboSignature(item.comboSelections)));
-    const options = saved?.options ?? parseSnapshotArray<CartItemOption>(item.optionsSnapshot, (o, idx) => ({
+    const options = parseSnapshotArray<CartItemOption>(item.optionsSnapshot, (o, idx) => ({
       id: typeof o.id === "number" ? o.id : Number(o.id ?? idx),
       groupName: String(o.groupName ?? ""),
+      groupNameI18n: (o.groupNameI18n as LocalizedText | null | undefined) ?? undefined,
       name: String(o.name ?? ""),
+      nameI18n: (o.nameI18n as LocalizedText | null | undefined) ?? undefined,
       extraPrice: Number(o.extraPrice ?? 0),
     }));
-    const toppings = saved?.toppings ?? parseSnapshotArray<CartItemTopping>(item.toppingsSnapshot, (t, idx) => ({
+    const toppings = parseSnapshotArray<CartItemTopping>(item.toppingsSnapshot, (t, idx) => ({
       id: typeof t.id === "number" ? t.id : Number(t.id ?? idx),
       name: String(t.name ?? ""),
+      nameI18n: (t.nameI18n as LocalizedText | null | undefined) ?? undefined,
       extraPrice: Number(t.extraPrice ?? 0),
     }));
     return {
@@ -111,7 +116,9 @@ export function mapBackendCart(cart: BackendCartDto, previous: CartItem[] = []):
       toppingsSnapshot: item.toppingsSnapshot ?? saved?.toppingsSnapshot,
       slug: saved?.slug ?? (item.comboId != null ? `combo-${item.comboId}` : String(item.productId)),
       name: item.itemName,
+      nameI18n: item.itemNameI18n ?? saved?.nameI18n,
       category: saved?.category ?? "",
+      categoryI18n: saved?.categoryI18n,
       basePrice: saved?.basePrice ?? Number(item.unitPrice),
       unitPrice: Number(item.unitPrice),
       quantity: item.quantity,

@@ -1,8 +1,10 @@
-import { getTranslations } from "next-intl/server";
+import { getLocale, getTranslations } from "next-intl/server";
 import Link from "@/components/ui-loader/navigation-link";
 import { LiveHomePromotions } from "@/components/promotion/live-home-promotions";
 import { ProductCard } from "@/components/product-card";
 import { CategoryIcon } from "@/components/category-icon";
+import { pickLocalized } from "@/lib/bilingual";
+import { normalizeLocale } from "@/lib/i18n/locale";
 import { catalogApi, type CategoryItem } from "@/lib/catalog-and-stores.api";
 import { promotionApi } from "@/lib/api";
 import type { PromoBanner } from "@/lib/types/promotion";
@@ -11,15 +13,16 @@ import { Flame, Award, Truck } from "lucide-react";
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
-  const t = await getTranslations();
+  const [t, rawLocale] = await Promise.all([getTranslations(), getLocale()]);
+  const locale = normalizeLocale(rawLocale);
   let displayProducts: any[] = [];
   let activeBanners: PromoBanner[] = [];
   let categories: CategoryItem[] = [];
 
   const [prods, banners, liveCategories] = await Promise.all([
-    catalogApi.getProducts({ activeOnly: true, page: 0, size: 9 }).catch(() => []),
-    promotionApi.getActiveBanners().catch(() => [] as PromoBanner[]),
-    catalogApi.getCategories(true).catch(() => [] as CategoryItem[]),
+    catalogApi.getProducts({ activeOnly: true, page: 0, size: 9, lang: locale }).catch(() => []),
+    promotionApi.getActiveBanners(undefined, locale).catch(() => [] as PromoBanner[]),
+    catalogApi.getCategories(true, locale).catch(() => [] as CategoryItem[]),
   ]);
   displayProducts = prods;
   activeBanners = banners;
@@ -57,12 +60,15 @@ export default async function Home() {
                 <CategoryIcon id={0} size={18} active />
                 <span>{t("menu.categories.all")}</span>
               </Link>
-              {categories.map((category) => (
-                <Link key={category.id} href={`/menu?cat=${category.id}`} className="category-pill">
-                  <CategoryIcon id={category.id} name={category.name} size={18} />
-                  <span>{category.name}</span>
-                </Link>
-              ))}
+              {categories.map((category) => {
+                const categoryName = pickLocalized(category.nameI18n, category.name, locale);
+                return (
+                  <Link key={category.id} href={`/menu?cat=${category.id}`} className="category-pill">
+                    <CategoryIcon id={category.id} name={categoryName} size={18} />
+                    <span>{categoryName}</span>
+                  </Link>
+                );
+              })}
             </div>
           </section>
         </LiveHomePromotions>

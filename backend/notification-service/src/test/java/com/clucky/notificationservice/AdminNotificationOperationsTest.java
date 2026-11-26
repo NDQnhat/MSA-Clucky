@@ -114,7 +114,7 @@ class AdminNotificationOperationsTest {
         verifyNoInteractions(jdbc, sender, repository);
         consume("inventory.low-stock", "catalog-store-service", "stock-event", payload);
         verify(jdbc).update(contains("admin_notifications"), eq("admin:stock-event"), eq("stock-event"), eq("trace"),
-                eq("Tồn kho thấp"), argThat((String content) -> !content.contains("untrusted")), eq("INVENTORY"), eq(15L), eq(3L));
+                contains("Tồn kho thấp"), argThat((String content) -> !content.contains("untrusted")), eq("INVENTORY"), eq(15L), eq(3L));
     }
 
     @Test
@@ -125,7 +125,7 @@ class AdminNotificationOperationsTest {
                 .put("subject", "Untrusted subject").put("body", "Untrusted body");
         payload.withObject("recipient").put("email", "stale@example.com");
         consume("refund.processed", "cart-order-service", "refund-event", payload);
-        verify(jdbc).update(contains("INSERT INTO notification_service.notifications"), eq(7L), eq("Hoàn tiền thành công"),
+        verify(jdbc).update(contains("INSERT INTO notification_service.notifications"), eq(7L), contains("Hoàn tiền thành công"),
                 contains("25000"), eq("REFUND"), eq(42L), anyString());
         verify(sender).processEmailIntent(anyString(), eq("refund-event"), eq("trace"), eq("customer@example.com"),
                 eq("REFUND_PROCESSED"), argThat(variables -> "CLK-42".equals(variables.get("orderCode"))

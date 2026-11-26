@@ -46,8 +46,16 @@ public class MailTemplateManagementController {
 
     public record DraftRequest(@NotNull @Min(0) Integer expectedRevision,
             @NotBlank @Size(max=255) String subject,
+            @Size(max=255) String subjectEn,
             @NotBlank @Size(max=100000) String text,
-            @Size(max=100000) String html) {}
+            @Size(max=100000) String textEn,
+            @Size(max=100000) String html,
+            @Size(max=100000) String htmlEn,
+            @Size(max=10) String lang) {
+        public DraftRequest(Integer expectedRevision, String subject, String text, String html) {
+            this(expectedRevision, subject, null, text, null, html, null, null);
+        }
+    }
 
     public record PublishRequest(@NotNull @Positive Long revisionId,
             @NotNull @Min(0) Long expectedPublishedRevisionId) {}
@@ -56,7 +64,8 @@ public class MailTemplateManagementController {
 
     @PostMapping("/{key}/drafts")
     public Detail saveDraft(@PathVariable String key, @Valid @RequestBody DraftRequest input) {
-        return service.saveDraft(key, input.expectedRevision(), input.subject(), input.text(), input.html(),
+        return service.saveDraft(key, input.expectedRevision(), input.subject(), input.subjectEn(),
+                input.text(), input.textEn(), input.html(), input.htmlEn(),
                 CurrentActor.require().userId());
     }
 
@@ -72,6 +81,10 @@ public class MailTemplateManagementController {
 
     @PostMapping("/{key}/preview")
     public Preview preview(@PathVariable String key, @Valid @RequestBody DraftRequest input) {
-        return service.preview(key, input.subject(), input.text(), input.html());
+        boolean isEn = "en".equalsIgnoreCase(input.lang());
+        String sub = isEn && input.subjectEn() != null && !input.subjectEn().isBlank() ? input.subjectEn() : input.subject();
+        String txt = isEn && input.textEn() != null && !input.textEn().isBlank() ? input.textEn() : input.text();
+        String htm = isEn && input.htmlEn() != null && !input.htmlEn().isBlank() ? input.htmlEn() : input.html();
+        return service.preview(key, sub, txt, htm, input.lang());
     }
 }

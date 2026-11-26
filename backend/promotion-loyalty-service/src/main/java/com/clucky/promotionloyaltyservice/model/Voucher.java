@@ -1,6 +1,9 @@
 package com.clucky.promotionloyaltyservice.model;
 
+import com.clucky.promotionloyaltyservice.dto.LocalizedText;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
@@ -31,11 +34,13 @@ public class Voucher {
     @Column(name = "store_id", nullable = false)
     private Set<Long> storeIds = new LinkedHashSet<>();
 
-    @Column(length = 255)
-    private String title;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private LocalizedText title;
 
-    @Column(columnDefinition = "TEXT")
-    private String description;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private LocalizedText description;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -204,20 +209,36 @@ public class Voucher {
         this.code = code;
     }
 
-    public String getTitle() {
+    public LocalizedText getTitle() {
         return title;
     }
 
-    public void setTitle(String title) {
+    public void setTitle(LocalizedText title) {
         this.title = title;
     }
 
-    public String getDescription() {
+    public void setTitle(String title) {
+        this.title = LocalizedText.ofSingle(title);
+    }
+
+    public String resolveTitle(String lang) {
+        return LocalizedText.resolve(title, lang);
+    }
+
+    public LocalizedText getDescription() {
         return description;
     }
 
-    public void setDescription(String description) {
+    public void setDescription(LocalizedText description) {
         this.description = description;
+    }
+
+    public void setDescription(String description) {
+        this.description = LocalizedText.ofSingle(description);
+    }
+
+    public String resolveDescription(String lang) {
+        return LocalizedText.resolve(description, lang);
     }
 
     public VoucherType getType() {

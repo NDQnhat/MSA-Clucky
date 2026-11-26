@@ -6,24 +6,53 @@ import jakarta.validation.constraints.Positive;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class ValidationDto {
-    public record OptionSnapshot(Long id, String groupName, String name, BigDecimal extraPrice) {}
-    public record ToppingSnapshot(Long id, String name, BigDecimal extraPrice) {}
+    public record OptionSnapshot(Long id, String groupName, String name, BigDecimal extraPrice,
+                                 LocalizedText groupNameI18n, LocalizedText nameI18n) {
+        public OptionSnapshot(Long id, String groupName, String name, BigDecimal extraPrice) {
+            this(id, groupName, name, extraPrice, LocalizedText.ofSingle(groupName), LocalizedText.ofSingle(name));
+        }
+    }
+
+    public record ToppingSnapshot(Long id, String name, BigDecimal extraPrice, LocalizedText nameI18n) {
+        public ToppingSnapshot(Long id, String name, BigDecimal extraPrice) {
+            this(id, name, extraPrice, LocalizedText.ofSingle(name));
+        }
+    }
+
     public record ComboOptionSnapshot(Long comboItemId, Long productId, String productName, Long id,
                                       String groupName, String name, BigDecimal extraPrice, BigDecimal unitExtraPrice,
-                                      Integer componentQuantity, boolean fixed) {}
+                                      Integer componentQuantity, boolean fixed,
+                                      LocalizedText productNameI18n, LocalizedText groupNameI18n, LocalizedText nameI18n) {
+        public ComboOptionSnapshot(Long comboItemId, Long productId, String productName, Long id,
+                                   String groupName, String name, BigDecimal extraPrice, BigDecimal unitExtraPrice,
+                                   Integer componentQuantity, boolean fixed) {
+            this(comboItemId, productId, productName, id, groupName, name, extraPrice, unitExtraPrice, componentQuantity, fixed,
+                    LocalizedText.ofSingle(productName), LocalizedText.ofSingle(groupName), LocalizedText.ofSingle(name));
+        }
+    }
+
     public record ComboToppingSnapshot(Long comboItemId, Long productId, String productName, Long id,
                                        String name, BigDecimal extraPrice, BigDecimal unitExtraPrice,
-                                       Integer componentQuantity) {}
+                                       Integer componentQuantity,
+                                       LocalizedText productNameI18n, LocalizedText nameI18n) {
+        public ComboToppingSnapshot(Long comboItemId, Long productId, String productName, Long id,
+                                    String name, BigDecimal extraPrice, BigDecimal unitExtraPrice,
+                                    Integer componentQuantity) {
+            this(comboItemId, productId, productName, id, name, extraPrice, unitExtraPrice, componentQuantity,
+                    LocalizedText.ofSingle(productName), LocalizedText.ofSingle(name));
+        }
+    }
 
     public record ComboSelectionRequest(Long comboItemId, List<Long> optionIds, List<Long> toppingIds) {}
 
     public record ReserveStockRequest(
             @NotNull @Positive Long orderId,
             @NotNull @Positive Long storeId,
-            @NotEmpty java.util.Map<@NotNull @Positive Long, @NotNull @Positive Integer> stockQuantities,
-            java.util.Map<Long, Long> expectedVersions
+            @NotEmpty Map<@NotNull @Positive Long, @NotNull @Positive Integer> stockQuantities,
+            Map<Long, Long> expectedVersions
     ) {}
 
     public record ReleaseStockRequest(
@@ -88,12 +117,15 @@ public class ValidationDto {
         private Long productId;
         private Long comboId;
         private String name;
+        private LocalizedText nameI18n;
         private BigDecimal unitPrice;
         private BigDecimal extraPrice = BigDecimal.ZERO;
         private Integer quantity;
         private BigDecimal lineTotal;
         private boolean available = true;
         private String reason;
+        private String errorCode;
+        private boolean insufficientStock;
         private Long inventoryVersion;
 
         public Long getInventoryVersion() { return inventoryVersion; }
@@ -107,6 +139,9 @@ public class ValidationDto {
 
         public String getName() { return name; }
         public void setName(String name) { this.name = name; }
+
+        public LocalizedText getNameI18n() { return nameI18n; }
+        public void setNameI18n(LocalizedText nameI18n) { this.nameI18n = nameI18n; }
 
         public BigDecimal getUnitPrice() { return unitPrice; }
         public void setUnitPrice(BigDecimal unitPrice) { this.unitPrice = unitPrice; }
@@ -125,6 +160,12 @@ public class ValidationDto {
 
         public String getReason() { return reason; }
         public void setReason(String reason) { this.reason = reason; }
+
+        public String getErrorCode() { return errorCode; }
+        public void setErrorCode(String errorCode) { this.errorCode = errorCode; }
+
+        public boolean isInsufficientStock() { return insufficientStock; }
+        public void setInsufficientStock(boolean insufficientStock) { this.insufficientStock = insufficientStock; }
     }
 
     public static class Response {
@@ -133,10 +174,10 @@ public class ValidationDto {
         private String message;
         private BigDecimal subtotal = BigDecimal.ZERO;
         private List<ValidatedItem> items = new ArrayList<>();
-        private java.util.Map<Long, Long> stockQuantities = java.util.Map.of();
+        private Map<Long, Long> stockQuantities = Map.of();
 
-        public java.util.Map<Long, Long> getStockQuantities() { return stockQuantities; }
-        public void setStockQuantities(java.util.Map<Long, Long> quantities) { stockQuantities = java.util.Map.copyOf(quantities); }
+        public Map<Long, Long> getStockQuantities() { return stockQuantities; }
+        public void setStockQuantities(Map<Long, Long> quantities) { stockQuantities = Map.copyOf(quantities); }
 
         public boolean isValid() { return valid; }
         public void setValid(boolean valid) { this.valid = valid; }

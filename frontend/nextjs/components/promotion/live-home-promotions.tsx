@@ -1,9 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useLocale } from "next-intl";
 import { Hero, type HeroProps } from "@/components/hero";
 import { BannerShowcase } from "@/components/promotion/banner-showcase";
 import { promotionApi } from "@/lib/api";
+import { pickLocalized } from "@/lib/bilingual";
 import type { PromoBanner } from "@/lib/types/promotion";
 
 interface LiveHomePromotionsProps {
@@ -21,6 +23,7 @@ export function LiveHomePromotions({
   heroProps,
   children,
 }: LiveHomePromotionsProps) {
+  const locale = useLocale();
   const [banners, setBanners] = useState<PromoBanner[]>(initialBanners);
   const lastFetchRef = useRef<number>(0);
 
@@ -35,14 +38,14 @@ export function LiveHomePromotions({
     }
     lastFetchRef.current = now;
     try {
-      const latest = await promotionApi.getActiveBanners();
+      const latest = await promotionApi.getActiveBanners(undefined, locale);
       if (Array.isArray(latest)) {
         setBanners(latest);
       }
     } catch {
       // Keep current SSR/cached banners if transient network failure occurs.
     }
-  }, []);
+  }, [locale]);
 
   useEffect(() => {
     void refreshBanners(true);
@@ -71,13 +74,16 @@ export function LiveHomePromotions({
 
   const heroSlides = banners
     .filter((item) => item.position === "HERO_HOME")
-    .map((item) => ({
-      id: item.id,
-      image: item.imageUrl,
-      title: item.title,
-      redirectUrl: item.linkUrl,
-      alt: item.title,
-    }));
+    .map((item) => {
+      const resolvedTitle = pickLocalized(item.titleI18n, item.title, locale);
+      return {
+        id: item.id,
+        image: item.imageUrl,
+        title: resolvedTitle,
+        redirectUrl: item.linkUrl,
+        alt: resolvedTitle,
+      };
+    });
 
   return (
     <>

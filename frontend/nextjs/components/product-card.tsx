@@ -1,6 +1,7 @@
 "use client";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useLocaleTools } from "@/lib/i18n/hooks";
+import { pickLocalized } from "@/lib/bilingual";
 
 import { FoodImage } from "@/components/order/food-image";
 import Link from "@/components/ui-loader/navigation-link";
@@ -9,8 +10,11 @@ import { Plus, Flame } from "lucide-react";
 
 export function ProductCard({ product, storeId }: { product: Product; storeId?: number }) {
   const t = useTranslations();
+  const locale = useLocale();
   const { money: formatPrice } = useLocaleTools();
-  const categoryName = product.categoryName || product.category || "";
+  const productName = pickLocalized(product.nameI18n, product.name, locale);
+  const productDescription = pickLocalized(product.descriptionI18n, product.description, locale);
+  const categoryName = pickLocalized(product.categoryNameI18n, product.categoryName || product.category || "", locale);
   const isSoldOut = product.isSoldOut === true || product.isAvailable === false;
   const productHref = `/menu/${product.slug}${storeId ? `?storeId=${storeId}` : ''}`;
 
@@ -19,11 +23,11 @@ export function ProductCard({ product, storeId }: { product: Product; storeId?: 
       <Link
         href={productHref}
         className="product-card-media"
-        aria-label={t("menu.product.view", { name: product.name })}
+        aria-label={t("menu.product.view", { name: productName })}
       >
         <FoodImage
           src={product.imageUrl || product.image}
-          alt={product.alt || product.name}
+          alt={product.alt || productName}
           loading="lazy"
         />
 
@@ -59,10 +63,10 @@ export function ProductCard({ product, storeId }: { product: Product; storeId?: 
         </div>
 
         <h2>
-          <Link href={productHref}>{product.name}</Link>
+          <Link href={productHref}>{productName}</Link>
         </h2>
 
-        <p>{product.description}</p>
+        <p>{productDescription}</p>
 
         <div className="product-meta">
           <span className="price">
@@ -71,7 +75,7 @@ export function ProductCard({ product, storeId }: { product: Product; storeId?: 
           <Link
             className="add-button"
             href={productHref}
-            aria-label={t("menu.product.customise", { name: product.name })}
+            aria-label={t("menu.product.customise", { name: productName })}
           >
             <Plus size={20} />
           </Link>

@@ -2,6 +2,7 @@ package com.clucky.catalogstoreservice.controller;
 
 import com.clucky.catalogstoreservice.config.AccessGuard;
 import com.clucky.catalogstoreservice.config.CurrentActor;
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.InventoryDto;
 import com.clucky.catalogstoreservice.dto.Role;
 import com.clucky.catalogstoreservice.dto.StoreDto;
@@ -29,9 +30,11 @@ public class StoreInventoryController {
     @GetMapping("/inventory")
     @PreAuthorize("hasAnyRole('ADMIN', 'STORE_MANAGER', 'STAFF')")
     public ResponseEntity<List<InventoryDto.InventoryResponse>> getInventory(
-            @PathVariable Long storeId) {
+            @PathVariable Long storeId,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
         accessGuard.requireStore(storeId);
-        return ResponseEntity.ok(inventoryService.getStoreInventory(storeId));
+        return ResponseEntity.ok(inventoryService.getStoreInventory(storeId, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @PutMapping("/inventory/{productId}")

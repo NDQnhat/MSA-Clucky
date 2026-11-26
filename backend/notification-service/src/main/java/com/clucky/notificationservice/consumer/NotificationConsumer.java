@@ -1,6 +1,7 @@
 package com.clucky.notificationservice.consumer;
 
 import com.clucky.notificationservice.dto.DomainEvent;
+import com.clucky.notificationservice.dto.LocalizedText;
 import com.clucky.notificationservice.entity.Notification;
 import com.clucky.notificationservice.logging.SafeLog;
 import com.clucky.notificationservice.mapper.EventMapper;
@@ -139,8 +140,11 @@ public class NotificationConsumer {
             if (!"catalog-store-service".equals(event.sourceService())) {
                 throw new IllegalArgumentException("Invalid inventory notification source");
             }
-            recordAdminAlert(event, "INVENTORY", positiveId(payload, "productId"), "Tồn kho thấp",
-                    "Chi nhánh có món sắp hết. Kiểm tra tồn kho để điều chỉnh khả năng bán.");
+            recordAdminAlert(event, "INVENTORY", positiveId(payload, "productId"),
+                    LocalizedText.of("Tồn kho thấp", "Low Stock Alert"),
+                    LocalizedText.of(
+                            "Chi nhánh có món sắp hết. Kiểm tra tồn kho để điều chỉnh khả năng bán.",
+                            "A branch item is running low. Please check inventory availability."));
         }
         // Inventory recipient IDs must be resolved from current Identity data.
         // A managerUserId embedded in an event is not a verified recipient.
@@ -157,7 +161,11 @@ public class NotificationConsumer {
             throw new IllegalArgumentException("Invalid processed refund notification");
         }
         if ("refund.processed".equals(event.eventType())) {
-            recordAdminAlert(event, "ORDER", orderId, "Đã ghi nhận hoàn tiền", "Đơn hàng #" + orderId + " đã được ghi nhận hoàn tiền.");
+            recordAdminAlert(event, "ORDER", orderId,
+                    LocalizedText.of("Đã ghi nhận hoàn tiền", "Refund Recorded"),
+                    LocalizedText.of(
+                            "Đơn hàng #" + orderId + " đã được ghi nhận hoàn tiền.",
+                            "Refund has been recorded for order #" + orderId + "."));
         }
         if (event.eventType().startsWith("payment.")) {
             // A real SePay receipt may confirm a COUNTER order, which has no
@@ -202,8 +210,11 @@ public class NotificationConsumer {
             if (storeId == null || orderId == null) throw new IllegalArgumentException("Invalid branch order notification");
             for (String role : java.util.List.of("STORE_MANAGER", "STAFF")) {
                 recordBranchIntent(event, "order:" + orderId + ":" + role, storeId, role,
-                        "ORDER", orderId, "Đơn hàng mới",
-                        "Đơn hàng #" + orderCode + " vừa được tạo tại chi nhánh của bạn.");
+                        "ORDER", orderId,
+                        LocalizedText.of("Đơn hàng mới", "New Order"),
+                        LocalizedText.of(
+                                "Đơn hàng #" + orderCode + " vừa được tạo tại chi nhánh của bạn.",
+                                "Order #" + orderCode + " has been placed at your branch."));
             }
         } else if ("inventory.low-stock".equals(event.eventType())) {
             Long storeId = positiveId(payload, "storeId");
@@ -228,8 +239,8 @@ public class NotificationConsumer {
             } else {
                 jdbc.update("""
                         INSERT INTO notification_service.notifications(user_id,title,content,type,ref_id,operation_key)
-                        VALUES (?,?,?,?,?,?) ON CONFLICT (operation_key) WHERE operation_key IS NOT NULL DO NOTHING
-                        """, customerId, spec.inAppTitle(), spec.inAppContent(), spec.inAppType(), orderId, inAppKey);
+                        VALUES (?,?::jsonb,?::jsonb,?,?,?) ON CONFLICT (operation_key) WHERE operation_key IS NOT NULL DO NOTHING
+                        """, customerId, spec.inAppTitle().toJson(), spec.inAppContent().toJson(), spec.inAppType(), orderId, inAppKey);
 
                 LOG.info("event=notification_in_app_created userId={} type={} refId={} operationKey={}",
                         customerId, spec.inAppType(), orderId, inAppKey);
@@ -267,20 +278,25 @@ public class NotificationConsumer {
 
     private NotificationSpec resolveNotificationSpec(String eventType, JsonNode payload, String orderCode) {
         Map<String, String> vars = new HashMap<>();
+        String locale = payload.hasNonNull("locale") ? payload.get("locale").asText("vi") : "vi";
+        boolean isEn = "en".equalsIgnoreCase(locale);
+        vars.put("locale", isEn ? "en" : "vi");
         vars.put("orderCode", orderCode);
-        vars.put("customerName", extractCustomerName(payload));
+        vars.put("customerName", extractCustomerName(payload, isEn));
         vars.put("amount", extractAmount(payload));
         Long orderId = positiveId(payload, "orderId");
         if (orderId != null) {
             vars.put("orderId", orderId.toString());
             vars.put("orderUrl", customerUrl + "/orders/" + orderId);
         }
-        if (eventType.startsWith("order.")) addOrderVariables(payload, vars);
+        if (eventType.startsWith("order.")) addOrderVariables(payload, vars, isEn);
 
         return switch (eventType) {
             case "order.created" -> {
-                String title = "Đơn hàng đã được tạo";
-                String content = "Đơn hàng #" + orderCode + " đã được tạo thành công và đang chờ xác nhận.";
+                LocalizedText title = LocalizedText.of("Đơn hàng đã được tạo", "Order Created");
+                LocalizedText content = LocalizedText.of(
+                        "Đơn hàng #" + orderCode + " đã được tạo thành công và đang chờ xác nhận.",
+                        "Order #" + orderCode + " has been created and is awaiting confirmation.");
                 String status = payload.path("status").asText();
                 String template = switch (status) {
                     case "CONFIRMED" -> "ORDER_CONFIRMED";
@@ -290,9 +306,11 @@ public class NotificationConsumer {
                 yield new NotificationSpec(title, content, "ORDER", template, vars);
             }
             case "order.status-changed" -> {
-                String status = payload.hasNonNull("status") ? payload.get("status").asText() : "CẬP NHẬT";
-                String title = "Cập nhật trạng thái đơn hàng";
-                String content = "Đơn hàng #" + orderCode + " đã chuyển sang trạng thái " + status + ".";
+                String status = payload.hasNonNull("status") ? payload.get("status").asText() : "UPDATED";
+                LocalizedText title = LocalizedText.of("Cập nhật trạng thái đơn hàng", "Order Status Updated");
+                LocalizedText content = LocalizedText.of(
+                        "Đơn hàng #" + orderCode + " đã chuyển sang trạng thái " + status + ".",
+                        "Order #" + orderCode + " has moved to " + status + ".");
                 String emailTemplate = switch (status) {
                     case "CONFIRMED" -> "ORDER_CONFIRMED";
                     case "PREPARING" -> "ORDER_PREPARING";
@@ -300,30 +318,44 @@ public class NotificationConsumer {
                     default -> null;
                 };
                 vars.put("readyInstruction", "PICKUP".equals(payload.path("type").asText())
-                        ? "Bạn có thể đến cửa hàng nhận món theo thông tin trong đơn."
-                        : "Vui lòng theo dõi hướng dẫn nhận món trong chi tiết đơn; trạng thái này chưa xác nhận đã giao hàng.");
+                        ? (isEn ? "You can pick up your order at the branch using your order details."
+                                : "Bạn có thể đến cửa hàng nhận món theo thông tin trong đơn.")
+                        : (isEn ? "Please check pickup/delivery instructions in your order details; this status does not confirm final delivery."
+                                : "Vui lòng theo dõi hướng dẫn nhận món trong chi tiết đơn; trạng thái này chưa xác nhận đã giao hàng."));
                 yield new NotificationSpec(title, content, "ORDER", emailTemplate, vars);
             }
             case "order.completed" -> {
-                String title = "Đơn hàng đã hoàn tất";
-                String content = "Đơn hàng #" + orderCode + " đã hoàn tất. Cảm ơn bạn đã lựa chọn Clucky!";
+                LocalizedText title = LocalizedText.of("Đơn hàng đã hoàn tất", "Order Completed");
+                LocalizedText content = LocalizedText.of(
+                        "Đơn hàng #" + orderCode + " đã hoàn tất. Cảm ơn bạn đã lựa chọn Clucky!",
+                        "Order #" + orderCode + " is complete. Thank you for choosing Clucky!");
                 yield new NotificationSpec(title, content, "ORDER", "ORDER_COMPLETED", vars);
             }
             case "order.cancelled" -> {
                 String reason = payload.hasNonNull("reason") ? payload.get("reason").asText() : "";
-                vars.put("reason", reason.isBlank() ? "Vui lòng xem chi tiết trong ứng dụng" : reason);
-                String title = "Đơn hàng đã bị hủy";
-                String content = "Đơn hàng #" + orderCode + " đã bị hủy." + (!reason.isBlank() ? " Lý do: " + reason : "");
+                vars.put("reason", reason.isBlank()
+                        ? (isEn ? "Please view details in the app" : "Vui lòng xem chi tiết trong ứng dụng")
+                        : reason);
+                LocalizedText title = LocalizedText.of("Đơn hàng đã bị hủy", "Order Cancelled");
+                LocalizedText content = LocalizedText.of(
+                        "Đơn hàng #" + orderCode + " đã bị hủy." + (!reason.isBlank() ? " Lý do: " + reason : ""),
+                        "Order #" + orderCode + " was cancelled." + (!reason.isBlank() ? " Reason: " + reason : ""));
                 yield new NotificationSpec(title, content, "ORDER", "ORDER_CANCELLED", vars);
             }
             case "payment.confirmed" -> {
                 if ("COLLECTION".equals(payload.path("operationType").asText())) {
-                    yield new NotificationSpec("Đã ghi nhận thu tại quầy", "Đơn hàng #" + orderCode
-                            + " đã được chấp nhận thu tại quầy. Khoản chuyển khai báo có thể còn chờ đối soát ngân hàng.", "PAYMENT", null, vars);
+                    yield new NotificationSpec(
+                            LocalizedText.of("Đã ghi nhận thu tại quầy", "Counter Payment Collected"),
+                            LocalizedText.of(
+                                    "Đơn hàng #" + orderCode + " đã được chấp nhận thu tại quầy. Khoản chuyển khai báo có thể còn chờ đối soát ngân hàng.",
+                                    "Counter payment for order #" + orderCode + " has been recorded. Declared bank transfers may still await reconciliation."),
+                            "PAYMENT", null, vars);
                 }
-                String title = "Thanh toán thành công";
+                LocalizedText title = LocalizedText.of("Thanh toán thành công", "Payment Confirmed");
                 String amount = vars.get("amount");
-                String content = "Thanh toán cho đơn hàng #" + orderCode + " thành công" + (!amount.isBlank() ? " (" + amount + "đ)" : "") + ".";
+                LocalizedText content = LocalizedText.of(
+                        "Thanh toán cho đơn hàng #" + orderCode + " thành công" + (!amount.isBlank() ? " (" + amount + "đ)" : "") + ".",
+                        "Payment for order #" + orderCode + " succeeded" + (!amount.isBlank() ? " (" + amount + " VND)" : "") + ".");
                 yield new NotificationSpec(title, content, "PAYMENT", "PAYMENT_CONFIRMED", vars);
             }
             case "payment.failed" -> {
@@ -331,43 +363,62 @@ public class NotificationConsumer {
                 if (!reason.isBlank()) {
                     vars.put("reason", reason);
                 }
-                vars.put("paymentExplanation", "Vui lòng xem trạng thái giao dịch và hướng dẫn trong ứng dụng. "
-                        + "Clucky chỉ xác nhận thanh toán sau khi đối chiếu thành công.");
-                String title = "Thanh toán thất bại";
-                String content = "Thanh toán cho đơn hàng #" + orderCode + " thất bại." + (!reason.isBlank() ? " Lý do: " + reason : "");
+                vars.put("paymentExplanation", isEn
+                        ? "Please check your transaction status and instructions in the app. Clucky only confirms payment after successful reconciliation."
+                        : "Vui lòng xem trạng thái giao dịch và hướng dẫn trong ứng dụng. Clucky chỉ xác nhận thanh toán sau khi đối chiếu thành công.");
+                LocalizedText title = LocalizedText.of("Thanh toán thất bại", "Payment Failed");
+                LocalizedText content = LocalizedText.of(
+                        "Thanh toán cho đơn hàng #" + orderCode + " thất bại." + (!reason.isBlank() ? " Lý do: " + reason : ""),
+                        "Payment for order #" + orderCode + " failed." + (!reason.isBlank() ? " Reason: " + reason : ""));
                 yield new NotificationSpec(title, content, "PAYMENT", "PAYMENT_FAILED", vars);
             }
             case "refund.approved" -> {
-                String title = "Yêu cầu hoàn tiền đã được tiếp nhận";
-                String content = "Yêu cầu hoàn tiền cho đơn hàng #" + orderCode + " đã được tiếp nhận xử lý.";
+                LocalizedText title = LocalizedText.of("Yêu cầu hoàn tiền đã được tiếp nhận", "Refund Request Approved");
+                LocalizedText content = LocalizedText.of(
+                        "Yêu cầu hoàn tiền cho đơn hàng #" + orderCode + " đã được tiếp nhận xử lý.",
+                        "Your refund request for order #" + orderCode + " has been accepted for processing.");
                 yield new NotificationSpec(title, content, "REFUND", "REFUND_APPROVED", vars);
             }
             case "refund.rejected" -> {
                 String reason = payload.hasNonNull("reason") ? payload.get("reason").asText() : "";
-                vars.put("reason", reason.isBlank() ? "Vui lòng xem chi tiết trong ứng dụng" : reason);
-                String title = "Yêu cầu hoàn tiền bị từ chối";
-                String content = "Yêu cầu hoàn tiền cho đơn hàng #" + orderCode + " bị từ chối." + (!reason.isBlank() ? " Lý do: " + reason : "");
+                vars.put("reason", reason.isBlank()
+                        ? (isEn ? "Please view details in the app" : "Vui lòng xem chi tiết trong ứng dụng")
+                        : reason);
+                LocalizedText title = LocalizedText.of("Yêu cầu hoàn tiền bị từ chối", "Refund Request Rejected");
+                LocalizedText content = LocalizedText.of(
+                        "Yêu cầu hoàn tiền cho đơn hàng #" + orderCode + " bị từ chối." + (!reason.isBlank() ? " Lý do: " + reason : ""),
+                        "Your refund request for order #" + orderCode + " was declined." + (!reason.isBlank() ? " Reason: " + reason : ""));
                 yield new NotificationSpec(title, content, "REFUND", "REFUND_REJECTED", vars);
             }
             case "refund.waiting-bank-details" -> {
                 String reason = payload.hasNonNull("reason") ? payload.get("reason").asText() : "";
-                vars.put("reason", reason.isBlank() ? "Vui lòng kiểm tra thông tin nhận tiền" : reason);
-                String title = "Cần cập nhật thông tin nhận hoàn tiền";
-                String content = "Chuyển tiền hoàn cho đơn hàng #" + orderCode + " chưa thành công." + (!reason.isBlank() ? " Lý do: " + reason : "") + ". Vui lòng cập nhật lại thông tin tài khoản ngân hàng.";
+                vars.put("reason", reason.isBlank()
+                        ? (isEn ? "Please verify your bank account details" : "Vui lòng kiểm tra thông tin nhận tiền")
+                        : reason);
+                LocalizedText title = LocalizedText.of("Cần cập nhật thông tin nhận hoàn tiền", "Bank Details Required for Refund");
+                LocalizedText content = LocalizedText.of(
+                        "Chuyển tiền hoàn cho đơn hàng #" + orderCode + " chưa thành công." + (!reason.isBlank() ? " Lý do: " + reason : "") + ". Vui lòng cập nhật lại thông tin tài khoản ngân hàng.",
+                        "Refund transfer for order #" + orderCode + " could not be completed." + (!reason.isBlank() ? " Reason: " + reason : "") + ". Please update your bank account details.");
                 yield new NotificationSpec(title, content, "REFUND", "REFUND_WAITING_BANK_DETAILS", vars);
             }
             case "refund.confirmed", "refund.processed" -> {
-                String title = "Hoàn tiền thành công";
+                LocalizedText title = LocalizedText.of("Hoàn tiền thành công", "Refund Completed");
                 String amount = vars.get("amount");
-                String content = "Số tiền " + (!amount.isBlank() ? amount + "đ " : "") + "cho đơn hàng #" + orderCode + " đã được hoàn tất.";
+                LocalizedText content = LocalizedText.of(
+                        "Số tiền " + (!amount.isBlank() ? amount + "đ " : "") + "cho đơn hàng #" + orderCode + " đã được hoàn tất.",
+                        "A refund of " + (!amount.isBlank() ? amount + " VND " : "") + "for order #" + orderCode + " has been completed.");
                 yield new NotificationSpec(title, content, "REFUND", "REFUND_PROCESSED", vars);
             }
             case "inventory.low-stock" -> {
-                String productName = payload.hasNonNull("productName") ? payload.get("productName").asText() : "Món ăn";
+                String productNameVi = payload.hasNonNull("productName") ? payload.get("productName").asText() : "Món ăn";
+                LocalizedText productNameI18n = LocalizedText.fromDbValue(payload.get("productNameI18n"));
+                String productNameEn = productNameI18n != null ? productNameI18n.resolve("en") : productNameVi;
                 int qty = payload.hasNonNull("quantity") ? payload.get("quantity").asInt() : 0;
                 int threshold = payload.hasNonNull("threshold") ? payload.get("threshold").asInt() : 20;
-                String title = "Cảnh báo tồn kho thấp";
-                String content = "Sản phẩm " + productName + " hiện chỉ còn " + qty + " phần (ngưỡng cảnh báo: " + threshold + ").";
+                LocalizedText title = LocalizedText.of("Cảnh báo tồn kho thấp", "Low Stock Warning");
+                LocalizedText content = LocalizedText.of(
+                        "Sản phẩm " + productNameVi + " hiện chỉ còn " + qty + " phần (ngưỡng cảnh báo: " + threshold + ").",
+                        "Product " + productNameEn + " only has " + qty + " units remaining (alert threshold: " + threshold + ").");
                 yield new NotificationSpec(title, content, "INVENTORY", null, vars);
             }
             default -> null;
@@ -375,12 +426,12 @@ public class NotificationConsumer {
     }
 
     private void recordBranchIntent(DomainEvent event, String operationKey, Long storeId, String role,
-                                    String type, Long reference, String title, String content) {
+                                    String type, Long reference, LocalizedText title, LocalizedText content) {
         jdbc.update("""
                 INSERT INTO notification_service.branch_notification_intents
                     (operation_key,event_id,store_id,role,title,content,type,ref_id)
-                VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(operation_key) DO NOTHING
-                """, "branch:" + operationKey, event.eventId(), storeId, role, title, content, type, reference);
+                VALUES (?,?,?,?,?::jsonb,?::jsonb,?,?) ON CONFLICT(operation_key) DO NOTHING
+                """, "branch:" + operationKey, event.eventId(), storeId, role, title.toJson(), content.toJson(), type, reference);
     }
 
     private void recordAdminOrder(DomainEvent event) {
@@ -390,12 +441,16 @@ public class NotificationConsumer {
         if (!"cart-order-service".equals(event.sourceService()) || orderId == null || storeId == null) {
             throw new IllegalArgumentException("Invalid admin order notification");
         }
+        LocalizedText title = LocalizedText.of("Đơn hàng mới", "New Order");
+        LocalizedText content = LocalizedText.of(
+                "Đơn hàng #" + orderId + " vừa được tạo tại chi nhánh #" + storeId + ".",
+                "Order #" + orderId + " was placed at branch #" + storeId + ".");
         jdbc.update("""
                 INSERT INTO notification_service.admin_notifications
                     (operation_key,event_id,correlation_id,title,content,type,ref_id,store_id)
-                VALUES (?,?,?,'Đơn hàng mới',?,'ORDER',?,?) ON CONFLICT (operation_key) DO NOTHING
+                VALUES (?,?,?,?::jsonb,?::jsonb,'ORDER',?,?) ON CONFLICT (operation_key) DO NOTHING
                 """, "order.created:" + orderId, event.eventId(), event.correlationId(),
-                "Đơn hàng #" + orderId + " vừa được tạo tại chi nhánh #" + storeId + ".", orderId, storeId);
+                title.toJson(), content.toJson(), orderId, storeId);
     }
 
     private Long positiveId(JsonNode payload, String field) {
@@ -403,13 +458,13 @@ public class NotificationConsumer {
         return value.isIntegralNumber() && value.canConvertToLong() && value.longValue() > 0 ? value.longValue() : null;
     }
 
-    private void recordAdminAlert(DomainEvent event, String type, Long reference, String title, String content) {
+    private void recordAdminAlert(DomainEvent event, String type, Long reference, LocalizedText title, LocalizedText content) {
         Long storeId = positiveId(event.payload(), "storeId");
         if (reference == null || storeId == null) throw new IllegalArgumentException("Invalid admin notification reference");
         jdbc.update("INSERT INTO notification_service.admin_notifications "
-                + "(operation_key,event_id,correlation_id,title,content,type,ref_id,store_id) VALUES (?,?,?,?,?,?,?,?) "
+                + "(operation_key,event_id,correlation_id,title,content,type,ref_id,store_id) VALUES (?,?,?,?::jsonb,?::jsonb,?,?,?) "
                 + "ON CONFLICT(operation_key) DO NOTHING", "admin:" + event.eventId(), event.eventId(), event.correlationId(),
-                title, content, type, reference, storeId);
+                title.toJson(), content.toJson(), type, reference, storeId);
     }
 
     private Long refundCustomerId(JsonNode payload) {
@@ -437,13 +492,16 @@ public class NotificationConsumer {
         return orderId != null ? String.valueOf(orderId) : "N/A";
     }
 
-    private void addOrderVariables(JsonNode payload, Map<String, String> variables) {
+    private void addOrderVariables(JsonNode payload, Map<String, String> variables, boolean isEn) {
         var displayedItems = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
         var items = payload.path("items");
         if (items.isArray()) {
             int encodedLength = 2;
             for (JsonNode item : items) {
-                String name = item.path("itemName").asText("Món ăn");
+                LocalizedText nameI18n = LocalizedText.fromDbValue(item.path("itemNameI18n").isMissingNode()
+                        ? item.path("itemName").asText(isEn ? "Menu Item" : "Món ăn")
+                        : item.get("itemNameI18n").toString());
+                String name = nameI18n != null ? nameI18n.resolve(isEn ? "en" : "vi") : item.path("itemName").asText(isEn ? "Menu Item" : "Món ăn");
                 if (name.length() > 200) name = name.substring(0, 200);
                 var displayed = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode().put("itemName", name);
                 for (String field : new String[]{"quantity", "unitPrice", "lineTotal"}) {
@@ -464,14 +522,14 @@ public class NotificationConsumer {
         variables.put("paymentStatus", payload.path("paymentStatus").asText());
     }
 
-    private String extractCustomerName(JsonNode payload) {
+    private String extractCustomerName(JsonNode payload, boolean isEn) {
         if (payload.hasNonNull("customerName")) {
             return payload.get("customerName").asText();
         }
         if (payload.hasNonNull("receiverName")) {
             return payload.get("receiverName").asText();
         }
-        return "Quý khách";
+        return isEn ? "Valued Customer" : "Quý khách";
     }
 
     private String extractAmount(JsonNode payload) {
@@ -485,8 +543,8 @@ public class NotificationConsumer {
     }
 
     private record NotificationSpec(
-            String inAppTitle,
-            String inAppContent,
+            LocalizedText inAppTitle,
+            LocalizedText inAppContent,
             String inAppType,
             String emailTemplate,
             Map<String, String> emailVariables

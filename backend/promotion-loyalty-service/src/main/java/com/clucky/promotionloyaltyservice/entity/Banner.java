@@ -1,6 +1,9 @@
 package com.clucky.promotionloyaltyservice.entity;
 
+import com.clucky.promotionloyaltyservice.dto.LocalizedText;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 
 @Entity
@@ -11,8 +14,9 @@ public class Banner {
     @Column(name = "id", nullable = false)
     private Long id;
 
-    @Column(name = "title", nullable = false, length = 180)
-    private String title;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "title", nullable = false, columnDefinition = "jsonb")
+    private LocalizedText title;
 
     @Column(name = "image_url", nullable = false, columnDefinition = "text")
     private String imageUrl;
@@ -66,8 +70,10 @@ public class Banner {
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
-    public String getTitle() { return title; }
-    public void setTitle(String title) { this.title = title; }
+    public LocalizedText getTitle() { return title; }
+    public void setTitle(LocalizedText title) { this.title = title; }
+    public void setTitle(String title) { this.title = LocalizedText.ofSingle(title); }
+    public String resolveTitle(String lang) { return LocalizedText.resolve(title, lang); }
 
     public String getImageUrl() { return imageUrl; }
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }

@@ -1,16 +1,20 @@
 import request from "./api";
+import type { LocalizedText } from "./bilingual";
 
 export type VoucherCampaign = {
   id: number;
   code?: string | null;
   title: string;
+  titleI18n?: LocalizedText | null;
   description: string | null;
+  descriptionI18n?: LocalizedText | null;
   campaignKind: "LEGACY" | "PERSONAL";
   applicability: "ALL" | "SELECTED";
   storeIds: number[];
   scope: "ALL" | "STORE";
   storeId: number | null;
   storeName: string | null;
+  storeNameI18n?: LocalizedText | null;
   type: "PERCENT" | "AMOUNT";
   value: number;
   maxDiscount: number | null;

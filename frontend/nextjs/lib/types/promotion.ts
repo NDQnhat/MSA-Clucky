@@ -1,3 +1,5 @@
+import type { LocalizedText } from '../bilingual';
+
 export type VoucherType = 'PERCENT' | 'AMOUNT';
 export type VoucherScope = 'ALL' | 'STORE';
 export type VoucherStatus = 'ACTIVE' | 'EXPIRED' | 'UPCOMING' | 'EXHAUSTED' | 'DISABLED';
@@ -16,9 +18,12 @@ export interface Voucher {
   scope: VoucherScope;
   storeId?: string | number | null;
   storeName?: string | null;
+  storeNameI18n?: LocalizedText | null;
   status?: string;
   title?: string;
+  titleI18n?: LocalizedText | null;
   description?: string;
+  descriptionI18n?: LocalizedText | null;
 }
 
 export type LoyaltyTier = 'MEMBER' | 'SILVER' | 'GOLD';
@@ -63,6 +68,7 @@ export type BannerPosition = 'HERO_HOME' | 'POPUP' | 'PROMO_STRIP';
 export interface PromoBanner {
   id: number;
   title: string;
+  titleI18n?: LocalizedText | null;
   imageUrl: string;
   linkUrl?: string | null;
   position: BannerPosition;

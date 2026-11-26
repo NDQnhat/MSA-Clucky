@@ -1,5 +1,7 @@
 package com.clucky.catalogstoreservice.service;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
+import com.clucky.catalogstoreservice.dto.LocalizedText;
 import com.clucky.catalogstoreservice.dto.StoreDto;
 import com.clucky.catalogstoreservice.entity.Product;
 import com.clucky.catalogstoreservice.entity.Store;
@@ -48,17 +50,27 @@ public class StoreService {
 
     @Transactional(readOnly = true)
     public List<StoreDto.Response> getAllStores(boolean activeOnly) {
+        return getAllStores(activeOnly, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public List<StoreDto.Response> getAllStores(boolean activeOnly, String lang) {
         List<Store> stores = activeOnly
                 ? storeRepository.findByStatus(StoreStatus.OPEN)
                 : storeRepository.findAll();
-        return stores.stream().map(this::toResponse).collect(Collectors.toList());
+        return stores.stream().map(store -> toResponse(store, lang)).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public StoreDto.Response getStoreById(Long id) {
+        return getStoreById(id, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public StoreDto.Response getStoreById(Long id, String lang) {
         Store store = storeRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chi nhánh với mã: " + id));
-        return toResponse(store);
+                .orElseThrow(() -> new ResourceNotFoundException("Store not found: " + id));
+        return toResponse(store, lang);
     }
 
     public StoreDto.Response createStore(StoreDto.Request request) {
@@ -177,18 +189,26 @@ public class StoreService {
     }
 
     public StoreDto.Response toResponse(Store store) {
+        return toResponse(store, LocaleResolverHelper.currentRequestLang());
+    }
+
+    public StoreDto.Response toResponse(Store store, String lang) {
         StoreDto.Response response = new StoreDto.Response(
                 store.getId(),
-                store.getName(),
+                store.resolveName(lang),
                 store.getAddress(),
-                store.getDistrict(),
-                store.getCity(),
+                store.getDistrict() != null ? store.getDistrict().resolve(lang) : null,
+                store.getCity() != null ? store.getCity().resolve(lang) : null,
                 store.getPhone(),
                 store.getOpenTime(),
                 store.getCloseTime(),
                 store.getStatus(),
-                store.getDeliveryArea()
+                store.getDeliveryArea() != null ? store.getDeliveryArea().resolve(lang) : null
         );
+        response.setNameI18n(store.getName());
+        response.setDistrictI18n(store.getDistrict());
+        response.setCityI18n(store.getCity());
+        response.setDeliveryAreaI18n(store.getDeliveryArea());
         response.setAccountReadiness(store.getAccountReadiness());
         response.setIsOpenNow(isStoreServingNow(store));
         response.setLatitude(store.getLatitude());

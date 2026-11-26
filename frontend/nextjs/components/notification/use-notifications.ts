@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useLocale } from "next-intl";
 import { useSession } from "@/components/auth/use-session";
 import { getErrorMessage, request } from "@/lib/api";
 import { getSessionState } from "@/lib/session";
@@ -16,6 +17,7 @@ interface Inbox {
 const changed = "clucky-notifications-changed";
 
 export function useNotifications() {
+  const locale = useLocale();
   const { user, ready, error: sessionError } = useSession();
   const userId = user?.userId;
   const [filter, setFilter] = useState({ unread: false, type: "ALL", page: 0 });
@@ -43,9 +45,9 @@ export function useNotifications() {
     if (!ready || userId === undefined) { setLoading(!ready); return; }
     const controller = new AbortController();
     setLoading(true); setError(""); setLoaded(null);
-    const params = new URLSearchParams({ page: String(filter.page), size: "20", unread: String(filter.unread) });
+    const params = new URLSearchParams({ page: String(filter.page), size: "20", unread: String(filter.unread), lang: locale });
     if (filter.type !== "ALL") params.set("type", filter.type);
-    request<Inbox>(`/api/notifications/my?${params}`, { signal: controller.signal }).then(data => {
+    request<Inbox>(`/api/notifications/my?${params}`, { signal: controller.signal, lang: locale }).then(data => {
       if (controller.signal.aborted) return;
       if (!Array.isArray(data.content) || !Number.isSafeInteger(data.unreadCount) || data.unreadCount < 0
         || !Number.isSafeInteger(data.totalElements) || data.totalElements < 0 || !Number.isSafeInteger(data.totalPages)
@@ -55,7 +57,7 @@ export function useNotifications() {
     }).catch(failure => { if (!controller.signal.aborted) setError(getErrorMessage(failure)); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [ready, userId, filter, revision]);
+  }, [ready, userId, filter, revision, locale]);
 
   async function markRead(id?: string | number) {
     if (userId === undefined || mutation.current) return false;

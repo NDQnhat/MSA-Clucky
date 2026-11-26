@@ -11,6 +11,7 @@ import { useAuth } from "../../context/AuthContext";
 import { usePageLoading } from "../../components/ui-loader/page-loading";
 import { AdminModal } from '../../components/ui/AdminModal';
 import { matchesStoreSearch } from '../Stores/presentation';
+import { pickLocalized } from '../../lib/bilingual';
 import { orderDate } from '../Orders/presentation';
 import { useLocaleTools } from '../../i18n/hooks';
 import { accountAuditAction, accountReadiness, accountRole, type Account } from './branch-account-presentation';
@@ -22,7 +23,8 @@ interface Audit { id: number; actorId: number; actorRole?: string; targetId?: nu
 interface Management { targetId: number; purpose: string; currentPassword: string; newEmail?: string }
 
 export function BranchAccountsPage() {
-  const { t } = useTranslation("accounts");
+  const { t, i18n } = useTranslation("accounts");
+  const lang = i18n.resolvedLanguage || i18n.language || 'vi';
   const { user, isAdmin } = useAuth();
   const [params] = useSearchParams();
   const requestedStoreId = Number(params.get("storeId"));
@@ -44,7 +46,8 @@ export function BranchAccountsPage() {
   }, []);
   useEffect(() => { const controller = new AbortController(); void load(controller.signal); return () => controller.abort(); }, [load]);
   const selectedStore = stores.find(store => store.id === storeId);
-  const filteredStores = stores.filter(store => matchesStoreSearch([store.name, String(store.id), store.address], search));
+  const selectedStoreName = selectedStore ? pickLocalized(selectedStore.nameI18n, selectedStore.name, lang) : undefined;
+  const filteredStores = stores.filter(store => matchesStoreSearch([store.nameI18n, store.name, String(store.id), store.address], search));
   if (isAdmin) return <div className="branch-accounts-page">
     <header className="branch-accounts-heading">
       <div><span className="branch-eyebrow">{t('directory.eyebrow')}</span><Typography.Title level={2}>{t('title')}</Typography.Title>
@@ -60,18 +63,18 @@ export function BranchAccountsPage() {
         <nav className="branch-directory-list" aria-label={t('store')} aria-busy={loading}>
           {loading ? <Skeleton active paragraph={{ rows: 4 }} /> : filteredStores.length ? filteredStores.map(store => <button key={store.id}
             type="button" aria-pressed={storeId === store.id} disabled={branchBusy} onClick={() => setStoreId(store.id)}>
-            <span className="branch-list-icon"><ShopOutlined /></span><span><strong>{store.name}</strong><small>#{store.id} · {store.address}</small></span><RightOutlined />
+            <span className="branch-list-icon"><ShopOutlined /></span><span><strong>{pickLocalized(store.nameI18n, store.name, lang)}</strong><small>#{store.id} · {store.address}</small></span><RightOutlined />
           </button>) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('directory.empty')} />}
         </nav>
         <p className="branch-directory-hint"><SafetyCertificateOutlined /> {t('directory.scope')}</p>
       </aside>
       <div className="branch-workspace-main">
         {storeId ? <>
-          <section className="branch-selected-heading"><div><span>{t('directory.current')}</span><h2>{selectedStore?.name || `#${storeId}`}</h2><p>{selectedStore?.address}</p></div>
+          <section className="branch-selected-heading"><div><span>{t('directory.current')}</span><h2>{selectedStoreName || `#${storeId}`}</h2><p>{selectedStore?.address}</p></div>
             {selectedStore && <Tag color={selectedStore.status === 'OPEN' ? 'success' : selectedStore.status === 'INACTIVE' ? 'default' : 'gold'}>
               {selectedStore.status === 'OPEN' ? t("business:stores.open") : selectedStore.status === 'INACTIVE' ? t("business:stores.inactive") : t("admin:ui.temporarilyClosed")}</Tag>}
           </section>
-          <BranchDetails key={`branch-accounts:${storeId}`} storeId={storeId} storeName={selectedStore?.name} onBusyChange={setBranchBusy} />
+          <BranchDetails key={`branch-accounts:${storeId}`} storeId={storeId} storeName={selectedStoreName} onBusyChange={setBranchBusy} />
         </> : <section className="branch-empty">
           <span className="branch-empty-symbol"><SafetyCertificateOutlined /></span><h2>{t('directory.select')}</h2><p>{t('directory.selectHint')}</p>
           <div className="branch-role-guide"><span><SafetyCertificateOutlined /> {t("admin:ui.branchManagerAccount")}</span><span><TeamOutlined /> {t("admin:ui.sharedOperationsAccount")}</span></div>
@@ -81,9 +84,9 @@ export function BranchAccountsPage() {
   </div>;
   return <div className="branch-accounts-page branch-manager-page">
     <header className="branch-accounts-heading"><div><span className="branch-eyebrow">{t('directory.eyebrow')}</span>
-      <Typography.Title level={2}>{t("title")}</Typography.Title><p>{t('managerUi.subtitle')}</p></div><Tag icon={<ShopOutlined />}>{selectedStore?.name || user.storeName || `#${storeId ?? '—'}`}</Tag></header>
+      <Typography.Title level={2}>{t("title")}</Typography.Title><p>{t('managerUi.subtitle')}</p></div><Tag icon={<ShopOutlined />}>{selectedStoreName || user.storeName || `#${storeId ?? '—'}`}</Tag></header>
     {error && <Alert type="error" message={error} action={<Button onClick={() => void load()}>{t("reload")}</Button>} />}
-    {storeId ? <BranchDetails key={storeId} storeId={storeId} storeName={selectedStore?.name} /> : <Alert type="warning" showIcon message={t('managerUi.noBranch')} />}
+    {storeId ? <BranchDetails key={storeId} storeId={storeId} storeName={selectedStoreName} /> : <Alert type="warning" showIcon message={t('managerUi.noBranch')} />}
   </div>;
 }
 

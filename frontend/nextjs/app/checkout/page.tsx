@@ -9,6 +9,7 @@ import { useNavigationRouter as useRouter } from "@/components/ui-loader/use-nav
 import Link from "@/components/ui-loader/navigation-link";
 import { Select } from "@base-ui/react/select";
 import { catalogApi, type StoreItem } from "@/lib/api";
+import { pickLocalized } from "@/lib/bilingual";
 import { coordinates, emptyAddress, formatAddress, locationApi, profileApi, type Coordinates } from "@/lib/locations";
 import { CheckoutAddress } from "@/components/maps/checkout-address";
 import { BranchMap } from "@/components/maps/branch-map";
@@ -82,7 +83,7 @@ export default function CheckoutPage() {
   useEffect(() => {
     let active = true;
     setStoresError(false);
-    catalogApi.getStores(false)
+    catalogApi.getStores(false, locale)
       .then((data) => {
         if (!active) return;
         if (Array.isArray(data) && data.length > 0) {
@@ -100,7 +101,7 @@ export default function CheckoutPage() {
         if (active) setStoresError(true);
       });
     return () => { active = false; };
-  }, [storesReload, cartStoreId, urlStoreId]);
+  }, [storesReload, cartStoreId, urlStoreId, locale]);
 
   useEffect(() => {
     const targetStore = cartStoreId || urlStoreId;
@@ -277,8 +278,12 @@ export default function CheckoutPage() {
       else if (amount < minimum) reason = vouchersText("checkoutReasonMinimum", { amount: formatPrice(minimum - amount) });
       return { voucher, discount, eligible: !reason, reason };
     }).sort((a, b) => Number(b.eligible) - Number(a.eligible)
-      || b.discount - a.discount || a.voucher.campaign.title.localeCompare(b.voucher.campaign.title));
-  }, [myVouchers, selectedStore, subtotal, formatPrice, vouchersText]);
+      || b.discount - a.discount
+      || pickLocalized(a.voucher.campaign.titleI18n, a.voucher.campaign.title, locale).localeCompare(
+        pickLocalized(b.voucher.campaign.titleI18n, b.voucher.campaign.title, locale),
+        locale
+      ));
+  }, [myVouchers, selectedStore, subtotal, formatPrice, vouchersText, locale]);
   const selectedVoucher = voucherOptions.find(option => option.eligible && option.voucher.instanceId === selectedVoucherId)?.voucher ?? null;
   const bestVoucherId = voucherOptions.find(option => option.eligible && option.discount > 0)?.voucher.instanceId;
   const estimatedVoucherDiscount = selectedVoucher ? (voucherOptions.find(option => option.voucher.instanceId === selectedVoucher.instanceId)?.discount ?? 0) : 0;
@@ -634,7 +639,7 @@ export default function CheckoutPage() {
                     }}
                     items={stores.map((store) => ({
                       value: String(store.id),
-                      label: store.name,
+                      label: pickLocalized(store.nameI18n, store.name, locale),
                     }))}
                   >
                     <Select.Trigger
@@ -660,36 +665,39 @@ export default function CheckoutPage() {
                       >
                         <Select.Popup className={styles.storePopup}>
                           <Select.List className={styles.storeList}>
-                            {stores.map((store) => (
-                              <Select.Item
-                                key={store.id}
-                                value={String(store.id)}
-                                label={store.name}
-                                className={styles.storeOption}
-                              >
-                                <span
-                                  className={styles.storeOptionIcon}
-                                  aria-hidden="true"
+                            {stores.map((store) => {
+                              const storeName = pickLocalized(store.nameI18n, store.name, locale);
+                              return (
+                                <Select.Item
+                                  key={store.id}
+                                  value={String(store.id)}
+                                  label={storeName}
+                                  className={styles.storeOption}
                                 >
-                                  <Store size={19} />
-                                </span>
-                                <div className={styles.storeOptionContent}>
-                                  <Select.ItemText
-                                    className={styles.storeOptionName}
+                                  <span
+                                    className={styles.storeOptionIcon}
+                                    aria-hidden="true"
                                   >
-                                    {store.name}
-                                  </Select.ItemText>
-                                  <span className={styles.storeOptionAddress}>
-                                    {store.address}
+                                    <Store size={19} />
                                   </span>
-                                </div>
-                                <Select.ItemIndicator
-                                  className={styles.storeCheck}
-                                >
-                                  <Check size={18} strokeWidth={2.5} />
-                                </Select.ItemIndicator>
-                              </Select.Item>
-                            ))}
+                                  <div className={styles.storeOptionContent}>
+                                    <Select.ItemText
+                                      className={styles.storeOptionName}
+                                    >
+                                      {storeName}
+                                    </Select.ItemText>
+                                    <span className={styles.storeOptionAddress}>
+                                      {store.address}
+                                    </span>
+                                  </div>
+                                  <Select.ItemIndicator
+                                    className={styles.storeCheck}
+                                  >
+                                    <Check size={18} strokeWidth={2.5} />
+                                  </Select.ItemIndicator>
+                                </Select.Item>
+                              );
+                            })}
                           </Select.List>
                         </Select.Popup>
                       </Select.Positioner>
@@ -806,7 +814,11 @@ export default function CheckoutPage() {
                     <Select.Trigger id="checkout-voucher" type="button" aria-label={vouchersText("checkoutLabel")} className={styles.voucherTrigger}>
                       <span className={styles.voucherTriggerIcon}><TicketPercent size={19} aria-hidden="true" /></span>
                       <Select.Value className={styles.voucherSelected}>
-                        <span className={styles.voucherSelectedName}>{selectedVoucher?.campaign.title ?? vouchersText("checkoutNone")}</span>
+                        <span className={styles.voucherSelectedName}>
+                          {selectedVoucher
+                            ? pickLocalized(selectedVoucher.campaign.titleI18n, selectedVoucher.campaign.title, locale)
+                            : vouchersText("checkoutNone")}
+                        </span>
                         {selectedVoucher && <strong className={styles.voucherSelectedDiscount}>
                           −{formatPrice(voucherOptions.find(option => option.voucher.instanceId === selectedVoucherId)?.discount ?? 0)}
                         </strong>}
@@ -819,10 +831,11 @@ export default function CheckoutPage() {
                           <Select.List className={styles.voucherList}>
                             {voucherOptions.map(option => {
                               const campaign = option.voucher.campaign;
+                              const campaignTitle = pickLocalized(campaign.titleI18n, campaign.title, locale);
                               return <Select.Item key={option.voucher.instanceId} value={option.voucher.instanceId}
-                                label={campaign.title} disabled={!option.eligible} className={styles.voucherOption}>
+                                label={campaignTitle} disabled={!option.eligible} className={styles.voucherOption}>
                                 <span className={styles.voucherOptionContent}>
-                                  <Select.ItemText className={styles.voucherOptionTitle}>{campaign.title}</Select.ItemText>
+                                  <Select.ItemText className={styles.voucherOptionTitle}>{campaignTitle}</Select.ItemText>
                                   <span className={styles.voucherOptionTerms}>
                                     {campaign.type === "PERCENT"
                                       ? vouchersText("checkoutPercentOff", { percent: campaign.value })
@@ -866,7 +879,7 @@ export default function CheckoutPage() {
                 )}
                 {selectedVoucher && (
                   <div className={styles.appliedVoucher}>
-                    <span><Check size={16} aria-hidden="true" />{vouchersText("checkoutApplied", { title: selectedVoucher.campaign.title })}</span>
+                    <span><Check size={16} aria-hidden="true" />{vouchersText("checkoutApplied", { title: pickLocalized(selectedVoucher.campaign.titleI18n, selectedVoucher.campaign.title, locale) })}</span>
                   <button
                     type="button"
                     className={styles.removeVoucher}
@@ -1037,7 +1050,7 @@ export default function CheckoutPage() {
                   <div key={item.id} className={styles.miniItem}>
                     <FoodImage src={item.image} alt="" className={styles.miniImage} />
                     <div>
-                      <div className={styles.miniItemName}>{item.name}</div>
+                      <div className={styles.miniItemName}>{pickLocalized(item.nameI18n, item.name, locale)}</div>
                       <div className={styles.miniItemQty}>
                         SL: {item.quantity} {t("business.cart.servings")}
                       </div>

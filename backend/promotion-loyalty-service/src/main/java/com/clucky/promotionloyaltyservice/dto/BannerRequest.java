@@ -1,14 +1,12 @@
 package com.clucky.promotionloyaltyservice.dto;
 
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 
 public record BannerRequest(
-        @NotBlank(message = "Banner title is required")
-        @Size(max = 180, message = "Banner title must be at most 180 characters")
-        String title,
+        @ValidLocalizedText(required = true, max = 180, message = "Banner title is required and must be at most 180 characters")
+        LocalizedText title,
         @Size(max = 1024, message = "Link URL must be at most 1024 characters")
         String linkUrl,
         @Size(max = 50, message = "Position must be at most 50 characters")
@@ -23,6 +21,21 @@ public record BannerRequest(
         String imageUrl,
         String imagePublicId
 ) {
+    public BannerRequest(
+            String title,
+            String linkUrl,
+            String position,
+            Integer displayOrder,
+            Instant startAt,
+            Instant endAt,
+            Boolean isActive,
+            Long expectedVersion,
+            Long version,
+            String imageUrl,
+            String imagePublicId) {
+        this(LocalizedText.ofSingle(title), linkUrl, position, displayOrder, startAt, endAt, isActive, expectedVersion, version, imageUrl, imagePublicId);
+    }
+
     public Long resolvedVersion() {
         return expectedVersion != null ? expectedVersion : version;
     }

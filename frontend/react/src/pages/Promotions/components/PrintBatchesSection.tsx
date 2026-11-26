@@ -14,6 +14,7 @@ import { AdminTable } from '../../../components/ui/AdminTable';
 import { message } from '../../../components/feedback';
 import { useAuth } from '../../../context/AuthContext';
 import { getErrorMessage, promotionsApi, type Store } from '../../../lib/api';
+import { matchesBilingualSearch, pickLocalized } from '../../../lib/bilingual';
 import type { PrintBatchStatus, VoucherPrintBatch } from '../../../types/promotion';
 
 const { Text } = Typography;
@@ -47,7 +48,10 @@ export const PrintBatchesSection: React.FC<PrintBatchesSectionProps> = ({
   refreshToken = 0,
   onChanged,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage || i18n.language || 'vi';
+  const currencyLabel = t('common:currency');
+  const numberLocale = lang.startsWith('en') ? 'en-US' : 'vi-VN';
   const { isAdmin } = useAuth();
   const [batches, setBatches] = useState<VoucherPrintBatch[]>([]);
   const [loading, setLoading] = useState(false);
@@ -65,6 +69,7 @@ export const PrintBatchesSection: React.FC<PrintBatchesSectionProps> = ({
       const data = await promotionsApi.listPrintBatches({
         storeId: isAdmin && storeFilter !== 'ALL' ? storeFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        lang,
       });
       setBatches(data);
     } catch (err) {
@@ -73,7 +78,7 @@ export const PrintBatchesSection: React.FC<PrintBatchesSectionProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, storeFilter, statusFilter]);
+  }, [isAdmin, storeFilter, statusFilter, lang]);
 
   useEffect(() => {
     void fetchBatches();
@@ -110,10 +115,16 @@ export const PrintBatchesSection: React.FC<PrintBatchesSectionProps> = ({
   };
 
   const filteredBatches = batches.filter((b) => {
-    const q = searchTerm.trim().toLowerCase();
-    if (!q) return true;
-    return [b.batchCode, b.campaignTitle, b.storeName, b.note]
-      .some((val) => val?.toLowerCase().includes(q));
+    const matchedStore = b.storeId ? stores.find((s) => Number(s.id) === Number(b.storeId)) : undefined;
+    return matchesBilingualSearch(
+      searchTerm,
+      b.batchCode,
+      b.campaignTitle,
+      b.storeName,
+      matchedStore?.nameI18n,
+      matchedStore?.name,
+      b.note
+    );
   });
 
   const columns: TableColumnsType<VoucherPrintBatch> = [
@@ -128,7 +139,7 @@ export const PrintBatchesSection: React.FC<PrintBatchesSectionProps> = ({
             {record.batchCode}
           </Text>
           <div style={{ fontSize: 11, color: '#6B6259' }}>
-            {record.quantity} {t('admin:voucherPrinting.issuedCountUnit', { defaultValue: 'phiếu' })}
+            {record.quantity} {t('admin:voucherPrinting.issuedCountUnit')}
           </div>
         </div>
       ),
@@ -144,7 +155,7 @@ export const PrintBatchesSection: React.FC<PrintBatchesSectionProps> = ({
             <div style={{ fontSize: 12, color: '#8F1216', fontWeight: 700 }}>
               {record.campaignType === 'PERCENT'
                 ? `-${record.discountValue}%`
-                : `-${record.discountValue.toLocaleString('vi-VN')} đ`}
+                : `-${record.discountValue.toLocaleString(numberLocale)} ${currencyLabel}`}
             </div>
           )}
           {record.note && (
@@ -157,16 +168,19 @@ export const PrintBatchesSection: React.FC<PrintBatchesSectionProps> = ({
       title: t('admin:voucherPrinting.branch'),
       key: 'store',
       width: 170,
-      render: (_, record) =>
-        record.storeId ? (
+      render: (_, record) => {
+        const matchedStore = record.storeId ? stores.find((s) => Number(s.id) === Number(record.storeId)) : undefined;
+        const resolvedStoreName = matchedStore ? pickLocalized(matchedStore.nameI18n, matchedStore.name, lang) : record.storeName;
+        return record.storeId ? (
           <Tag icon={<ShopOutlined />} color="blue" style={{ borderRadius: 999 }}>
-            {record.storeName || `#${record.storeId}`}
+            {resolvedStoreName || `#${record.storeId}`}
           </Tag>
         ) : (
           <Tag icon={<GlobalOutlined />} color="purple" style={{ borderRadius: 999 }}>
             {t('admin:voucherPrinting.hqAllStores')}
           </Tag>
-        ),
+        );
+      },
     },
     {
       title: t('admin:voucherPrinting.breakdown'),
@@ -330,7 +344,7 @@ export const PrintBatchesSection: React.FC<PrintBatchesSectionProps> = ({
                     label: (
                       <Space size={6}>
                         <ShopOutlined />
-                        {s.name}
+                        {pickLocalized(s.nameI18n, s.name, lang)}
                       </Space>
                     ),
                   })),

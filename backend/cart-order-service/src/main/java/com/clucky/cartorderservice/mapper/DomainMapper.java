@@ -1,5 +1,6 @@
 package com.clucky.cartorderservice.mapper;
 
+import com.clucky.cartorderservice.config.LocaleResolverHelper;
 import com.clucky.cartorderservice.dto.*;
 import com.clucky.cartorderservice.entity.*;
 
@@ -17,8 +18,12 @@ public final class DomainMapper {
     }
 
     public static OrderResponse toResponse(Order entity, List<OrderItem> items, List<OrderStatusHistory> history) {
+        return toResponse(entity, items, history, LocaleResolverHelper.currentRequestLang());
+    }
+
+    public static OrderResponse toResponse(Order entity, List<OrderItem> items, List<OrderStatusHistory> history, String lang) {
         List<OrderItemResponse> itemResponses = items == null ? List.of() :
-                items.stream().map(DomainMapper::toResponse).toList();
+                items.stream().map(item -> DomainMapper.toResponse(item, lang)).toList();
         List<OrderStatusHistoryResponse> historyResponses = history == null ? List.of() :
                 history.stream().map(DomainMapper::toResponse).toList();
         return new OrderResponse(
@@ -56,17 +61,22 @@ public final class DomainMapper {
     }
 
     public static OrderItemResponse toResponse(OrderItem entity) {
+        return toResponse(entity, LocaleResolverHelper.currentRequestLang());
+    }
+
+    public static OrderItemResponse toResponse(OrderItem entity, String lang) {
         return new OrderItemResponse(
                 entity.getId(),
                 entity.getOrderId(),
                 entity.getItemType(),
                 entity.getProductId(),
                 entity.getComboId(),
+                entity.resolveItemName(lang),
                 entity.getItemName(),
                 entity.getUnitPrice(),
                 entity.getQuantity(),
-                entity.getOptionsSnapshot(),
-                entity.getToppingsSnapshot(),
+                LocalizedText.localizeSnapshotNode(entity.getOptionsSnapshot(), lang),
+                LocalizedText.localizeSnapshotNode(entity.getToppingsSnapshot(), lang),
                 entity.getNote(),
                 entity.getLineTotal()
         );

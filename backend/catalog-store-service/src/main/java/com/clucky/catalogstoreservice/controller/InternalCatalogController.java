@@ -1,5 +1,6 @@
 package com.clucky.catalogstoreservice.controller;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.ValidationDto;
 import com.clucky.catalogstoreservice.service.OrderStockService;
 import com.clucky.catalogstoreservice.service.ValidationService;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -26,8 +28,11 @@ public class InternalCatalogController {
     }
 
     @PostMapping("/validate-items")
-    public ResponseEntity<ValidationDto.Response> validateItems(@RequestBody ValidationDto.Request request) {
-        return ResponseEntity.ok(validationService.validateOrderItems(request));
+    public ResponseEntity<ValidationDto.Response> validateItems(
+            @RequestBody ValidationDto.Request request,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(validationService.validateOrderItems(request, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @PostMapping("/reserve-stock")

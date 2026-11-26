@@ -33,7 +33,7 @@ public interface BannerRepository extends JpaRepository<Banner, Long> {
         SELECT b FROM Banner b
         WHERE (:filterByPosition = false OR b.position = :position)
           AND (:filterByActive = false OR b.isActive = :isActive)
-          AND (:filterByKeyword = false OR LOWER(b.title) LIKE :keywordPattern)
+          AND (:filterByKeyword = false OR LOWER(CAST(b.title AS string)) LIKE :keywordPattern)
         ORDER BY b.displayOrder ASC, b.id DESC
     """)
     List<Banner> findAdminBanners(

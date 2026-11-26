@@ -23,6 +23,7 @@ import {
 } from "@/lib/api";
 import { useLocaleTools } from "@/lib/i18n/hooks";
 import { getErrorMessage } from "@/lib/i18n/core";
+import { pickLocalized } from "@/lib/bilingual";
 import { ReviewFormModal } from "./review-form-modal";
 import { ReviewRepliesList } from "./review-replies-list";
 import { StarDisplay } from "./star-rating-input";
@@ -67,7 +68,7 @@ export function MyReviewsPanel() {
 
       const nextStores: Record<number, string> = {};
       for (const store of stores) {
-        nextStores[store.id] = store.name;
+        nextStores[store.id] = pickLocalized(store.nameI18n, store.name, locale);
       }
 
       setReviews(myList);
@@ -85,7 +86,7 @@ export function MyReviewsPanel() {
   }, [loadData, reloadTick]);
 
   const dishLabel = (review: ReviewDto) =>
-    productMap[review.productId]?.name ||
+    (productMap[review.productId] ? pickLocalized(productMap[review.productId].nameI18n, productMap[review.productId].name, locale) : "") ||
     t("business.reviews.dishFallback", { value1: review.productId });
 
   const refreshAfterConflict = async (err: unknown) => {

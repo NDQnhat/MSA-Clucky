@@ -17,6 +17,7 @@ import { AdminModal } from '../../../components/ui/AdminModal';
 import { message } from '../../../components/feedback';
 import { useAuth } from '../../../context/AuthContext';
 import { getErrorMessage, promotionsApi, type Store } from '../../../lib/api';
+import { pickLocalized } from '../../../lib/bilingual';
 import type { AdminVoucher, VoucherPrintQuota } from '../../../types/promotion';
 
 const { Text } = Typography;
@@ -48,7 +49,8 @@ export const PrintVoucherModal: React.FC<PrintVoucherModalProps> = ({
   onCancel,
   onSuccess,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage || i18n.language || 'vi';
   const { user, isAdmin } = useAuth();
   const [form] = Form.useForm<{ storeId?: number | 'HQ'; quantity: number; note?: string }>();
   const [selectedStore, setSelectedStore] = useState<number | null>(null);
@@ -182,7 +184,7 @@ export const PrintVoucherModal: React.FC<PrintVoucherModalProps> = ({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label={t('admin:voucherPrinting.campaign')} span={2}>
-                <Text strong>{voucher.title || voucher.code || `#${voucher.id}`}</Text>
+                <Text strong>{pickLocalized(voucher.titleI18n, voucher.title, lang) || voucher.code || `#${voucher.id}`}</Text>
               </Descriptions.Item>
               <Descriptions.Item label={t('admin:voucherUi.limit')}>
                 <Text strong>{voucher.totalLimit?.toLocaleString() ?? '∞'}</Text>
@@ -235,7 +237,10 @@ export const PrintVoucherModal: React.FC<PrintVoucherModalProps> = ({
               <Form.Item name="storeId" label={t('admin:voucherPrinting.printStore')}>
                 {!isAdmin ? (
                   <Tag icon={<ShopOutlined />} color="blue" style={{ padding: '4px 10px', fontWeight: 600 }}>
-                    {stores.find((s) => Number(s.id) === Number(user.storeId))?.name || `#${user.storeId}`}
+                    {(() => {
+                      const matched = stores.find((s) => Number(s.id) === Number(user.storeId));
+                      return matched ? pickLocalized(matched.nameI18n, matched.name, lang) : `#${user.storeId}`;
+                    })()}
                   </Tag>
                 ) : (
                   <Select
@@ -258,7 +263,7 @@ export const PrintVoucherModal: React.FC<PrintVoucherModalProps> = ({
                         value: s.id,
                         label: (
                           <span>
-                            <ShopOutlined /> {s.name} (#{s.id})
+                            <ShopOutlined /> {pickLocalized(s.nameI18n, s.name, lang)} (#{s.id})
                           </span>
                         ),
                       })),

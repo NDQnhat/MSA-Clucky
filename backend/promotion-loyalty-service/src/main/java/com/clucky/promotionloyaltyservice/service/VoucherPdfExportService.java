@@ -70,14 +70,33 @@ public class VoucherPdfExportService {
             Long storeId,
             String storeName,
             Instant createdAt,
-            List<TicketRenderItem> tickets
-    ) {}
+            List<TicketRenderItem> tickets,
+            String lang
+    ) {
+        public BatchRenderModel(
+                String batchCode,
+                String campaignTitle,
+                String campaignType,
+                BigDecimal discountValue,
+                BigDecimal minOrderAmount,
+                BigDecimal maxDiscount,
+                Instant expiresAt,
+                Long storeId,
+                String storeName,
+                Instant createdAt,
+                List<TicketRenderItem> tickets
+        ) {
+            this(batchCode, campaignTitle, campaignType, discountValue, minOrderAmount, maxDiscount,
+                    expiresAt, storeId, storeName, createdAt, tickets, "vi");
+        }
+    }
 
     public byte[] renderBatchPdf(BatchRenderModel model) {
         List<TicketRenderItem> tickets = model.tickets() == null ? List.of() : model.tickets();
         if (tickets.isEmpty() || tickets.size() > MAX_BATCH_TICKETS) {
             throw new ApiException(ErrorCode.VALIDATION_ERROR);
         }
+        boolean isEn = "en".equalsIgnoreCase(model.lang());
 
         Document document = new Document(PageSize.A4, 18, 18, 20, 20);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -92,7 +111,7 @@ public class VoucherPdfExportService {
             headerMetaFont.setColor(CLUCKY_MUTED);
 
             Paragraph heading = new Paragraph(
-                    sanitizeText("CLUCKY — PHIẾU GIẢM GIÁ TẠI QUẦY (" + model.batchCode() + ")"),
+                    sanitizeText((isEn ? "CLUCKY — COUNTER VOUCHERS (" : "CLUCKY — PHIẾU GIẢM GIÁ TẠI QUẦY (") + model.batchCode() + ")"),
                     headerTitleFont
             );
             heading.setAlignment(Element.ALIGN_LEFT);
@@ -102,11 +121,13 @@ public class VoucherPdfExportService {
             String branchLabel = model.storeId() != null
                     ? (model.storeName() != null && !model.storeName().isBlank()
                         ? model.storeName() + " (#" + model.storeId() + ")"
-                        : "Chi nhánh #" + model.storeId())
-                    : "Toàn hệ thống (HQ)";
+                        : (isEn ? "Branch #" : "Chi nhánh #") + model.storeId())
+                    : (isEn ? "All Stores (HQ)" : "Toàn hệ thống (HQ)");
             String metaLine = String.format(
-                    "Chương trình: %s | Chi nhánh in: %s | Số phiếu khả dụng: %d | HSD: %s (UTC+7)",
-                    safeTitle(model.campaignTitle()),
+                    isEn
+                        ? "Campaign: %s | Store: %s | Available vouchers: %d | Exp: %s (UTC+7)"
+                        : "Chương trình: %s | Chi nhánh in: %s | Số phiếu khả dụng: %d | HSD: %s (UTC+7)",
+                    safeTitle(model.campaignTitle(), isEn),
                     branchLabel,
                     tickets.size(),
                     model.expiresAt() != null ? TS_FMT.format(model.expiresAt()) : "—"
@@ -123,7 +144,7 @@ public class VoucherPdfExportService {
                 PdfPCell wrapper = new PdfPCell();
                 wrapper.setBorder(Rectangle.NO_BORDER);
                 wrapper.setPadding(4f);
-                wrapper.addElement(buildVoucherCard(model, ticket, total));
+                wrapper.addElement(buildVoucherCard(model, ticket, total, isEn));
                 grid.addCell(wrapper);
             }
             if (total % 2 != 0) {
@@ -145,7 +166,7 @@ public class VoucherPdfExportService {
         return out.toByteArray();
     }
 
-    private PdfPTable buildVoucherCard(BatchRenderModel model, TicketRenderItem ticket, int total) throws Exception {
+    private PdfPTable buildVoucherCard(BatchRenderModel model, TicketRenderItem ticket, int total, boolean isEn) throws Exception {
         PdfPTable card = new PdfPTable(1);
         card.setWidthPercentage(100f);
 
@@ -172,7 +193,7 @@ public class VoucherPdfExportService {
 
         Font brandFont = Liberation.SANS_BOLD.create(9);
         brandFont.setColor(CLUCKY_CREAM);
-        PdfPCell titleCell = new PdfPCell(new Phrase("CLUCKY · VOUCHER QUẦY", brandFont));
+        PdfPCell titleCell = new PdfPCell(new Phrase(isEn ? "CLUCKY · COUNTER VOUCHER" : "CLUCKY · VOUCHER QUẦY", brandFont));
         titleCell.setBackgroundColor(CLUCKY_ESPRESSO);
         titleCell.setBorder(Rectangle.NO_BORDER);
         titleCell.setVerticalAlignment(Element.ALIGN_MIDDLE);
@@ -206,8 +227,8 @@ public class VoucherPdfExportService {
         Font discountFont = Liberation.SANS_BOLD.create(15);
         discountFont.setColor(CLUCKY_WINE);
         String discountText = "PERCENT".equalsIgnoreCase(model.campaignType())
-                ? "GIẢM " + model.discountValue().stripTrailingZeros().toPlainString() + "%"
-                : "GIẢM " + CURRENCY_FMT.format(model.discountValue()) + " đ";
+                ? (isEn ? "SAVE " : "GIẢM ") + model.discountValue().stripTrailingZeros().toPlainString() + "%"
+                : (isEn ? "SAVE " : "GIẢM ") + CURRENCY_FMT.format(model.discountValue()) + " đ";
         PdfPCell discountCell = new PdfPCell(new Phrase(discountText, discountFont));
         discountCell.setBorder(Rectangle.NO_BORDER);
         discountCell.setPadding(2f);
@@ -215,7 +236,7 @@ public class VoucherPdfExportService {
 
         Font campaignFont = Liberation.SANS_BOLD.create(9);
         campaignFont.setColor(CLUCKY_ESPRESSO);
-        PdfPCell campaignCell = new PdfPCell(new Phrase(sanitizeText(safeTitle(model.campaignTitle())), campaignFont));
+        PdfPCell campaignCell = new PdfPCell(new Phrase(sanitizeText(safeTitle(model.campaignTitle(), isEn)), campaignFont));
         campaignCell.setBorder(Rectangle.NO_BORDER);
         campaignCell.setPadding(2f);
         details.addCell(campaignCell);
@@ -227,25 +248,25 @@ public class VoucherPdfExportService {
                 : "0 đ";
         String maxDiscountText = "PERCENT".equalsIgnoreCase(model.campaignType())
                 && model.maxDiscount() != null && model.maxDiscount().signum() > 0
-                ? " · Tối đa " + CURRENCY_FMT.format(model.maxDiscount()) + " đ"
+                ? (isEn ? " · Max " : " · Tối đa ") + CURRENCY_FMT.format(model.maxDiscount()) + " đ"
                 : "";
         PdfPCell minCell = new PdfPCell(new Phrase(
-                sanitizeText("Đơn tối thiểu: " + minOrderText + maxDiscountText), termFont));
+                sanitizeText((isEn ? "Min order: " : "Đơn tối thiểu: ") + minOrderText + maxDiscountText), termFont));
         minCell.setBorder(Rectangle.NO_BORDER);
         minCell.setPadding(1.5f);
         details.addCell(minCell);
 
         String scopeText = model.storeId() != null
-                ? "Áp dụng tại: " + (model.storeName() != null && !model.storeName().isBlank()
-                    ? model.storeName() : "Chi nhánh #" + model.storeId())
-                : "Áp dụng: Các chi nhánh hợp lệ";
+                ? (isEn ? "Valid at: " : "Áp dụng tại: ") + (model.storeName() != null && !model.storeName().isBlank()
+                    ? model.storeName() : (isEn ? "Branch #" : "Chi nhánh #") + model.storeId())
+                : (isEn ? "Valid at: Eligible stores" : "Áp dụng: Các chi nhánh hợp lệ");
         PdfPCell scopeCell = new PdfPCell(new Phrase(sanitizeText(scopeText), termFont));
         scopeCell.setBorder(Rectangle.NO_BORDER);
         scopeCell.setPadding(1.5f);
         details.addCell(scopeCell);
 
         PdfPCell expiryCell = new PdfPCell(new Phrase(
-                "HSD: " + (model.expiresAt() != null ? TS_FMT.format(model.expiresAt()) : "—"), termFont));
+                (isEn ? "Exp: " : "HSD: ") + (model.expiresAt() != null ? TS_FMT.format(model.expiresAt()) : "—"), termFont));
         expiryCell.setBorder(Rectangle.NO_BORDER);
         expiryCell.setPadding(1.5f);
         details.addCell(expiryCell);
@@ -270,7 +291,7 @@ public class VoucherPdfExportService {
 
         Font channelFont = Liberation.SANS_BOLD.create(7);
         channelFont.setColor(CLUCKY_WINE);
-        PdfPCell channelCell = new PdfPCell(new Phrase("CHỈ DÙNG TẠI QUẦY", channelFont));
+        PdfPCell channelCell = new PdfPCell(new Phrase(isEn ? "COUNTER ONLY" : "CHỈ DÙNG TẠI QUẦY", channelFont));
         channelCell.setBorder(Rectangle.NO_BORDER);
         channelCell.setHorizontalAlignment(Element.ALIGN_CENTER);
         channelCell.setPaddingTop(1f);
@@ -295,7 +316,7 @@ public class VoucherPdfExportService {
         Font codeFont = Liberation.SANS_BOLD.create(7);
         codeFont.setColor(CLUCKY_ESPRESSO);
         Phrase footerPhrase = new Phrase();
-        footerPhrase.add(new Phrase("Mã dự phòng: ", codeLabelFont));
+        footerPhrase.add(new Phrase(isEn ? "Backup code: " : "Mã dự phòng: ", codeLabelFont));
         footerPhrase.add(new Phrase(ticket.code(), codeFont));
 
         PdfPCell footerCell = new PdfPCell(footerPhrase);
@@ -342,9 +363,9 @@ public class VoucherPdfExportService {
         }
     }
 
-    private static String safeTitle(String title) {
+    private static String safeTitle(String title, boolean isEn) {
         if (title == null || title.isBlank()) {
-            return "Ưu đãi Clucky";
+            return isEn ? "Clucky Promotion" : "Ưu đãi Clucky";
         }
         String trimmed = title.strip();
         return trimmed.length() > 62 ? trimmed.substring(0, 59) + "..." : trimmed;

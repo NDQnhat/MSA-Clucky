@@ -26,7 +26,8 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { promotionsApi } from '../../../lib/api';
+import { getErrorMessage, promotionsApi } from '../../../lib/api';
+import { matchesBilingualSearch, pickLocalized, toLocalizedPayload } from '../../../lib/bilingual';
 import type { BannerEffectiveStatus, BannerPosition, PromoBanner } from '../../../types/promotion';
 import { BANNER_POSITIONS, BannerModal } from './BannerModal';
 
@@ -42,7 +43,8 @@ const STATUS_TAG_COLORS: Record<BannerEffectiveStatus, string> = {
 const ALL_STATUSES: BannerEffectiveStatus[] = ['ACTIVE', 'UPCOMING', 'EXPIRED', 'DISABLED'];
 
 export const BannerManagementSection: React.FC = () => {
-  const { t } = useTranslation(['admin']);
+  const { t, i18n } = useTranslation(['admin']);
+  const lang = i18n.language;
   const [banners, setBanners] = useState<PromoBanner[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -71,11 +73,11 @@ export const BannerManagementSection: React.FC = () => {
       if ((err as { name?: string })?.name === 'AbortError') {
         return;
       }
-      setErrorText(err instanceof Error ? err.message : t('admin:promotions.banner.loadError'));
+      setErrorText(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [positionFilter, t]);
+  }, [positionFilter, lang]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -114,7 +116,7 @@ export const BannerManagementSection: React.FC = () => {
     setTogglingId(banner.id);
     try {
       const updated = await promotionsApi.updateBanner(banner.id, {
-        title: banner.title,
+        title: toLocalizedPayload(banner.titleI18n, banner.title) ?? banner.title,
         linkUrl: banner.linkUrl ?? null,
         position: banner.position,
         displayOrder: banner.displayOrder,
@@ -126,7 +128,7 @@ export const BannerManagementSection: React.FC = () => {
       setBanners((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
       message.success(t('admin:promotions.banner.saveSuccessUpdate'));
     } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : t('admin:promotions.banner.loadError'));
+      message.error(getErrorMessage(err));
       void loadBanners();
     } finally {
       setTogglingId(null);
@@ -140,7 +142,7 @@ export const BannerManagementSection: React.FC = () => {
       setBanners((prev) => prev.filter((item) => item.id !== banner.id));
       message.success(t('admin:promotions.banner.deleteSuccess'));
     } catch (err: unknown) {
-      message.error(err instanceof Error ? err.message : t('admin:promotions.banner.loadError'));
+      message.error(getErrorMessage(err));
       void loadBanners();
     } finally {
       setDeletingId(null);
@@ -162,19 +164,12 @@ export const BannerManagementSection: React.FC = () => {
     return t('admin:promotions.banner.fields.noSchedule');
   };
 
-  const normalizedQuery = searchText.trim().toLowerCase();
   const filteredBanners = banners.filter((banner) => {
     const effective = banner.effectiveStatus ?? (banner.isActive ? 'ACTIVE' : 'DISABLED');
     if (statusFilter !== 'ALL' && effective !== statusFilter) {
       return false;
     }
-    if (!normalizedQuery) {
-      return true;
-    }
-    return (
-      banner.title.toLowerCase().includes(normalizedQuery)
-      || (banner.linkUrl ?? '').toLowerCase().includes(normalizedQuery)
-    );
+    return matchesBilingualSearch(searchText, banner.title, banner.titleI18n, banner.linkUrl);
   });
 
   return (
@@ -297,6 +292,7 @@ export const BannerManagementSection: React.FC = () => {
         >
           {filteredBanners.map((banner) => {
             const effectiveStatus = banner.effectiveStatus ?? (banner.isActive ? 'ACTIVE' : 'DISABLED');
+            const bannerTitle = pickLocalized(banner.titleI18n, banner.title, lang);
             return (
               <Card
                 key={banner.id}
@@ -311,7 +307,7 @@ export const BannerManagementSection: React.FC = () => {
                   <div style={{ position: 'relative', height: 170, background: '#F5EDE0' }}>
                     <img
                       src={banner.imageUrl}
-                      alt={banner.title}
+                      alt={bannerTitle}
                       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                     />
                     <div
@@ -345,7 +341,7 @@ export const BannerManagementSection: React.FC = () => {
                   <Popconfirm
                     key="delete"
                     title={t('admin:promotions.banner.deleteConfirmTitle')}
-                    description={t('admin:promotions.banner.deleteConfirmDesc', { title: banner.title })}
+                    description={t('admin:promotions.banner.deleteConfirmDesc', { title: bannerTitle })}
                     onConfirm={() => void handleDelete(banner)}
                     okButtonProps={{ danger: true, loading: deletingId === banner.id }}
                   >
@@ -363,7 +359,7 @@ export const BannerManagementSection: React.FC = () => {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                     <Title level={5} style={{ margin: 0, color: '#16100D' }} ellipsis={{ rows: 2 }}>
-                      {banner.title}
+                      {bannerTitle}
                     </Title>
                     <Switch
                       size="small"

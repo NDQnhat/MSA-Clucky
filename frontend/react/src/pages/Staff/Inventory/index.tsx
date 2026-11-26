@@ -18,12 +18,14 @@ import { AdminModal } from '../../../components/ui/AdminModal';
 import { useAuth } from '../../../context/AuthContext';
 import { useLocaleTools } from '../../../i18n/hooks';
 import { inventoryApi, storesApi, getErrorMessage, type InventoryItem, type Store } from '../../../lib/api';
+import { matchesBilingualSearch, pickLocalized } from '../../../lib/bilingual';
 import { CatalogImage } from '../../Catalog/ImageField';
 import { stockState } from './stock-state';
 import './inventory.css';
 
 export const StaffInventoryPage: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.resolvedLanguage || i18n.language || 'vi';
   const { money } = useLocaleTools();
 
   const { user, isAdmin, isStaff } = useAuth();
@@ -62,7 +64,7 @@ export const StaffInventoryPage: React.FC = () => {
 
   const activeStoreId = isAdmin ? adminSelectedStoreId || stores[0]?.id : user.storeId;
   const currentStore = stores.find((s) => s.id === activeStoreId);
-  const currentStoreName = currentStore?.name || user.storeName;
+  const currentStoreName = currentStore ? pickLocalized(currentStore.nameI18n, currentStore.name, lang) : user.storeName;
   const storeThreshold = currentStore?.lowStockThreshold ?? 20;
 
   const fetchInventory = useCallback(async (silent = false) => {
@@ -95,7 +97,7 @@ export const StaffInventoryPage: React.FC = () => {
   useEffect(() => {
     fetchInventory();
     return () => { inventoryRequest.current += 1; };
-  }, [fetchInventory]);
+  }, [fetchInventory, lang]);
 
   useEffect(() => {
     if (modalOpen || thresholdModalOpen || priceModalOpen || busy) return;
@@ -116,9 +118,13 @@ export const StaffInventoryPage: React.FC = () => {
   // Filter items for active store
   const filteredItems = useMemo(() => {
     return storeInventory.filter((item) => {
-      const matchSearch =
-        item.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.categoryName.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchSearch = matchesBilingualSearch(
+        searchTerm,
+        item.productNameI18n,
+        item.productName,
+        item.categoryNameI18n,
+        item.categoryName
+      );
 
       const isLowStock = item.quantityAvailable <= storeThreshold && !item.isSoldOut;
       const isSoldOut = item.isSoldOut || item.quantityAvailable === 0;
@@ -157,13 +163,14 @@ export const StaffInventoryPage: React.FC = () => {
         isSoldOut: checked, ...(isAdmin ? { expectedVersion: item.availabilityVersion } : {}),
       });
       await fetchInventory();
+      const itemProductName = pickLocalized(item.productNameI18n, item.productName, lang);
       if (checked) {
         message.warning(
-          t("business:inventory.markedAsSoldOutForThisShiftCustomersAtThisStoreWill", { value1: item.productName })
+          t("business:inventory.markedAsSoldOutForThisShiftCustomersAtThisStoreWill", { value1: itemProductName })
         );
       } else {
         message.success(
-          t("business:inventory.isBackOnSaleAtThisStore", { value1: item.productName })
+          t("business:inventory.isBackOnSaleAtThisStore", { value1: itemProductName })
         );
       }
     } catch (err) {
@@ -262,7 +269,9 @@ export const StaffInventoryPage: React.FC = () => {
           )
         );
         message.success(
-          t("business:inventory.inventoryQuantityUpdatedFor", { value1: editingItem.productName })
+          t("business:inventory.inventoryQuantityUpdatedFor", {
+            value1: pickLocalized(editingItem.productNameI18n, editingItem.productName, lang),
+          })
         );
       }
       setModalOpen(false);
@@ -282,11 +291,14 @@ export const StaffInventoryPage: React.FC = () => {
       title: t("business:catalog.dish"),
       key: 'product',
       width: isAdmin ? 310 : undefined,
-      render: (_, record) => (
+      render: (_, record) => {
+        const displayProductName = pickLocalized(record.productNameI18n, record.productName, lang);
+        const displayCategoryName = pickLocalized(record.categoryNameI18n, record.categoryName, lang);
+        return (
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          {isAdmin ? <div className="inventory-thumb"><CatalogImage url={record.imageUrl} name={record.productName} /></div> : <Image
+          {isAdmin ? <div className="inventory-thumb"><CatalogImage url={record.imageUrl} name={displayProductName} /></div> : <Image
             src={record.imageUrl ?? undefined}
-            alt={record.productName}
+            alt={displayProductName}
             width={52}
             height={52}
             style={{ borderRadius: 12, objectFit: 'cover', border: '1px solid #E8E2D9' }}
@@ -300,7 +312,7 @@ export const StaffInventoryPage: React.FC = () => {
                 color: '#16100D',
               }}
             >
-              {record.productName}
+              {displayProductName}
             </div>
             <Tag
               style={{
@@ -312,11 +324,12 @@ export const StaffInventoryPage: React.FC = () => {
                 marginTop: 2,
               }}
             >
-              {record.categoryName}
+              {displayCategoryName}
             </Tag>
           </div>
         </div>
-      ),
+        );
+      },
     },
     {
       title: t("admin:ui.branchPrice"),
@@ -480,7 +493,7 @@ export const StaffInventoryPage: React.FC = () => {
   return (
     <div className={isAdmin ? 'inventory-admin' : undefined}>
       {isAdmin ? <header className="inventory-header"><div><span className="inventory-eyebrow">{t("admin:ui.branchInventory")}</span><h1>{t("admin:ui.stockCountAvailability")}</h1><p>{t("admin:ui.recordActualQuantitiesAndManageDishesAvailableAt")}</p></div>
-        <div className="inventory-store-select"><label htmlFor="inventory-store">{t("admin:ui.managedBranch")}</label><Select id="inventory-store" aria-label={t("admin:ui.managedBranch")} size="large" showSearch optionFilterProp="label" value={activeStoreId} disabled={busy || loading} loading={loading} placeholder={t("accounts:store")} onChange={value => { setAdminSelectedStoreId(value); setSearchTerm(''); setStatusFilter('ALL'); }} options={stores.map(store => ({ value: store.id, label: store.name }))} /></div>
+        <div className="inventory-store-select"><label htmlFor="inventory-store">{t("admin:ui.managedBranch")}</label><Select id="inventory-store" aria-label={t("admin:ui.managedBranch")} size="large" showSearch optionFilterProp="label" value={activeStoreId} disabled={busy || loading} loading={loading} placeholder={t("accounts:store")} onChange={value => { setAdminSelectedStoreId(value); setSearchTerm(''); setStatusFilter('ALL'); }} options={stores.map(store => ({ value: store.id, label: pickLocalized(store.nameI18n, store.name, lang) }))} /></div>
         <div className="inventory-threshold-banner"><div><WarningOutlined /><span>{t("admin:ui.branchWarningThreshold")} <strong>{loading ? '—' : currentStore ? t("admin:ui.portions579", { value1: storeThreshold }) : t("admin:ui.noBranchAvailable")}</strong></span></div>
           <Button icon={<EditOutlined />} disabled={!currentStore || busy || loading} onClick={() => { setThresholdInput(storeThreshold); setThresholdStore(currentStore ?? null); setThresholdError(''); setThresholdModalOpen(true); }}>{t("admin:ui.editThreshold")}</Button>
         </div>
@@ -514,7 +527,7 @@ export const StaffInventoryPage: React.FC = () => {
                 style={{ width: 280, fontFamily: 'Quicksand, sans-serif' }}
                 options={stores.map((s) => ({
                   value: s.id,
-                  label: `🏪 ${s.name}`,
+                  label: `🏪 ${pickLocalized(s.nameI18n, s.name, lang)}`,
                 }))}
               />
             ) : (
@@ -685,13 +698,13 @@ export const StaffInventoryPage: React.FC = () => {
         onCancel={() => { if (!savingStock) { setModalOpen(false); void fetchInventory(); } }}
         onOk={handleUpdateStockSubmit}
         confirmLoading={savingStock}
-        title={isAdmin ? t("admin:ui.updateStock") : t("business:inventory.updateInventory", { value1: editingItem?.productName })}
-        subtitle={isAdmin ? editingStore?.name : t("business:inventory.recordActualQuantitiesAfterShiftStocktake")}
+        title={isAdmin ? t("admin:ui.updateStock") : t("business:inventory.updateInventory", { value1: pickLocalized(editingItem?.productNameI18n, editingItem?.productName, lang) })}
+        subtitle={isAdmin ? pickLocalized(editingStore?.nameI18n, editingStore?.name, lang) : t("business:inventory.recordActualQuantitiesAfterShiftStocktake")}
         width={isAdmin ? 560 : 480}
         okText={isAdmin ? t("admin:ui.saveStockCount") : undefined}
         okButtonProps={{ disabled: isAdmin && (!quantityValid || quantityDifference === 0) }}
       >
-        {isAdmin && editingItem && <div className="inventory-product-summary"><div className="inventory-thumb"><CatalogImage url={editingItem.imageUrl} name={editingItem.productName} /></div><div><strong>{editingItem.productName}</strong><span>{editingItem.categoryName} {t("admin:ui.dishId")}{editingItem.productId}</span></div></div>}
+        {isAdmin && editingItem && <div className="inventory-product-summary"><div className="inventory-thumb"><CatalogImage url={editingItem.imageUrl} name={pickLocalized(editingItem.productNameI18n, editingItem.productName, lang)} /></div><div><strong>{pickLocalized(editingItem.productNameI18n, editingItem.productName, lang)}</strong><span>{pickLocalized(editingItem.categoryNameI18n, editingItem.categoryName, lang)} {t("admin:ui.dishId")}{editingItem.productId}</span></div></div>}
         {isAdmin && stockError && <Alert type="error" showIcon message={stockError} description={t("admin:ui.yourInputIsPreservedIfThereIsA")} />}
         <Form name="inventory-stock" form={form} layout="vertical" disabled={savingStock} onFinish={handleUpdateStockSubmit}>
           {isAdmin && <div className="inventory-recorded"><span>{t("admin:ui.recordedQuantity")}</span><strong>{editingItem?.quantityAvailable ?? '—'} <small>{t("business:cart.servings")}</small></strong></div>}
@@ -737,7 +750,7 @@ export const StaffInventoryPage: React.FC = () => {
         open={priceModalOpen}
         onCancel={() => { if (!savingPrice) { setPriceModalOpen(false); } }}
         title={t("admin:ui.setBranchPriceTitle")}
-        subtitle={editingPriceStore?.name || t("admin:ui.setBranchPriceSubtitle")}
+        subtitle={pickLocalized(editingPriceStore?.nameI18n, editingPriceStore?.name, lang) || t("admin:ui.setBranchPriceSubtitle")}
         width={540}
         footer={[
           ...(editingPriceItem?.storePrice != null ? [
@@ -755,10 +768,10 @@ export const StaffInventoryPage: React.FC = () => {
       >
         {editingPriceItem && (
           <div className="inventory-product-summary">
-            <div className="inventory-thumb"><CatalogImage url={editingPriceItem.imageUrl} name={editingPriceItem.productName} /></div>
+            <div className="inventory-thumb"><CatalogImage url={editingPriceItem.imageUrl} name={pickLocalized(editingPriceItem.productNameI18n, editingPriceItem.productName, lang)} /></div>
             <div>
-              <strong>{editingPriceItem.productName}</strong>
-              <span>{editingPriceItem.categoryName} {t("admin:ui.dishId")}{editingPriceItem.productId}</span>
+              <strong>{pickLocalized(editingPriceItem.productNameI18n, editingPriceItem.productName, lang)}</strong>
+              <span>{pickLocalized(editingPriceItem.categoryNameI18n, editingPriceItem.categoryName, lang)} {t("admin:ui.dishId")}{editingPriceItem.productId}</span>
             </div>
           </div>
         )}
@@ -818,7 +831,7 @@ export const StaffInventoryPage: React.FC = () => {
         }}
         confirmLoading={savingThreshold}
         title={t("business:inventory.editStoreThreshold")}
-        subtitle={isAdmin ? thresholdStore?.name : t("business:inventory.storeThresholdSubtitle")}
+        subtitle={isAdmin ? pickLocalized(thresholdStore?.nameI18n, thresholdStore?.name, lang) : t("business:inventory.storeThresholdSubtitle")}
         width={isAdmin ? 520 : 420}
         okText={isAdmin ? t("admin:ui.saveWarningThreshold") : undefined}
         okButtonProps={{ disabled: isAdmin && (!thresholdValid || thresholdInput === thresholdStore?.lowStockThreshold) }}

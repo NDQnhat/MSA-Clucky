@@ -1,6 +1,7 @@
 package com.clucky.catalogstoreservice.controller;
 
 import com.clucky.catalogstoreservice.config.AccessGuard;
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.StoreDto;
 import com.clucky.catalogstoreservice.exception.ApiException;
 import com.clucky.catalogstoreservice.exception.ErrorCode;
@@ -29,13 +30,18 @@ public class StoreController {
 
     @GetMapping
     public ResponseEntity<List<StoreDto.Response>> listStores(
-            @RequestParam(name = "activeOnly", defaultValue = "false") boolean activeOnly) {
-        return ResponseEntity.ok(storeService.getAllStores(activeOnly));
+            @RequestParam(name = "activeOnly", defaultValue = "false") boolean activeOnly,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(storeService.getAllStores(activeOnly, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<StoreDto.Response> getStore(@PathVariable Long id) {
-        return ResponseEntity.ok(storeService.getStoreById(id));
+    public ResponseEntity<StoreDto.Response> getStore(
+            @PathVariable Long id,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage) {
+        return ResponseEntity.ok(storeService.getStoreById(id, LocaleResolverHelper.resolve(lang, acceptLanguage)));
     }
 
     @PostMapping

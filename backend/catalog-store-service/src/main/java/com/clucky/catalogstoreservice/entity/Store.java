@@ -1,6 +1,9 @@
 package com.clucky.catalogstoreservice.entity;
 
+import com.clucky.catalogstoreservice.dto.LocalizedText;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 
@@ -20,17 +23,20 @@ public class Store {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 160)
-    private String name;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false, columnDefinition = "jsonb")
+    private LocalizedText name;
 
     @Column(nullable = false, length = 255)
     private String address;
 
-    @Column(length = 120)
-    private String district;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private LocalizedText district;
 
-    @Column(length = 120)
-    private String city;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "jsonb")
+    private LocalizedText city;
 
     @Column(nullable = false, length = 30)
     private String phone;
@@ -49,8 +55,9 @@ public class Store {
     public String getAccountReadiness() { return accountReadiness; }
     public void setAccountReadiness(String readiness) { this.accountReadiness = readiness; }
 
-    @Column(name = "delivery_area", columnDefinition = "TEXT")
-    private String deliveryArea;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "delivery_area", columnDefinition = "jsonb")
+    private LocalizedText deliveryArea;
 
     @Column(name = "low_stock_threshold", nullable = false)
     private Integer lowStockThreshold = 20;
@@ -70,7 +77,7 @@ public class Store {
 
     public Store() {}
 
-    public Store(Long id, String name, String address, String phone, LocalTime openTime, LocalTime closeTime, StoreStatus status, String deliveryArea) {
+    public Store(Long id, LocalizedText name, String address, String phone, LocalTime openTime, LocalTime closeTime, StoreStatus status, LocalizedText deliveryArea) {
         this.id = id;
         this.name = name;
         this.address = address;
@@ -82,24 +89,32 @@ public class Store {
         this.createdAt = OffsetDateTime.now();
     }
 
+    public Store(Long id, String name, String address, String phone, LocalTime openTime, LocalTime closeTime, StoreStatus status, String deliveryArea) {
+        this(id, LocalizedText.ofSingle(name), address, phone, openTime, closeTime, status, LocalizedText.ofSingle(deliveryArea));
+    }
+
     public Store(Long id, String name, String address, String phone, LocalTime openTime, LocalTime closeTime, String status, String deliveryArea) {
-        this(id, name, address, phone, openTime, closeTime, StoreStatus.fromString(status), deliveryArea);
+        this(id, LocalizedText.ofSingle(name), address, phone, openTime, closeTime, StoreStatus.fromString(status), LocalizedText.ofSingle(deliveryArea));
     }
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public LocalizedText getName() { return name; }
+    public void setName(LocalizedText name) { this.name = name; }
+    public void setName(String name) { this.name = LocalizedText.ofSingle(name); }
+    public String resolveName(String lang) { return LocalizedText.resolve(name, lang); }
 
     public String getAddress() { return address; }
     public void setAddress(String address) { this.address = address; }
 
-    public String getDistrict() { return district; }
-    public void setDistrict(String district) { this.district = district; }
+    public LocalizedText getDistrict() { return district; }
+    public void setDistrict(LocalizedText district) { this.district = district; }
+    public void setDistrict(String district) { this.district = LocalizedText.ofSingle(district); }
 
-    public String getCity() { return city; }
-    public void setCity(String city) { this.city = city; }
+    public LocalizedText getCity() { return city; }
+    public void setCity(LocalizedText city) { this.city = city; }
+    public void setCity(String city) { this.city = LocalizedText.ofSingle(city); }
 
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
@@ -114,8 +129,9 @@ public class Store {
     public void setStatus(StoreStatus status) { this.status = status != null ? status : StoreStatus.OPEN; }
     public void setStatus(String status) { this.status = StoreStatus.fromString(status); }
 
-    public String getDeliveryArea() { return deliveryArea; }
-    public void setDeliveryArea(String deliveryArea) { this.deliveryArea = deliveryArea; }
+    public LocalizedText getDeliveryArea() { return deliveryArea; }
+    public void setDeliveryArea(LocalizedText deliveryArea) { this.deliveryArea = deliveryArea; }
+    public void setDeliveryArea(String deliveryArea) { this.deliveryArea = LocalizedText.ofSingle(deliveryArea); }
 
     public OffsetDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }

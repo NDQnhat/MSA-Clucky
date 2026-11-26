@@ -40,6 +40,7 @@ import { StatusBadge } from '../../components/ui/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import { useLocaleTools } from '../../i18n/hooks';
 import { getErrorMessage } from '../../i18n/core';
+import { pickLocalized } from '../../lib/bilingual';
 import {
   catalogApi,
   reviewsApi,
@@ -271,23 +272,26 @@ export const ReviewsPage: React.FC = () => {
   };
 
   const resolveProductName = useCallback(
-    (productId: number) =>
-      productMap.get(productId)?.name ||
-      t('business:reviews.productNumber', { value1: productId }),
-    [productMap, t]
+    (productId: number) => {
+      const matched = productMap.get(productId);
+      return (matched ? pickLocalized(matched.nameI18n, matched.name, locale) : '') ||
+        t('business:reviews.productNumber', { value1: productId });
+    },
+    [productMap, t, locale]
   );
 
   const resolveStoreName = useCallback(
     (storeId?: number | null) => {
       if (!storeId) return t('business:reviews.storeUnassigned');
+      const matched = storeMap.get(storeId);
       return (
-        storeMap.get(storeId)?.name ||
+        (matched ? pickLocalized(matched.nameI18n, matched.name, locale) : '') ||
         (!isAdmin && user.storeId === storeId && user.storeName
           ? user.storeName
           : t('business:reviews.storeNumber', { value1: storeId }))
       );
     },
-    [isAdmin, storeMap, t, user.storeId, user.storeName]
+    [isAdmin, storeMap, t, user.storeId, user.storeName, locale]
   );
 
   const formatResponderLabel = useCallback(
@@ -920,7 +924,7 @@ export const ReviewsPage: React.FC = () => {
                   { value: 'ALL', label: t('business:reviews.anyStore') },
                   ...stores.map((store) => ({
                     value: store.id,
-                    label: store.name,
+                    label: pickLocalized(store.nameI18n, store.name, locale),
                   })),
                 ]}
               />

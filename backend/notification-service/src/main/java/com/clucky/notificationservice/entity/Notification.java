@@ -1,7 +1,10 @@
 package com.clucky.notificationservice.entity;
 
+import com.clucky.notificationservice.dto.LocalizedText;
 import jakarta.persistence.*;
 import java.time.Instant;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "notifications", schema = "notification_service")
@@ -17,11 +20,13 @@ public class Notification {
     @Column(name = "store_id")
     private Long storeId;
 
-    @Column(name = "title", nullable = false, length = 180)
-    private String title;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "title", nullable = false, columnDefinition = "jsonb")
+    private LocalizedText title;
 
-    @Column(name = "content", nullable = false, columnDefinition = "text")
-    private String content;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "content", nullable = false, columnDefinition = "jsonb")
+    private LocalizedText content;
 
     @Column(name = "type", nullable = false, length = 30)
     private String type;
@@ -46,11 +51,15 @@ public class Notification {
     public Long getStoreId() { return storeId; }
     public void setStoreId(Long storeId) { this.storeId = storeId; }
 
-    public String getTitle() { return title; }
-    public void setTitle(String title) { this.title = title; }
+    public LocalizedText getTitle() { return title; }
+    public void setTitle(LocalizedText title) { this.title = title; }
+    public void setTitle(String title) { this.title = LocalizedText.ofSingle(title); }
+    public String resolveTitle(String lang) { return title == null ? "" : title.resolve(lang); }
 
-    public String getContent() { return content; }
-    public void setContent(String content) { this.content = content; }
+    public LocalizedText getContent() { return content; }
+    public void setContent(LocalizedText content) { this.content = content; }
+    public void setContent(String content) { this.content = LocalizedText.ofSingle(content); }
+    public String resolveContent(String lang) { return content == null ? "" : content.resolve(lang); }
 
     public String getType() { return type; }
     public void setType(String type) { this.type = type; }

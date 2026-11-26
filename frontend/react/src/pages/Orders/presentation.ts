@@ -1,4 +1,5 @@
 import i18n from "../../i18n/index.ts";
+import { pickLocalized } from "../../lib/bilingual";
 export const orderLabels: Record<string, string> = {
   get PENDING_PAYMENT() { return i18n.t("admin:paymentStates.PENDING"); }, get CONFIRMED() { return i18n.t("business:orderstatuschip.confirmed"); }, get PREPARING() { return i18n.t("admin:ui.preparing"); },
   get READY() { return i18n.t("admin:ui.readyForPickup"); }, get SHIPPING() { return i18n.t("business:orderprogress.delivering"); }, get COMPLETED() { return i18n.t("business:orders.completed"); }, get DELIVERED() { return i18n.t("business:orders.completed"); }, get CANCELLED() { return i18n.t("business:orders.cancelled"); }, get DELIVERY_FAILED() { return i18n.t("shipping:ui.deliveryUnsuccessful"); },
@@ -49,12 +50,15 @@ export function catalogItemPath(item: { itemType: string; productId?: number; co
   return `/api/catalog/${item.itemType === 'PRODUCT' ? 'products' : 'combos'}/${identifier}`;
 }
 
-export function snapshotLabels(snapshot: unknown): string[] {
+export function snapshotLabels(snapshot: unknown, lang = 'vi'): string[] {
   if (!Array.isArray(snapshot)) return [];
   return snapshot.flatMap(entry => {
-    if (!entry || typeof entry !== 'object' || typeof entry.name !== 'string') return [];
-    const group = typeof entry.groupName === 'string' ? `${entry.groupName}: ` : '';
+    if (!entry || typeof entry !== 'object') return [];
+    const name = pickLocalized(entry.nameI18n, entry.name, lang);
+    if (!name) return [];
+    const resolvedGroup = pickLocalized(entry.groupNameI18n, entry.groupName, lang);
+    const group = resolvedGroup ? `${resolvedGroup}: ` : '';
     const quantity = Number.isSafeInteger(entry.quantity) && entry.quantity > 1 ? ` × ${entry.quantity}` : '';
-    return [`${group}${entry.name}${quantity}`];
+    return [`${group}${name}${quantity}`];
   });
 }

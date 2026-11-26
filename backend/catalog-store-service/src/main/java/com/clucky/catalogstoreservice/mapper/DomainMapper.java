@@ -9,13 +9,13 @@ public final class DomainMapper {
     public static StoreResponse toResponse(Store entity) {
         return new StoreResponse(
                 entity.getId(),
-                entity.getName(),
+                entity.resolveName("vi"),
                 entity.getAddress(),
                 entity.getPhone(),
                 entity.getOpenTime(),
                 entity.getCloseTime(),
                 entity.getStatus() != null ? entity.getStatus().name() : null,
-                entity.getDeliveryArea(),
+                LocalizedText.resolve(entity.getDeliveryArea(), "vi"),
                 entity.getCreatedAt() != null ? entity.getCreatedAt().toInstant() : null
         );
     }
@@ -23,7 +23,7 @@ public final class DomainMapper {
     public static CategoryResponse toResponse(Category entity) {
         return new CategoryResponse(
                 entity.getId(),
-                entity.getName(),
+                entity.resolveName("vi"),
                 entity.getImageUrl(),
                 entity.getSortOrder(),
                 entity.getIsActive()
@@ -34,8 +34,8 @@ public final class DomainMapper {
         return new ProductResponse(
                 entity.getId(),
                 entity.getCategory() != null ? entity.getCategory().getId() : null,
-                entity.getName(),
-                entity.getDescription(),
+                entity.resolveName("vi"),
+                entity.resolveDescription("vi"),
                 entity.getBasePrice(),
                 entity.getImageUrl(),
                 entity.getImagePublicId(),
@@ -49,8 +49,8 @@ public final class DomainMapper {
         return new ProductOptionResponse(
                 entity.getId(),
                 entity.getProduct() != null ? entity.getProduct().getId() : null,
-                entity.getGroupName(),
-                entity.getName(),
+                entity.resolveGroupName("vi"),
+                entity.resolveName("vi"),
                 entity.getExtraPrice(),
                 entity.getIsRequired()
         );
@@ -60,7 +60,7 @@ public final class DomainMapper {
         return new ProductToppingResponse(
                 entity.getId(),
                 entity.getProduct() != null ? entity.getProduct().getId() : null,
-                entity.getToppingName(),
+                entity.resolveToppingName("vi"),
                 entity.getExtraPrice()
         );
     }
@@ -68,8 +68,8 @@ public final class DomainMapper {
     public static ComboResponse toResponse(Combo entity) {
         return new ComboResponse(
                 entity.getId(),
-                entity.getName(),
-                entity.getDescription(),
+                entity.resolveName("vi"),
+                entity.resolveDescription("vi"),
                 entity.getComboPrice(),
                 entity.getImageUrl(),
                 entity.getImagePublicId(),

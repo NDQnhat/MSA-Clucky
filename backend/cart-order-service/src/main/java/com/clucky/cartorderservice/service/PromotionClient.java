@@ -1,5 +1,6 @@
 package com.clucky.cartorderservice.service;
 
+import com.clucky.cartorderservice.config.LocaleResolverHelper;
 import com.clucky.cartorderservice.exception.ApiException;
 import com.clucky.cartorderservice.exception.ErrorCode;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -51,6 +52,7 @@ public class PromotionClient {
     public record VoucherValidationResponse(
             boolean valid,
             BigDecimal discountAmount,
+            String errorCode,
             String reason,
             UUID voucherInstanceId,
             VoucherPolicy voucher
@@ -90,15 +92,18 @@ public class PromotionClient {
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Only one voucher per order");
         }
         String code = rawCode == null ? null : rawCode.trim().toUpperCase(java.util.Locale.ROOT);
+        String lang = LocaleResolverHelper.currentRequestLang();
+        boolean isEn = "en".equalsIgnoreCase(lang);
         VoucherValidationRequest req = new VoucherValidationRequest(code, storeId, subtotal, voucherInstanceId, channel);
 
         try {
             VoucherValidationResponse res = restClient.post()
-                    .uri(promotionServiceUrl + "/api/promotions/vouchers/validate")
+                    .uri(promotionServiceUrl + "/api/promotions/vouchers/validate?lang=" + lang)
                     .headers(headers -> {
                         if (org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication()
                                 instanceof org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken authentication)
                             headers.setBearerAuth(authentication.getToken().getTokenValue());
+                        headers.set("Accept-Language", lang);
                     })
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(req)
@@ -109,7 +114,7 @@ public class PromotionClient {
                 throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
             }
             if (res.valid() && res.discountAmount() != null && res.discountAmount().signum() >= 0) {
-                return new VoucherResult(true, "Đã áp dụng mã giảm giá thành công",
+                return new VoucherResult(true, isEn ? "Voucher applied successfully" : "Đã áp dụng mã giảm giá thành công",
                         res.discountAmount(), res.voucherInstanceId(),
                         res.voucher() == null ? null : res.voucher().id(),
                         res.voucher() == null ? null : res.voucher().version());
@@ -121,7 +126,7 @@ public class PromotionClient {
         } catch (RestClientResponseException ex) {
             int status = ex.getStatusCode().value();
             if (status == 400 || status == 403 || status == 404 || status == 409 || status == 429) {
-                return new VoucherResult(false, resolveVoucherErrorMessage(ex), BigDecimal.ZERO);
+                return new VoucherResult(false, resolveVoucherErrorMessage(ex, isEn), BigDecimal.ZERO);
             }
             throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         } catch (Exception ex) {
@@ -130,7 +135,7 @@ public class PromotionClient {
         }
     }
 
-    private String resolveVoucherErrorMessage(RestClientResponseException ex) {
+    private String resolveVoucherErrorMessage(RestClientResponseException ex, boolean isEn) {
         String code = null;
         String rawMessage = null;
         try {
@@ -150,25 +155,25 @@ public class PromotionClient {
 
         if (code != null) {
             return switch (code) {
-                case "VOUCHER_EXHAUSTED" -> "Mã giảm giá đã được sử dụng hoặc hết lượt.";
-                case "VOUCHER_EXPIRED" -> "Mã giảm giá đã hết hạn.";
-                case "VOUCHER_NOT_STARTED" -> "Mã giảm giá chưa đến thời gian sử dụng.";
-                case "VOUCHER_SCOPE_MISMATCH" -> "Mã giảm giá không áp dụng tại cửa hàng này hoặc kênh này.";
-                case "MIN_ORDER_NOT_MET" -> "Đơn hàng chưa đạt giá trị tối thiểu để dùng mã giảm giá.";
-                case "VOUCHER_NOT_FOUND" -> "Không tìm thấy mã giảm giá.";
-                case "TOO_MANY_REQUESTS" -> "Thao tác kiểm tra mã quá nhanh. Vui lòng thử lại sau.";
-                case "FORBIDDEN" -> "Bạn không có quyền áp dụng loại mã giảm giá này.";
-                case "VALIDATION_ERROR" -> "Mã giảm giá không hợp lệ.";
-                default -> "Mã giảm giá hiện không khả dụng.";
+                case "VOUCHER_EXHAUSTED" -> isEn ? "Voucher has already been used or reached its limit." : "Mã giảm giá đã được sử dụng hoặc hết lượt.";
+                case "VOUCHER_EXPIRED" -> isEn ? "Voucher has expired." : "Mã giảm giá đã hết hạn.";
+                case "VOUCHER_NOT_STARTED" -> isEn ? "Voucher is not yet valid." : "Mã giảm giá chưa đến thời gian sử dụng.";
+                case "VOUCHER_SCOPE_MISMATCH" -> isEn ? "Voucher is not applicable at this store or channel." : "Mã giảm giá không áp dụng tại cửa hàng này hoặc kênh này.";
+                case "MIN_ORDER_NOT_MET" -> isEn ? "Order does not meet the minimum amount for this voucher." : "Đơn hàng chưa đạt giá trị tối thiểu để dùng mã giảm giá.";
+                case "VOUCHER_NOT_FOUND" -> isEn ? "Voucher not found." : "Không tìm thấy mã giảm giá.";
+                case "TOO_MANY_REQUESTS" -> isEn ? "Too many voucher attempts. Please try again shortly." : "Thao tác kiểm tra mã quá nhanh. Vui lòng thử lại sau.";
+                case "FORBIDDEN" -> isEn ? "You are not allowed to apply this voucher." : "Bạn không có quyền áp dụng loại mã giảm giá này.";
+                case "VALIDATION_ERROR" -> isEn ? "Invalid voucher." : "Mã giảm giá không hợp lệ.";
+                default -> isEn ? "Voucher is currently unavailable." : "Mã giảm giá hiện không khả dụng.";
             };
         }
         if (ex.getStatusCode().value() == 404) {
-            return "Không tìm thấy mã giảm giá.";
+            return isEn ? "Voucher not found." : "Không tìm thấy mã giảm giá.";
         }
         if (ex.getStatusCode().value() == 429) {
-            return "Thao tác kiểm tra mã quá nhanh. Vui lòng thử lại sau.";
+            return isEn ? "Too many voucher attempts. Please try again shortly." : "Thao tác kiểm tra mã quá nhanh. Vui lòng thử lại sau.";
         }
-        return rawMessage != null && !rawMessage.isBlank() ? rawMessage : "Mã giảm giá hiện không khả dụng.";
+        return rawMessage != null && !rawMessage.isBlank() ? rawMessage : (isEn ? "Voucher is currently unavailable." : "Mã giảm giá hiện không khả dụng.");
     }
 
 }

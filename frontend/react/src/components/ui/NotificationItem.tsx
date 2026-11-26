@@ -10,6 +10,7 @@ import {
   DeleteOutlined,
 } from '@ant-design/icons';
 import type { AdminNotification, NotificationType } from '../../types/notification';
+import { pickLocalized } from '../../lib/bilingual';
 
 export interface AdminNotificationItemProps {
   notification: AdminNotification;
@@ -33,28 +34,28 @@ export const NotificationItem: React.FC<AdminNotificationItemProps> = ({
     { label: string; bg: string; color: string; border: string; icon: React.ReactNode }
   > = {
     ORDER: {
-      label: t("business:promotionUi.order", "Đơn hàng"),
+      label: t("business:promotionUi.order"),
       bg: '#FEF3C7',
       color: '#92400E',
       border: '#FDE68A',
       icon: <FileTextOutlined />,
     },
     PAYMENT: {
-      label: t("business:promotionUi.payment", "Thanh toán"),
+      label: t("business:promotionUi.payment"),
       bg: '#DCFCE7',
       color: '#166534',
       border: '#BBF7D0',
       icon: <CreditCardOutlined />,
     },
     PROMOTION: {
-      label: t("business:promotionUi.promotion", "Ưu đãi"),
+      label: t("business:promotionUi.promotion"),
       bg: '#FEE2E2',
       color: '#991B1B',
       border: '#FECACA',
       icon: <GiftOutlined />,
     },
     SYSTEM: {
-      label: t("business:promotionUi.system", "Hệ thống"),
+      label: t("business:promotionUi.system"),
       bg: '#E0F2FE',
       color: '#075985',
       border: '#BAE6FD',
@@ -62,7 +63,9 @@ export const NotificationItem: React.FC<AdminNotificationItemProps> = ({
     },
   };
 
-  const { id, title, content, type, isRead, createdAt, refId } = notification;
+  const { id, title: rawTitle, titleI18n, content: rawContent, contentI18n, type, isRead, createdAt, refId } = notification;
+  const title = pickLocalized(titleI18n, rawTitle, locale);
+  const content = pickLocalized(contentI18n, rawContent, locale);
   const config = typeConfig[type] || typeConfig.SYSTEM;
 
   const formatDate = (dateStr: string) => {
@@ -84,7 +87,11 @@ export const NotificationItem: React.FC<AdminNotificationItemProps> = ({
     <div
       role="article"
       tabIndex={0}
-      aria-label={"Thông báo " + config.label + ": " + title + ", " + (isRead ? "đã đọc" : "chưa đọc")}
+      aria-label={t("business:promotionUi.notificationAria", {
+        type: config.label,
+        title,
+        state: isRead ? t("business:promotionUi.readState") : t("business:promotionUi.unreadState"),
+      })}
       onClick={() => onClick?.(notification)}
       onFocus={() => setIsFocused(true)}
       onBlur={() => setIsFocused(false)}
@@ -207,7 +214,7 @@ export const NotificationItem: React.FC<AdminNotificationItemProps> = ({
             {!isRead && onMarkRead && (
               <button
                 type="button"
-                aria-label={t("business:promotionUi.markRead", "Đã đọc")}
+                aria-label={t("business:promotionUi.markRead")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onMarkRead(id);
@@ -227,14 +234,14 @@ export const NotificationItem: React.FC<AdminNotificationItemProps> = ({
                 }}
               >
                 <CheckOutlined style={{ fontSize: 11 }} />
-                <span>{t("business:promotionUi.markRead", "Đã đọc")}</span>
+                <span>{t("business:promotionUi.markRead")}</span>
               </button>
             )}
 
             {onDelete && (
               <button
                 type="button"
-                aria-label="Xóa thông báo"
+                aria-label={t("business:promotionUi.deleteNotification")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onDelete(id);
@@ -248,7 +255,7 @@ export const NotificationItem: React.FC<AdminNotificationItemProps> = ({
                   padding: '2px 4px',
                   borderRadius: 4,
                 }}
-                title="Xóa thông báo"
+                title={t("business:promotionUi.deleteNotification")}
               >
                 <DeleteOutlined />
               </button>

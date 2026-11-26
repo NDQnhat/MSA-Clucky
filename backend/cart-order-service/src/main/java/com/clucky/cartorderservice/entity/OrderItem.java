@@ -1,5 +1,6 @@
 package com.clucky.cartorderservice.entity;
 
+import com.clucky.cartorderservice.dto.LocalizedText;
 import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
@@ -26,8 +27,9 @@ public class OrderItem {
     @Column(name = "combo_id", nullable = true)
     private Long comboId;
 
-    @Column(name = "item_name", nullable = false, length = 180)
-    private String itemName;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "item_name", nullable = false, columnDefinition = "jsonb")
+    private LocalizedText itemName;
 
     @Column(name = "unit_price", nullable = false, precision = 12, scale = 0)
     private BigDecimal unitPrice;
@@ -64,8 +66,10 @@ public class OrderItem {
     public Long getComboId() { return comboId; }
     public void setComboId(Long comboId) { this.comboId = comboId; }
 
-    public String getItemName() { return itemName; }
-    public void setItemName(String itemName) { this.itemName = itemName; }
+    public LocalizedText getItemName() { return itemName; }
+    public void setItemName(LocalizedText itemName) { this.itemName = itemName; }
+    public void setItemName(String itemName) { this.itemName = LocalizedText.ofSingle(itemName); }
+    public String resolveItemName(String lang) { return itemName == null ? "" : itemName.resolve(lang); }
 
     public BigDecimal getUnitPrice() { return unitPrice; }
     public void setUnitPrice(BigDecimal unitPrice) { this.unitPrice = unitPrice; }

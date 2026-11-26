@@ -23,14 +23,17 @@ import { useAuth } from '../../context/AuthContext';
 import { getStoreStatusMeta, normalizeStoreStatus, type StoreStatus } from '../../types/store';
 import { storesApi, getErrorMessage, type Store } from '../../lib/api';
 import { catalogAdministration } from '../../lib/catalog-administration';
+import { isLocalizedViValid, pickLocalized, toLocalizedInput, toLocalizedPayload, type LocalizedText } from '../../lib/bilingual';
+import { BilingualField } from '../../components/ui/BilingualField';
 import { ShippingSettings, StoreDeliverySettings } from './ShippingSettings';
 import { StoreReadiness } from './StoreReadiness';
 import { AdminStores, AdminStoreFields } from './AdminStores';
 import { ReceivingAccounts } from './ReceivingAccounts';
-import { storeTime } from './presentation';
+import { matchesStoreSearch, storeTime } from './presentation';
 
 export const StoresPage: React.FC = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language;
 
   const { user, isAdmin } = useAuth();
   const [stores, setStores] = useState<Store[]>([]);
@@ -75,7 +78,7 @@ export const StoresPage: React.FC = () => {
   useEffect(() => {
     fetchStores();
     return () => storeRequest.current?.abort();
-  }, [fetchStores, isAdmin, user.storeId]);
+  }, [fetchStores, isAdmin, user.storeId, lang]);
 
   // Role-based store isolation: Store Manager only sees their assigned branch
   const scopedStores = useMemo(() => {
@@ -87,11 +90,10 @@ export const StoresPage: React.FC = () => {
     return scopedStores.filter((s) => {
       const currentStatus = normalizeStoreStatus(s.status);
       const matchStatus = statusFilter === 'ALL' ? true : currentStatus === statusFilter;
-      const matchSearch =
-        s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (s.district?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false) ||
-        s.phone.includes(searchTerm);
+      const matchSearch = matchesStoreSearch(
+        [s.name, s.nameI18n, s.address, s.district, s.districtI18n, s.city, s.cityI18n, s.phone],
+        searchTerm
+      );
       return matchStatus && matchSearch && (!missingOnly || s.latitude == null || s.longitude == null);
     });
   }, [scopedStores, statusFilter, searchTerm, missingOnly]);
@@ -101,7 +103,13 @@ export const StoresPage: React.FC = () => {
     createKey.current = crypto.randomUUID();
     setEditingStore(null);
     form.resetFields();
-    if (isAdmin) form.setFieldsValue({ status: 'CLOSED_TEMP' });
+    form.setFieldsValue({
+      name: { vi: '', en: '' },
+      district: { vi: '', en: '' },
+      city: { vi: '', en: '' },
+      deliveryArea: { vi: '', en: '' },
+      ...(isAdmin ? { status: 'CLOSED_TEMP' } : {}),
+    });
     setModalOpen(true);
   };
 
@@ -110,14 +118,14 @@ export const StoresPage: React.FC = () => {
     setEditingStore(store);
     form.resetFields();
     form.setFieldsValue({
-      name: store.name,
+      name: toLocalizedInput(store.nameI18n, store.name),
       address: store.address,
-      district: store.district,
-      city: store.city,
+      district: toLocalizedInput(store.districtI18n, store.district),
+      city: toLocalizedInput(store.cityI18n, store.city),
       phone: store.phone,
       openTime: isAdmin ? storeTime(store.openTime) : dayjs(store.openTime, 'HH:mm'),
       closeTime: isAdmin ? storeTime(store.closeTime) : dayjs(store.closeTime, 'HH:mm'),
-      deliveryArea: store.deliveryArea,
+      deliveryArea: toLocalizedInput(store.deliveryAreaI18n, store.deliveryArea),
       status: store.status,
       managerId: store.managerId,
     });
@@ -129,17 +137,17 @@ export const StoresPage: React.FC = () => {
     mutationLock.current = true; setSaving(true); setSaveError('');
     try {
       const values = await form.validateFields(isAdmin ? undefined : ['openTime', 'closeTime', 'status', 'phone', 'deliveryArea']);
-      const storePayload: Partial<Store> = {
+      const storePayload = {
         latitude: editingStore?.latitude ?? null,
         longitude: editingStore?.longitude ?? null,
-        name: values.name,
+        name: toLocalizedPayload(values.name),
         address: values.address,
-        district: values.district,
-        city: values.city,
+        district: toLocalizedPayload(values.district) ?? null,
+        city: toLocalizedPayload(values.city) ?? null,
         phone: values.phone,
         openTime: values.openTime ? values.openTime.format('HH:mm') : undefined,
         closeTime: values.closeTime ? values.closeTime.format('HH:mm') : undefined,
-        deliveryArea: values.deliveryArea,
+        deliveryArea: toLocalizedPayload(values.deliveryArea) ?? null,
         status: values.status,
         recoveryEmail: editingStore ? undefined : values.recoveryEmail,
       };
@@ -155,7 +163,7 @@ export const StoresPage: React.FC = () => {
               deliveryArea: storePayload.deliveryArea ?? undefined,
             });
         setStores((prev) => prev.map((store) => store.id === updated.id ? updated : store));
-        message.success(t("business:stores.storeDetailsUpdatedFor", { value1: updated.name }));
+        message.success(t("business:stores.storeDetailsUpdatedFor", { value1: pickLocalized(updated.nameI18n, updated.name, lang) }));
       } else {
         const created = await storesApi.create(storePayload, createKey.current);
         setEditingStore(created);
@@ -219,7 +227,7 @@ export const StoresPage: React.FC = () => {
             }}
           >
             <ShopOutlined style={{ color: '#8F1216' }} />
-            <span>{record.name}</span>
+            <span>{pickLocalized(record.nameI18n, record.name, lang)}</span>
           </div>
           <div style={{ fontSize: 13, color: '#6B6259', marginTop: 3 }}>
             <PhoneOutlined /> {record.phone}
@@ -238,7 +246,7 @@ export const StoresPage: React.FC = () => {
         <div>
           <div style={{ color: '#16100D', fontWeight: 600 }}>{record.address}</div>
           <div style={{ fontSize: 12, color: '#6B6259', marginTop: 2 }}>
-            <CompassOutlined /> {t("business:stores.delivery")} {record.deliveryArea}
+            <CompassOutlined /> {t("business:stores.delivery")} {pickLocalized(record.deliveryAreaI18n, record.deliveryArea, lang)}
           </div>
         </div>
       ),
@@ -490,28 +498,26 @@ export const StoresPage: React.FC = () => {
           <Form.Item
             name="name"
             label={t("business:stores.storeName")}
-            rules={[{ required: true, message: t("business:stores.pleaseEnterAStoreName") }]}
+            rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("business:stores.pleaseEnterAStoreName")); } }]}
           >
-            <Input disabled={!isAdmin || saving} placeholder={t("business:stores.forExampleCluckyLLIFlagshipStore")} style={{ height: 40 }} />
+            <BilingualField disabled={!isAdmin || saving} requiredVi viPlaceholder={t("business:stores.forExampleCluckyLLIFlagshipStore")} enPlaceholder="English branch name" />
           </Form.Item>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16 }}>
-            <Form.Item
-              name="address"
-              label={t("business:stores.fullAddressHouseNumberStreetWard")}
-              rules={[{ required: true, message: t("business:stores.enterFullAddress") }]}
-            >
-              <Input disabled={!isAdmin || saving} placeholder={t("business:stores.enterFullAddress")} style={{ height: 40 }} />
-            </Form.Item>
+          <Form.Item
+            name="address"
+            label={t("business:stores.fullAddressHouseNumberStreetWard")}
+            rules={[{ required: true, message: t("business:stores.enterFullAddress") }]}
+          >
+            <Input disabled={!isAdmin || saving} placeholder={t("business:stores.enterFullAddress")} style={{ height: 40 }} />
+          </Form.Item>
 
-            <Form.Item
-              name="district"
-              label={t("business:account.district")}
-              rules={[{ required: true, message: t("business:stores.enterDistrict") }]}
-            >
-              <Input disabled={!isAdmin || saving} placeholder={t("business:stores.enterDistrict")} style={{ height: 40 }} />
-            </Form.Item>
-          </div>
+          <Form.Item
+            name="district"
+            label={t("business:account.district")}
+            rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("business:stores.enterDistrict")); } }]}
+          >
+            <BilingualField disabled={!isAdmin || saving} requiredVi viPlaceholder={t("business:stores.enterDistrict")} enPlaceholder="English district" />
+          </Form.Item>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
             <Form.Item
@@ -542,9 +548,9 @@ export const StoresPage: React.FC = () => {
           <Form.Item
             name="city"
             label={t("business:stores.city")}
-            rules={[{ required: true, message: t("business:stores.enterCity") }]}
+            rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("business:stores.enterCity")); } }]}
           >
-            <Input disabled={!isAdmin || saving} placeholder={t("business:stores.enterCity")} style={{ height: 40 }} />
+            <BilingualField disabled={!isAdmin || saving} requiredVi viPlaceholder={t("business:stores.enterCity")} enPlaceholder="English city" />
           </Form.Item>
 
           {modalOpen && editingStore && <StoreDeliverySettings key={editingStore.id} store={editingStore} onSaved={saved => {
@@ -555,11 +561,14 @@ export const StoresPage: React.FC = () => {
           <Form.Item
             name="deliveryArea"
             label={t("shipping:areaNote")}
-            rules={[{ required: true, message: t("business:stores.pleaseDescribeTheDeliveryArea") }]}
+            rules={[{ validator: async (_, val: LocalizedText) => { if (!isLocalizedViValid(val)) throw new Error(t("business:stores.pleaseDescribeTheDeliveryArea")); } }]}
           >
-            <Input.TextArea
+            <BilingualField
+              multiline
               rows={2}
-              placeholder={t("business:stores.forExampleDistrictsBNhThNhKmRadius")}
+              requiredVi
+              viPlaceholder={t("business:stores.forExampleDistrictsBNhThNhKmRadius")}
+              enPlaceholder="English delivery coverage note"
             />
           </Form.Item>
 

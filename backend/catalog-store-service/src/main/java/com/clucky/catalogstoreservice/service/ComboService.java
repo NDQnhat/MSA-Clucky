@@ -1,5 +1,6 @@
 package com.clucky.catalogstoreservice.service;
 
+import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.ComboDto;
 import com.clucky.catalogstoreservice.dto.MediaDto;
 import com.clucky.catalogstoreservice.dto.ProductDto;
@@ -56,11 +57,16 @@ public class ComboService {
 
     @Transactional(readOnly = true)
     public List<ComboDto.Response> getAllCombos(boolean activeOnly) {
-        return getAllCombos(null, activeOnly);
+        return getAllCombos(null, activeOnly, LocaleResolverHelper.currentRequestLang());
     }
 
     @Transactional(readOnly = true)
     public List<ComboDto.Response> getAllCombos(Long storeId, boolean activeOnly) {
+        return getAllCombos(storeId, activeOnly, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ComboDto.Response> getAllCombos(Long storeId, boolean activeOnly, String lang) {
         List<Combo> combos = comboRepository.findAllWithItems();
         OffsetDateTime now = OffsetDateTime.now();
         if (activeOnly) {
@@ -70,19 +76,24 @@ public class ComboService {
                 && (c.getEndAt() == null || !now.isAfter(c.getEndAt()))
             ).collect(Collectors.toList());
         }
-        return combos.stream().map(c -> toResponse(c, storeId)).collect(Collectors.toList());
+        return combos.stream().map(c -> toResponse(c, storeId, lang)).collect(Collectors.toList());
     }
 
     @Transactional(readOnly = true)
     public ComboDto.Response getComboById(Long id) {
-        return getComboById(id, null);
+        return getComboById(id, null, LocaleResolverHelper.currentRequestLang());
     }
 
     @Transactional(readOnly = true)
     public ComboDto.Response getComboById(Long id, Long storeId) {
+        return getComboById(id, storeId, LocaleResolverHelper.currentRequestLang());
+    }
+
+    @Transactional(readOnly = true)
+    public ComboDto.Response getComboById(Long id, Long storeId, String lang) {
         Combo combo = comboRepository.findByIdWithItems(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy combo với mã: " + id));
-        return toResponse(combo, storeId);
+                .orElseThrow(() -> new ResourceNotFoundException("Combo not found: " + id));
+        return toResponse(combo, storeId, lang);
     }
 
     public ComboDto.Response createCombo(ComboDto.Request request) {
@@ -113,8 +124,8 @@ public class ComboService {
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy combo với mã: " + id));
         CloudinaryMediaAdapter.requireUnchangedImage(request.getImageUrl(), request.getImagePublicId(), combo.getImageUrl(), combo.getImagePublicId());
 
-        if (request.getName() != null && !request.getName().isBlank()) combo.setName(request.getName());
-        if (request.getDescription() != null) combo.setDescription(request.getDescription());
+        if (request.getName() != null && request.getName().hasText()) combo.setName(request.getName());
+        if (request.getDescription() != null && request.getDescription().hasText()) combo.setDescription(request.getDescription());
         if (request.getComboPrice() != null) combo.setComboPrice(request.getComboPrice());
         if (request.getImageUrl() != null) combo.setImageUrl(request.getImageUrl());
         if (request.getImagePublicId() != null) combo.setImagePublicId(request.getImagePublicId());
@@ -211,12 +222,18 @@ public class ComboService {
     }
 
     private ComboDto.Response toResponse(Combo c) {
+        return toResponse(c, null, LocaleResolverHelper.currentRequestLang());
+    }
+
+    private ComboDto.Response toResponse(Combo c, Long storeId, String lang) {
         ComboDto.Response r = new ComboDto.Response();
         r.setId(c.getId());
         r.setVersion(c.getVersion());
-        r.setName(c.getName());
-        r.setSlug(ProductDto.toSlug(c.getName()) + "-" + c.getId());
-        r.setDescription(c.getDescription());
+        r.setName(c.resolveName(lang));
+        r.setNameI18n(c.getName());
+        r.setSlug(ProductDto.toSlug(c.resolveName("vi")) + "-" + c.getId());
+        r.setDescription(c.resolveDescription(lang));
+        r.setDescriptionI18n(c.getDescription());
         r.setComboPrice(c.getComboPrice());
         r.setImageUrl(c.getImageUrl());
         r.setImagePublicId(c.getImagePublicId());
@@ -229,6 +246,7 @@ public class ComboService {
             for (ComboItem item : c.getItems()) {
                 var responseItem = new ComboDto.ItemDto(
                         item.getProduct().getId(),
+                        item.getProduct().resolveName(lang),
                         item.getProduct().getName(),
                         item.getQuantity(),
                         item.getOptionId()
@@ -238,11 +256,13 @@ public class ComboService {
             }
         }
         r.setItems(items);
+        if (storeId != null) {
+            applyStoreAvailability(c, storeId, r);
+        }
         return r;
     }
 
-    private ComboDto.Response toResponse(Combo c, Long storeId) {
-        ComboDto.Response r = toResponse(c);
+    private void applyStoreAvailability(Combo c, Long storeId, ComboDto.Response r) {
         if (storeId != null) {
             boolean available = Boolean.TRUE.equals(c.getIsActive());
             OffsetDateTime now = OffsetDateTime.now();
@@ -283,6 +303,5 @@ public class ComboService {
             r.setIsAvailable(available);
             r.setIsSoldOut(soldOut);
         }
-        return r;
     }
 }
