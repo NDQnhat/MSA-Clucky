@@ -29,6 +29,9 @@ public class ValidateVoucherRequest {
 
     private Long customerId;
 
+    @Size(max = 20)
+    private String channel;
+
     public ValidateVoucherRequest() {
     }
 
@@ -76,6 +79,14 @@ public class ValidateVoucherRequest {
 
     public void setCustomerId(Long customerId) {
         this.customerId = customerId;
+    }
+
+    public String getChannel() {
+        return channel;
+    }
+
+    public void setChannel(String channel) {
+        this.channel = channel;
     }
 }
 

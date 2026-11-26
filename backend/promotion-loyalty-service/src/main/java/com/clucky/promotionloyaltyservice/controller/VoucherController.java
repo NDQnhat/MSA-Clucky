@@ -1,6 +1,10 @@
 package com.clucky.promotionloyaltyservice.controller;
 
 import com.clucky.promotionloyaltyservice.config.CurrentActor;
+import com.clucky.promotionloyaltyservice.dto.PrintBatchDtos.CreatePrintBatchRequest;
+import com.clucky.promotionloyaltyservice.dto.PrintBatchDtos.PrintBatchResponse;
+import com.clucky.promotionloyaltyservice.dto.PrintBatchDtos.PrintQuotaSummaryResponse;
+import com.clucky.promotionloyaltyservice.dto.PrintBatchDtos.RevokePrintBatchRequest;
 import com.clucky.promotionloyaltyservice.dto.Role;
 import com.clucky.promotionloyaltyservice.dto.RejectVoucherRequest;
 import com.clucky.promotionloyaltyservice.dto.ValidateVoucherRequest;
@@ -13,10 +17,14 @@ import com.clucky.promotionloyaltyservice.model.VoucherScope;
 import com.clucky.promotionloyaltyservice.model.VoucherCampaignKind;
 import com.clucky.promotionloyaltyservice.model.VoucherApplicability;
 import com.clucky.promotionloyaltyservice.model.VoucherStatus;
+import com.clucky.promotionloyaltyservice.service.PrintedVoucherService;
 import com.clucky.promotionloyaltyservice.service.VoucherService;
 import com.clucky.promotionloyaltyservice.service.PersonalVoucherService;
 import org.springframework.beans.factory.annotation.Autowired;
 import java.util.UUID;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -31,14 +39,19 @@ public class VoucherController {
 
     private final VoucherService voucherService;
     private final PersonalVoucherService personal;
+    private final PrintedVoucherService printed;
 
     @Autowired
-    public VoucherController(VoucherService voucherService, PersonalVoucherService personal) {
+    public VoucherController(VoucherService voucherService, PersonalVoucherService personal, PrintedVoucherService printed) {
         this.voucherService = voucherService;
         this.personal = personal;
+        this.printed = printed;
+    }
+    public VoucherController(VoucherService voucherService, PersonalVoucherService personal) {
+        this(voucherService, personal, null);
     }
     public VoucherController(VoucherService voucherService) {
-        this(voucherService, null);
+        this(voucherService, null, null);
     }
 
     /**
@@ -48,9 +61,17 @@ public class VoucherController {
     @PostMapping("/validate")
     public ResponseEntity<ValidateVoucherResponse> validateVoucher(@Valid @RequestBody ValidateVoucherRequest request) {
         String code = request.getCode() == null ? "" : request.getCode().strip().toUpperCase(java.util.Locale.ROOT);
+        boolean printedCode = PrintedVoucherService.isPrintedCode(code);
         boolean personalCode = code.startsWith("CK1") || code.startsWith("CLUCKY:V1:");
-        ValidateVoucherResponse response = request.getVoucherInstanceId() != null || personalCode
-                ? personal.validate(request) : voucherService.validateVoucher(request);
+        ValidateVoucherResponse response;
+        if (printedCode) {
+            if (printed == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+            response = printed.validate(request);
+        } else if (request.getVoucherInstanceId() != null || personalCode) {
+            response = personal.validate(request);
+        } else {
+            response = voucherService.validateVoucher(request);
+        }
         return ResponseEntity.ok(response);
     }
 
@@ -239,6 +260,57 @@ public class VoucherController {
             actor.storeId()
         );
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{id}/print-quota")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_MANAGER')")
+    public ResponseEntity<PrintQuotaSummaryResponse> getPrintQuota(
+            @PathVariable("id") Long id,
+            @RequestParam(name = "storeId", required = false) Long storeId
+    ) {
+        return ResponseEntity.ok(printed.getPrintQuota(id, storeId));
+    }
+
+    @PostMapping("/{id}/print-batches")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_MANAGER')")
+    public ResponseEntity<PrintBatchResponse> createPrintBatch(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody CreatePrintBatchRequest request
+    ) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(printed.createBatch(id, request));
+    }
+
+    @GetMapping("/print-batches")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_MANAGER')")
+    public ResponseEntity<List<PrintBatchResponse>> listPrintBatches(
+            @RequestParam(name = "campaignId", required = false) Long campaignId,
+            @RequestParam(name = "storeId", required = false) Long storeId,
+            @RequestParam(name = "status", required = false) String status
+    ) {
+        return ResponseEntity.ok(printed.listBatches(campaignId, storeId, status));
+    }
+
+    @GetMapping("/print-batches/{batchId}/pdf")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_MANAGER')")
+    public ResponseEntity<byte[]> exportPrintBatchPdf(@PathVariable("batchId") Long batchId) {
+        PrintedVoucherService.BatchPdfResult result = printed.exportBatchPdf(batchId);
+        String filename = "clucky-vouchers-" + result.batchCode().toLowerCase(java.util.Locale.ROOT) + ".pdf";
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .header(HttpHeaders.PRAGMA, "no-cache")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(MediaType.APPLICATION_PDF)
+                .contentLength(result.pdfBytes().length)
+                .body(result.pdfBytes());
+    }
+
+    @PostMapping("/print-batches/{batchId}/revoke")
+    @PreAuthorize("hasAnyRole('ADMIN', 'STORE_MANAGER')")
+    public ResponseEntity<PrintBatchResponse> revokePrintBatch(
+            @PathVariable("batchId") Long batchId,
+            @Valid @RequestBody(required = false) RevokePrintBatchRequest request
+    ) {
+        return ResponseEntity.ok(printed.revokeBatch(batchId, request));
     }
 
 }

@@ -11,6 +11,8 @@ import {
   Col,
   Space,
   Alert,
+  Switch,
+  Divider,
 } from 'antd';
 import { CheckCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
@@ -45,6 +47,8 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
   const [form] = Form.useForm();
   const selectedApplicability = Form.useWatch('applicability', form);
   const selectedType = Form.useWatch('type', form);
+  const isPrintable = Form.useWatch('printable', form);
+  const selectedStoreIds = Form.useWatch('storeIds', form);
 
   useEffect(() => {
     if (open) {
@@ -67,6 +71,11 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
           storeIds: editingVoucher.storeIds?.length ? editingVoucher.storeIds.map(Number)
             : editingVoucher.storeId ? [Number(editingVoucher.storeId)] : [],
           status: editingVoucher.status || 'ACTIVE',
+          printable: Boolean(editingVoucher.printable),
+          maxPrintPercent: editingVoucher.maxPrintRatio != null
+            ? Math.round(Number(editingVoucher.maxPrintRatio) * 100)
+            : 50,
+          maxPrintPerStore: editingVoucher.maxPrintPerStore ?? undefined,
         });
       } else {
         // Defaults for new voucher
@@ -79,6 +88,9 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
           storeIds: !isAdmin && user.storeId ? [Number(user.storeId)] : [],
           status: 'ACTIVE',
           dateRange: [dayjs(), dayjs().add(30, 'day')],
+          printable: false,
+          maxPrintPercent: 50,
+          maxPrintPerStore: undefined,
         });
       }
     }
@@ -96,6 +108,9 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
     applicability: 'ALL' | 'SELECTED';
     storeIds?: number[];
     status?: string;
+    printable?: boolean;
+    maxPrintPercent?: number;
+    maxPrintPerStore?: number | null;
   }) => {
     const [startDay, endDay] = values.dateRange;
     const selectedStoreIds = values.applicability === 'SELECTED' ? values.storeIds || [] : [];
@@ -125,6 +140,11 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
       scope,
       storeId,
       status: (values.status as VoucherStatus) || 'ACTIVE',
+      printable: isAdmin ? Boolean(values.printable) : false,
+      maxPrintRatio: isAdmin && values.maxPrintPercent
+        ? Number((values.maxPrintPercent / 100).toFixed(4))
+        : 0.5,
+      maxPrintPerStore: isAdmin && values.printable ? (values.maxPrintPerStore ?? null) : null,
     };
 
     await onSubmit(payload);
@@ -304,9 +324,14 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
               name="totalLimit"
               label={t('admin:voucherUi.globalUsageLimit')}
               extra={t('admin:voucherUi.globalUsageLimitHint')}
+              dependencies={['printable']}
               rules={[
                 {
                   validator: async (_, val) => {
+                    const printableEnabled = Boolean(form.getFieldValue('printable'));
+                    if (isAdmin && printableEnabled && (val === undefined || val === null || val < 1)) {
+                      return Promise.reject(new Error(t('admin:voucherPrinting.printableRequiresLimit')));
+                    }
                     if (val !== undefined && val !== null && val < 1) {
                       return Promise.reject(new Error('Giới hạn số lượt dùng tối thiểu là 1'));
                     }
@@ -419,6 +444,61 @@ export const VoucherModal: React.FC<VoucherModalProps> = ({
             )}
           </Col>
         </Row>
+
+        {isAdmin && (
+          <>
+            <Divider style={{ margin: '12px 0 16px' }} />
+            <Row gutter={16} align="middle">
+              <Col xs={24} sm={12}>
+                <Form.Item
+                  name="printable"
+                  label={t('admin:voucherPrinting.printableSwitch')}
+                  valuePropName="checked"
+                  extra={t('admin:voucherPrinting.printableHint')}
+                >
+                  <Switch />
+                </Form.Item>
+              </Col>
+
+              {isPrintable && (
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="maxPrintPercent"
+                    label={t('admin:voucherPrinting.maxPrintPercent')}
+                    extra={t('admin:voucherPrinting.maxPrintPercentHint')}
+                    rules={[{ required: true, message: t('admin:voucherPrinting.quantityRequired') }]}
+                  >
+                    <InputNumber<number>
+                      style={{ width: '100%' }}
+                      min={1}
+                      max={100}
+                      formatter={(val) => (val != null ? `${val}%` : '')}
+                      parser={(val) => Number(val?.replace(/[%\s]/g, '') || 50)}
+                    />
+                  </Form.Item>
+                </Col>
+              )}
+            </Row>
+
+            {isPrintable && (selectedApplicability === 'ALL' || (selectedStoreIds?.length ?? 0) > 1) && (
+              <Row gutter={16}>
+                <Col xs={24} sm={12}>
+                  <Form.Item
+                    name="maxPrintPerStore"
+                    label={t('admin:voucherPrinting.maxPrintPerStore')}
+                    extra={t('admin:voucherPrinting.maxPrintPerStoreHint')}
+                  >
+                    <InputNumber<number>
+                      style={{ width: '100%' }}
+                      min={1}
+                      placeholder={t('admin:voucherPrinting.maxPrintPerStorePlaceholder')}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
+            )}
+          </>
+        )}
       </Form>
     </AdminModal>
     </ConfigProvider>

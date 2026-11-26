@@ -23,32 +23,45 @@ public class VoucherReservationService {
     private final VoucherService vouchers;
     private final JdbcTemplate jdbc;
     private final PersonalVoucherService personal;
+    private final PrintedVoucherService printed;
 
     @Autowired
     public VoucherReservationService(VoucherRepository repository, VoucherService vouchers, JdbcTemplate jdbc,
-            PersonalVoucherService personal) {
+            PersonalVoucherService personal, PrintedVoucherService printed) {
         this.repository = repository;
         this.vouchers = vouchers;
         this.jdbc = jdbc;
         this.personal = personal;
+        this.printed = printed;
+    }
+
+    public VoucherReservationService(VoucherRepository repository, VoucherService vouchers, JdbcTemplate jdbc,
+            PersonalVoucherService personal) {
+        this(repository, vouchers, jdbc, personal, null);
     }
 
     // Keeps legacy direct-instantiation callers compatible.
     public VoucherReservationService(VoucherRepository repository, VoucherService vouchers, JdbcTemplate jdbc) {
-        this(repository, vouchers, jdbc, null);
+        this(repository, vouchers, jdbc, null, null);
     }
 
     @Transactional
     public UUID reserve(long orderId, Long customerId, long storeId, String code, UUID voucherInstanceId,
-            BigDecimal orderAmount, BigDecimal discountAmount) {
+            BigDecimal amount, BigDecimal discountAmount) {
         lockOrder(orderId);
+        if (PrintedVoucherService.isPrintedCode(code)) {
+            if (voucherInstanceId != null) throw new ApiException(ErrorCode.VALIDATION_ERROR);
+            if (printed == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+            printed.reserve(orderId, customerId, storeId, code, amount, discountAmount);
+            return null;
+        }
         boolean personalCode = code != null && (code.toUpperCase(Locale.ROOT).startsWith("CK1")
                 || code.toUpperCase(Locale.ROOT).startsWith("CLUCKY:V1:"));
         if (voucherInstanceId != null || personalCode) {
             if (personal == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
-            return personal.reserve(orderId, customerId, storeId, code, voucherInstanceId, orderAmount, discountAmount);
+            return personal.reserve(orderId, customerId, storeId, code, voucherInstanceId, amount, discountAmount);
         }
-        reserveLegacy(orderId, customerId, storeId, code, orderAmount, discountAmount);
+        reserveLegacy(orderId, customerId, storeId, code, amount, discountAmount);
         return null;
     }
 
@@ -129,6 +142,14 @@ public class VoucherReservationService {
     }
 
     private void finish(Map<String, Object> row, String state, String eventId, String correlationId) {
+        if (row.get("printed_voucher_id") != null) {
+            if (printed == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+            printed.finish(row, state, eventId);
+            if (correlationId != null)
+                jdbc.update("UPDATE promotion_service.voucher_reservations SET correlation_id=? WHERE order_id=?",
+                        correlationId, number(row, "order_id"));
+            return;
+        }
         if (row.get("voucher_instance_id") != null) {
             if (personal == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
             personal.finish(row, state, eventId);
@@ -157,9 +178,13 @@ public class VoucherReservationService {
 
     @Transactional
     public void recordRefund(long orderId, String refundId) {
-        if (personal == null) throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         lockOrder(orderId);
-        personal.recordRefund(orderId,refundId);
+        if (personal != null) {
+            personal.recordRefund(orderId, refundId);
+        }
+        if (printed != null) {
+            printed.recordRefund(orderId, refundId);
+        }
     }
 
     public record PendingVoucher(Long orderId, Long customerId) {}

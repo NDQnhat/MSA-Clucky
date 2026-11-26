@@ -2,6 +2,7 @@ package com.clucky.promotionloyaltyservice.model;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -57,6 +58,21 @@ public class Voucher {
 
     @Column(name = "reserved_count", nullable = false)
     private int reservedCount;
+
+    @Column(name = "printable", nullable = false)
+    private boolean printable = false;
+
+    @Column(name = "max_print_ratio", nullable = false, precision = 5, scale = 4)
+    private BigDecimal maxPrintRatio = new BigDecimal("0.5000");
+
+    @Column(name = "max_print_per_store")
+    private Integer maxPrintPerStore;
+
+    @Column(name = "printed_count", nullable = false)
+    private int printedCount;
+
+    @Column(name = "printed_unredeemed", nullable = false)
+    private int printedUnredeemed;
 
     @Version
     private long version;
@@ -143,10 +159,21 @@ public class Voucher {
         if (now.isAfter(endAt)) {
             return VoucherStatus.EXPIRED;
         }
-        if (totalLimit != null && totalLimit > 0 && usedCount != null && (long) usedCount + reservedCount >= totalLimit) {
+        if (totalLimit != null && totalLimit > 0 && usedCount != null
+                && (long) usedCount + reservedCount + printedUnredeemed >= totalLimit) {
             return VoucherStatus.EXHAUSTED;
         }
         return VoucherStatus.ACTIVE;
+    }
+
+    public int computeMaxPrintableLimit() {
+        if (!printable || totalLimit == null || totalLimit <= 0 || maxPrintRatio == null) {
+            return 0;
+        }
+        return BigDecimal.valueOf(totalLimit)
+                .multiply(maxPrintRatio)
+                .setScale(0, RoundingMode.FLOOR)
+                .intValue();
     }
 
     // Getters and Setters
@@ -244,6 +271,26 @@ public class Voucher {
     public int getReservedCount() { return reservedCount; }
 
     public void setReservedCount(int reservedCount) { this.reservedCount = reservedCount; }
+
+    public boolean isPrintable() { return printable; }
+
+    public void setPrintable(boolean printable) { this.printable = printable; }
+
+    public BigDecimal getMaxPrintRatio() { return maxPrintRatio; }
+
+    public void setMaxPrintRatio(BigDecimal maxPrintRatio) { this.maxPrintRatio = maxPrintRatio; }
+
+    public Integer getMaxPrintPerStore() { return maxPrintPerStore; }
+
+    public void setMaxPrintPerStore(Integer maxPrintPerStore) { this.maxPrintPerStore = maxPrintPerStore; }
+
+    public int getPrintedCount() { return printedCount; }
+
+    public void setPrintedCount(int printedCount) { this.printedCount = printedCount; }
+
+    public int getPrintedUnredeemed() { return printedUnredeemed; }
+
+    public void setPrintedUnredeemed(int printedUnredeemed) { this.printedUnredeemed = printedUnredeemed; }
 
     public long getVersion() { return version; }
 

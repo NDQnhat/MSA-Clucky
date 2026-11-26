@@ -24,6 +24,7 @@ import {
   GlobalOutlined,
   CalendarOutlined,
   PercentageOutlined,
+  PrinterOutlined,
 } from '@ant-design/icons';
 import { VoucherBadge } from '../../../components/ui/VoucherBadge';
 import type { AdminVoucher } from '../../../types/promotion';
@@ -45,6 +46,7 @@ export interface VoucherDetailDrawerProps {
   onEdit: (voucher: AdminVoucher) => void;
   onToggleStatus: (voucher: AdminVoucher) => void;
   onDelete: (voucher: AdminVoucher) => void;
+  onPrint?: (voucher: AdminVoucher) => void;
 }
 
 export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
@@ -61,6 +63,7 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
   onEdit,
   onToggleStatus,
   onDelete,
+  onPrint,
 }) => {
   const { t } = useTranslation();
   const [rejecting, setRejecting] = useState(false);
@@ -171,6 +174,19 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
             {t(`admin:voucherUi.states.${state.status}`)}
           </Tag>
         </Descriptions.Item>
+
+        <Descriptions.Item label={t('admin:voucherPrinting.sectionTitle')}>
+          {voucher.printable ? (
+            <Space wrap size={6}>
+              <Tag color="gold" style={{ fontWeight: 700 }}>{t('admin:voucherPrinting.printableBadge')}</Tag>
+              <Text type="secondary">
+                {Math.round((voucher.maxPrintRatio ?? 0.5) * 100)}% ({voucher.printedCount ?? 0} / {voucher.maxPrintableLimit ?? 0} · {t('admin:voucherPrinting.issued')}: {voucher.printedUnredeemed ?? 0})
+              </Text>
+            </Space>
+          ) : (
+            <Text type="secondary">{t('admin:voucherPrinting.disabledLabel')}</Text>
+          )}
+        </Descriptions.Item>
       </Descriptions>
 
       <section className="voucher-usage-detail" aria-label={t('admin:voucherUi.usage')}>
@@ -199,6 +215,20 @@ export const VoucherDetailDrawer: React.FC<VoucherDetailDrawerProps> = ({
         </Popconfirm>}
         {isAdmin && state.canApprove && !rejecting && <Button danger icon={<StopOutlined />} disabled={loading}
           onClick={() => setRejecting(true)}>{t('admin:voucherUi.reject')}</Button>}
+        {voucher.printable && state.status === 'ACTIVE' && onPrint && (
+          <Button
+            type="primary"
+            disabled={loading}
+            icon={<PrinterOutlined />}
+            style={{ backgroundColor: '#16100D', borderColor: '#16100D', borderRadius: 999 }}
+            onClick={() => {
+              onClose();
+              onPrint(voucher);
+            }}
+          >
+            {t('admin:voucherPrinting.printAction')}
+          </Button>
+        )}
         {isAdmin && state.canToggle && <Button
           type="primary"
           disabled={loading}

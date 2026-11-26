@@ -90,7 +90,9 @@ public class VoucherService {
 
         // 3. Usage Limits
         if (voucher.getTotalLimit() != null && voucher.getTotalLimit() > 0) {
-            long used = (voucher.getUsedCount() != null ? voucher.getUsedCount() : 0L) + voucher.getReservedCount();
+            long used = (voucher.getUsedCount() != null ? voucher.getUsedCount() : 0L)
+                    + voucher.getReservedCount()
+                    + voucher.getPrintedUnredeemed();
             if (used >= voucher.getTotalLimit()) {
                 return ValidateVoucherResponse.invalid(cleanCode, ErrorCode.VOUCHER_EXHAUSTED.name(), "Mã ưu đãi đã hết lượt sử dụng.");
             }
@@ -205,8 +207,11 @@ public class VoucherService {
             request.setStoreId(actorStoreId);
             request.setApplicability(VoucherApplicability.SELECTED);
             request.setStoreIds(Set.of(actorStoreId));
-            // By default, manager proposals require Admin approval
+            // By default, manager proposals require Admin approval and cannot enable printing
             request.setStatus(VoucherStatus.PENDING_APPROVAL);
+            request.setPrintable(false);
+            request.setMaxPrintRatio(new BigDecimal("0.5000"));
+            request.setMaxPrintPerStore(null);
         } else if (actorRole != null && !"ADMIN".equalsIgnoreCase(actorRole)) {
             throw new ApiException(ErrorCode.FORBIDDEN);
         }
@@ -262,6 +267,9 @@ public class VoucherService {
         request.setApplicability(VoucherApplicability.SELECTED);
         request.setStoreIds(Set.of(targetStoreId));
         request.setStatus(VoucherStatus.PENDING_APPROVAL);
+        request.setPrintable(false);
+        request.setMaxPrintRatio(new BigDecimal("0.5000"));
+        request.setMaxPrintPerStore(null);
 
         Instant now = Instant.now();
         if (request.getEndAt() != null && request.getEndAt().isBefore(now)) {
@@ -377,8 +385,23 @@ public class VoucherService {
                 || existing.getApplicability() != request.getApplicability() || !existing.getStoreIds().equals(request.getStoreIds())))
             throw new ConflictException("Reserved voucher terms cannot change until orders settle");
         if (request.getTotalLimit() != null && request.getTotalLimit() > 0
-                && request.getTotalLimit() < (long) existing.getUsedCount() + existing.getReservedCount())
+                && request.getTotalLimit() < (long) existing.getUsedCount() + existing.getReservedCount() + existing.getPrintedUnredeemed())
             throw new ConflictException("Quota is below committed voucher usage");
+        BigDecimal requestedRatio = request.getMaxPrintRatio() != null
+                ? request.getMaxPrintRatio().setScale(4, RoundingMode.HALF_UP)
+                : (existing.getMaxPrintRatio() != null ? existing.getMaxPrintRatio() : new BigDecimal("0.5000"));
+        if (existing.getPrintedCount() > 0) {
+            if (request.getTotalLimit() == null || request.getTotalLimit() <= 0) {
+                throw new ConflictException("Cannot remove usage limit when vouchers have already been printed");
+            }
+            int maxPrintable = BigDecimal.valueOf(request.getTotalLimit())
+                    .multiply(requestedRatio)
+                    .setScale(0, RoundingMode.FLOOR)
+                    .intValue();
+            if (maxPrintable < existing.getPrintedCount()) {
+                throw new ConflictException("New print limit is below already printed voucher count");
+            }
+        }
         if ("ADMIN".equalsIgnoreCase(actorRole)) {
             validateAdminStatus(request);
             if (existing.getStatus() == VoucherStatus.PENDING_APPROVAL || existing.getStatus() == VoucherStatus.REJECTED)
@@ -399,6 +422,9 @@ public class VoucherService {
             request.setApplicability(VoucherApplicability.SELECTED);
             request.setStoreIds(Set.of(actorStoreId));
             request.setStatus(VoucherStatus.PENDING_APPROVAL);
+            request.setPrintable(false);
+            request.setMaxPrintRatio(existing.getMaxPrintRatio() != null ? existing.getMaxPrintRatio() : new BigDecimal("0.5000"));
+            request.setMaxPrintPerStore(null);
             existing.setApprovedBy(null);
         }
 
@@ -432,6 +458,7 @@ public class VoucherService {
         var before = snapshot(existing);
         if (existing.getCampaignKind() == VoucherCampaignKind.PERSONAL
                 || (existing.getUsedCount() != null && existing.getUsedCount() > 0)
+                || existing.getPrintedCount() > 0
                 || voucherRepository.hasReservations(id)) {
             existing.setStatus(VoucherStatus.DISABLED);
             voucherRepository.save(existing);
@@ -488,6 +515,21 @@ public class VoucherService {
         }
         if (existing != null && existing.getCampaignKind() == VoucherCampaignKind.LEGACY
                 && request.getScope() == VoucherScope.STORE) stores.requireExists(request.getStoreId());
+
+        if (Boolean.TRUE.equals(request.getPrintable())) {
+            if (request.getTotalLimit() == null || request.getTotalLimit() <= 0) {
+                throw new BadRequestException("Voucher cho phép in bắt buộc phải có tổng giới hạn lượt dùng (totalLimit > 0)");
+            }
+        }
+        if (request.getMaxPrintRatio() != null) {
+            if (request.getMaxPrintRatio().compareTo(BigDecimal.ZERO) <= 0
+                    || request.getMaxPrintRatio().compareTo(BigDecimal.ONE) > 0) {
+                throw new BadRequestException("Tỷ lệ in tối đa phải nằm trong khoảng (0, 1]");
+            }
+        }
+        if (request.getMaxPrintPerStore() != null && request.getMaxPrintPerStore() <= 0) {
+            throw new BadRequestException("Giới hạn in mỗi chi nhánh phải lớn hơn 0");
+        }
     }
 
     private boolean sameAmount(BigDecimal first, BigDecimal second) {
@@ -514,6 +556,11 @@ public class VoucherService {
         values.put("totalLimit", voucher.getTotalLimit());
         values.put("usedCount", voucher.getUsedCount());
         values.put("reservedCount", voucher.getReservedCount());
+        values.put("printable", voucher.isPrintable());
+        values.put("maxPrintRatio", voucher.getMaxPrintRatio());
+        values.put("maxPrintPerStore", voucher.getMaxPrintPerStore());
+        values.put("printedCount", voucher.getPrintedCount());
+        values.put("printedUnredeemed", voucher.getPrintedUnredeemed());
         values.put("startAt", voucher.getStartAt());
         values.put("endAt", voucher.getEndAt());
         values.put("scope", voucher.getScope());
@@ -551,6 +598,13 @@ public class VoucherService {
         entity.setMinOrderAmount(dto.getMinOrderAmount() != null ? dto.getMinOrderAmount() : BigDecimal.ZERO);
         entity.setMaxDiscount(dto.getMaxDiscount());
         entity.setTotalLimit(dto.getTotalLimit());
+        boolean printable = Boolean.TRUE.equals(dto.getPrintable());
+        entity.setPrintable(printable);
+        BigDecimal ratio = dto.getMaxPrintRatio() != null
+                ? dto.getMaxPrintRatio().setScale(4, RoundingMode.HALF_UP)
+                : (entity.getMaxPrintRatio() != null ? entity.getMaxPrintRatio() : new BigDecimal("0.5000"));
+        entity.setMaxPrintRatio(ratio);
+        entity.setMaxPrintPerStore(printable ? dto.getMaxPrintPerStore() : null);
         entity.setStartAt(dto.getStartAt());
         entity.setEndAt(dto.getEndAt());
         if (entity.getCampaignKind() == VoucherCampaignKind.LEGACY) {

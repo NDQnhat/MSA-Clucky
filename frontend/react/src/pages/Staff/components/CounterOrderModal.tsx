@@ -149,6 +149,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   const [pointsUsed, setPointsUsed] = useState(0);
   const [voucherInput, setVoucherInput] = useState('');
   const [voucherCode, setVoucherCode] = useState('');
+  const [voucherWarning, setVoucherWarning] = useState('');
   const [scanner, setScanner] = useState<'LOYALTY' | 'VOUCHER' | null>(null);
   const [identityBusy, setIdentityBusy] = useState(false);
   const [quoteBusy, setQuoteBusy] = useState(false);
@@ -168,7 +169,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
   } | null>(null);
 
   const normalizeVoucherCode = (raw: string) =>
-    raw.trim().toUpperCase().replace(/^CLUCKY:V1:/, '').trim();
+    raw.trim().toUpperCase().replace(/^CLUCKY:(?:V1|P1):/, '').trim();
 
   // 3. Option Customization Modal state
   const [customizingProduct, setCustomizingProduct] = useState<PosProduct | null>(null);
@@ -341,6 +342,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
       setPointsUsed(0);
       setVoucherCode(tabDraft?.voucherCode ?? '');
       setVoucherInput(tabDraft?.voucherInput ?? '');
+      setVoucherWarning('');
       setScanner(null);
       setQuote(null);
       setQuoteError('');
@@ -393,6 +395,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
       setPointsUsed(0);
       setVoucherInput('');
       setVoucherCode('');
+      setVoucherWarning('');
       setIdentityBusy(false);
       setQuoteBusy(false);
       setQuote(null);
@@ -619,7 +622,18 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
     const timer = window.setTimeout(async () => {
       try {
         const response = await ordersApi.previewCounterOrder(pricedPayload, controller.signal);
-        if (live) setQuote({ key: quoteKey, value: response });
+        if (!live) return;
+        if (pricedPayload.voucherCode && !response.voucherValid) {
+          const reason = response.voucherMessage || t('business:counterLoyalty.voucherInvalidFallback');
+          setVoucherWarning(`${reason} ${t('business:counterLoyalty.voucherFallbackOriginalPrice')}`);
+          setVoucherCode('');
+          setQuote({ key: quoteKey, value: response });
+        } else {
+          if (pricedPayload.voucherCode && response.voucherValid) {
+            setVoucherWarning('');
+          }
+          setQuote({ key: quoteKey, value: response });
+        }
       } catch (error) {
         if (live) {
           setQuote(null);
@@ -659,12 +673,13 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
     if (submissionInFlight.current) return false;
     const mode = scanner;
     if (mode === 'VOUCHER') {
-      if (!/^CLUCKY:V1:CK1-[A-Z2-7]{12}-[A-Z2-7]{32}$/i.test(qrValue)) {
+      if (!/^CLUCKY:(?:V1:CK1|P1:CKP1)-[A-Z2-7]{12}-[A-Z2-7]{32}$/i.test(qrValue)) {
         message.error(t('business:counterLoyalty.wrongQrType'));
         return false;
       }
       setScanner(null);
       const normalized = normalizeVoucherCode(qrValue);
+      setVoucherWarning('');
       setVoucherInput(normalized);
       setVoucherCode(normalized);
       return true;
@@ -714,6 +729,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
 
   const updateVoucherInput = (value: string) => {
     setVoucherInput(value);
+    setVoucherWarning('');
     if (normalizeVoucherCode(value) !== voucherCode) {
       // Invalidate the QR proof as soon as the voucher text is changed.
       setScanProof(null);
@@ -725,6 +741,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
 
   const applyVoucherInput = () => {
     const normalized = normalizeVoucherCode(voucherInput);
+    setVoucherWarning('');
     setVoucherInput(normalized);
     if (normalized !== voucherCode) {
       setScanProof(null);
@@ -1347,11 +1364,29 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 </div>
                 {voucherCode && <div className={styles.appliedVoucher}>
                   <span><Check size={14} /> {t('business:counterLoyalty.voucherAppliedShort')}</span>
-                  <button type="button" onClick={() => { setVoucherCode(''); setVoucherInput(''); }}>
+                  <button type="button" onClick={() => { setVoucherCode(''); setVoucherInput(''); setVoucherWarning(''); }}>
                     {t('business:counterLoyalty.removeVoucher')}
                   </button>
                 </div>}
+                {!voucherCode && voucherWarning && (
+                  <div role="alert" className={styles.loyaltyWarning} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <span>{voucherWarning}</span>
+                    <button
+                      type="button"
+                      style={{ border: 0, background: 'transparent', color: '#8f1216', fontWeight: 700, textDecoration: 'underline', cursor: 'pointer', flexShrink: 0 }}
+                      onClick={() => { setVoucherWarning(''); setVoucherInput(''); }}
+                    >
+                      {t('business:counterLoyalty.removeVoucher')}
+                    </button>
+                  </div>
+                )}
               </section>}
+
+              {step >= 3 && voucherWarning && step === 4 && (
+                <p role="alert" className={styles.loyaltyWarning}>
+                  {voucherWarning}
+                </p>
+              )}
 
               {step >= 3 && (quoteError || quoteBusy) && <p role={quoteError ? 'alert' : 'status'}
                 className={quoteError ? styles.loyaltyWarning : styles.loyaltyHint}>
@@ -1396,7 +1431,7 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
                 <div className={styles.summaryTotal}>
                   <span>{t('business:counterLoyalty.totalDue')}</span>
                   <span className={styles.totalNumber}>
-                    {activeQuote ? formatVnd(totalAmount) : t('business:counterLoyalty.awaitingQuote')}
+                    {quoteBusy && !activeQuote ? t('business:counterLoyalty.awaitingQuote') : formatVnd(totalAmount)}
                   </span>
                 </div>
                 {noPayment && <p role="status" className={styles.paymentHint}>{t('business:counterPayment.noPaymentCard')}</p>}
@@ -1411,7 +1446,13 @@ export const CounterOrderModal: React.FC<CounterOrderModalProps> = ({
             onClick={() => setStep((current) => Math.max(1, current - 1) as 1 | 2 | 3 | 4)}>{t('business:counterPos.back')}</button>}
           <span className={styles.navigationTotal}>
             {t(step < 3 ? 'business:counterPos.subtotal' : 'business:counterPos.total')}{' '}
-            <strong>{step < 3 ? formatVnd(subtotal) : activeQuote ? formatVnd(totalAmount) : t('business:counterLoyalty.awaitingQuote')}</strong>
+            <strong>
+              {step < 3
+                ? formatVnd(subtotal)
+                : quoteBusy && !activeQuote
+                  ? t('business:counterLoyalty.awaitingQuote')
+                  : formatVnd(totalAmount)}
+            </strong>
           </span>
           {step < 4 && <button type="button" className={styles.nextButton}
             disabled={!cartItems.length || !storeOpenState.isOpen}

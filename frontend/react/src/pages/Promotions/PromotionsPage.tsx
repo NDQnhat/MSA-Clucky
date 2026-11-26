@@ -21,6 +21,7 @@ import {
   ThunderboltOutlined,
   ClockCircleOutlined,
   PictureOutlined,
+  PrinterOutlined,
 } from '@ant-design/icons';
 import { AdminTable } from '../../components/ui/AdminTable';
 import { VoucherBadge } from '../../components/ui/VoucherBadge';
@@ -28,6 +29,8 @@ import { VoucherModal } from './components/VoucherModal';
 import { VoucherDetailDrawer } from './components/VoucherDetailDrawer';
 import { LoyaltySettings } from './components/LoyaltySettings';
 import { BannerManagementSection } from './components/BannerManagementSection';
+import { PrintVoucherModal } from './components/PrintVoucherModal';
+import { PrintBatchesSection } from './components/PrintBatchesSection';
 import { useAuth } from '../../context/AuthContext';
 import {
   promotionsApi,
@@ -68,6 +71,9 @@ export const PromotionsPage: React.FC = () => {
   const [editingVoucher, setEditingVoucher] = useState<AdminVoucher | null>(null);
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
   const [selectedVoucher, setSelectedVoucher] = useState<AdminVoucher | null>(null);
+  const [printModalOpen, setPrintModalOpen] = useState<boolean>(false);
+  const [printingVoucher, setPrintingVoucher] = useState<AdminVoucher | null>(null);
+  const [printBatchesNonce, setPrintBatchesNonce] = useState<number>(0);
   const voucherRequest = useRef(0);
   const mutationLock = useRef(false);
 
@@ -219,6 +225,11 @@ export const PromotionsPage: React.FC = () => {
     setDrawerOpen(true);
   };
 
+  const handleOpenPrint = (voucher: AdminVoucher) => {
+    setPrintingVoucher(voucher);
+    setPrintModalOpen(true);
+  };
+
   // Quick copy code
   const handleCopyCode = async (code: string) => {
     try {
@@ -280,6 +291,9 @@ export const PromotionsPage: React.FC = () => {
           scope: voucher.scope,
           storeId: voucher.storeId ? Number(voucher.storeId) : null,
           status: newStatus,
+          printable: Boolean(voucher.printable),
+          maxPrintRatio: voucher.maxPrintRatio ?? 0.5,
+          maxPrintPerStore: voucher.maxPrintPerStore ?? null,
         });
 
       setVouchers((prev) =>
@@ -556,6 +570,13 @@ export const PromotionsPage: React.FC = () => {
               </span>
             </div>
             <Text type="secondary" style={{ fontSize: 11 }}>{t("admin:ui.reserved")} {record.reservedCount ?? 0}</Text>
+            {record.printable && (
+              <div style={{ marginTop: 3 }}>
+                <Tag color="gold" style={{ fontSize: 10, lineHeight: '16px', marginInlineEnd: 0 }}>
+                  {t('admin:voucherPrinting.printableBadge')}: {record.printedCount ?? 0}/{record.maxPrintableLimit ?? 0}
+                </Tag>
+              </div>
+            )}
             {percent !== null ? (
               <Progress
                 percent={percent}
@@ -583,7 +604,7 @@ export const PromotionsPage: React.FC = () => {
     {
       title: t("accounts:action"),
       key: 'actions',
-      width: 120,
+      width: 150,
       fixed: 'right',
       render: (_, record) => (
         <Space size={4}>
@@ -597,6 +618,18 @@ export const PromotionsPage: React.FC = () => {
               aria-label={t("business:orderspage.viewDetails")}
             />
           </Tooltip>
+          {record.printable && (record.effectiveStatus || record.status) === 'ACTIVE' && (
+            <Tooltip title={t('admin:voucherPrinting.printAction')}>
+              <Button
+                type="text"
+                size="small"
+                className="voucher-action-btn"
+                icon={<PrinterOutlined style={{ color: '#16100D', fontSize: 14 }} />}
+                onClick={() => handleOpenPrint(record)}
+                aria-label={t('admin:voucherPrinting.printAction')}
+              />
+            </Tooltip>
+          )}
           {isAdmin && voucherState(record).canToggle && <Tooltip title="Chỉnh sửa">
             <Button
               type="text"
@@ -847,6 +880,24 @@ export const PromotionsPage: React.FC = () => {
               ]
             : []),
           {
+            key: 'print-batches',
+            label: (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <PrinterOutlined />
+                {t('admin:voucherPrinting.printTab')}
+              </span>
+            ),
+            children: (
+              <PrintBatchesSection
+                stores={stores}
+                refreshToken={printBatchesNonce}
+                onChanged={() => {
+                  void fetchVouchers();
+                }}
+              />
+            ),
+          },
+          {
             key: 'approvals',
             label: <span className={`voucher-review-tab${pendingCount > 0 && !loadError ? ' has-pending' : ''}`}>
               <CheckCircleOutlined />
@@ -912,6 +963,21 @@ export const PromotionsPage: React.FC = () => {
         onToggleStatus={handleToggleStatus}
         onDelete={(v) => {
           handleDeleteVoucher(v);
+        }}
+        onPrint={handleOpenPrint}
+      />
+
+      <PrintVoucherModal
+        open={printModalOpen}
+        voucher={printingVoucher}
+        stores={stores}
+        onCancel={() => {
+          setPrintModalOpen(false);
+          setPrintingVoucher(null);
+        }}
+        onSuccess={async () => {
+          setPrintBatchesNonce((n) => n + 1);
+          await fetchVouchers();
         }}
       />
     </div>

@@ -345,7 +345,7 @@ public class PersonalVoucherService {
 
     private void checkQuota(Voucher campaign) {
         if (campaign.getTotalLimit() != null && campaign.getTotalLimit() > 0
-                && (long) campaign.getUsedCount() + campaign.getReservedCount() >= campaign.getTotalLimit())
+                && (long) campaign.getUsedCount() + campaign.getReservedCount() + campaign.getPrintedUnredeemed() >= campaign.getTotalLimit())
             throw new ApiException(ErrorCode.VOUCHER_EXHAUSTED);
     }
 

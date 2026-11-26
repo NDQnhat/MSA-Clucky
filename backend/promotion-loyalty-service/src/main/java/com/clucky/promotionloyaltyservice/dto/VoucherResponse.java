@@ -29,6 +29,13 @@ public class VoucherResponse {
     private Integer totalLimit;
     private Integer usedCount;
     private int reservedCount;
+    private boolean printable;
+    private BigDecimal maxPrintRatio;
+    private Integer maxPrintPerStore;
+    private int printedCount;
+    private int printedUnredeemed;
+    private int maxPrintableLimit;
+    private int remainingPrintableQuota;
     private long version;
     private Instant startAt;
     private Instant endAt;
@@ -49,6 +56,14 @@ public class VoucherResponse {
     }
 
     public int getReservedCount() { return reservedCount; }
+
+    public boolean isPrintable() { return printable; }
+    public BigDecimal getMaxPrintRatio() { return maxPrintRatio; }
+    public Integer getMaxPrintPerStore() { return maxPrintPerStore; }
+    public int getPrintedCount() { return printedCount; }
+    public int getPrintedUnredeemed() { return printedUnredeemed; }
+    public int getMaxPrintableLimit() { return maxPrintableLimit; }
+    public int getRemainingPrintableQuota() { return remainingPrintableQuota; }
 
     public long getVersion() { return version; }
 
@@ -81,6 +96,19 @@ public class VoucherResponse {
         dto.setTotalLimit(v.getTotalLimit());
         dto.setUsedCount(v.getUsedCount());
         dto.reservedCount = v.getReservedCount();
+        dto.printable = v.isPrintable();
+        dto.maxPrintRatio = v.getMaxPrintRatio();
+        dto.maxPrintPerStore = v.getMaxPrintPerStore();
+        dto.printedCount = v.getPrintedCount();
+        dto.printedUnredeemed = v.getPrintedUnredeemed();
+        int maxPrintable = v.computeMaxPrintableLimit();
+        dto.maxPrintableLimit = maxPrintable;
+        int poolRemaining = v.getTotalLimit() != null && v.getTotalLimit() > 0
+                ? Math.max(0, v.getTotalLimit() - (v.getUsedCount() != null ? v.getUsedCount() : 0) - v.getReservedCount() - v.getPrintedUnredeemed())
+                : 0;
+        dto.remainingPrintableQuota = v.isPrintable()
+                ? Math.max(0, Math.min(maxPrintable - v.getPrintedCount(), poolRemaining))
+                : 0;
         dto.version = v.getVersion();
         dto.setStartAt(v.getStartAt());
         dto.setEndAt(v.getEndAt());
@@ -109,6 +137,13 @@ public class VoucherResponse {
             dto.rejectionReason = null;
             dto.code = v.getCampaignKind() == com.clucky.promotionloyaltyservice.model.VoucherCampaignKind.PERSONAL
                     ? null : dto.code;
+            dto.printable = false;
+            dto.maxPrintRatio = null;
+            dto.maxPrintPerStore = null;
+            dto.printedCount = 0;
+            dto.printedUnredeemed = 0;
+            dto.maxPrintableLimit = 0;
+            dto.remainingPrintableQuota = 0;
         }
         return dto;
     }

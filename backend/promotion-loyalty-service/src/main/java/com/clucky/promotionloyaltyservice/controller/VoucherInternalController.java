@@ -1,5 +1,6 @@
 package com.clucky.promotionloyaltyservice.controller;
 
+import com.clucky.promotionloyaltyservice.service.PrintedVoucherService;
 import com.clucky.promotionloyaltyservice.service.VoucherReservationService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
@@ -24,8 +25,13 @@ public class VoucherInternalController {
     public ReservationResponse reserve(@Valid @RequestBody ReservationRequest request) {
         UUID id = vouchers.reserve(request.orderId(), request.customerId(), request.storeId(), request.code(),
                 request.voucherInstanceId(), request.orderAmount(), request.discountAmount());
-        return new ReservationResponse(id == null ? request.code().toUpperCase(java.util.Locale.ROOT) : null,
-                id, request.discountAmount());
+        String responseCode = null;
+        if (id == null && request.code() != null) {
+            responseCode = PrintedVoucherService.isPrintedCode(request.code())
+                    ? "PRINTED"
+                    : request.code().toUpperCase(java.util.Locale.ROOT);
+        }
+        return new ReservationResponse(responseCode, id, request.discountAmount());
     }
 
     @PostMapping("/voucher-reservations/{orderId}/release")

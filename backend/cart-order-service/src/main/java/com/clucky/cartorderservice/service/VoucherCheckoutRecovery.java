@@ -35,7 +35,7 @@ public class VoucherCheckoutRecovery {
         jdbc.update("""
                 INSERT INTO order_service.voucher_release_work(order_id)
                 SELECT id FROM order_service.orders
-                WHERE id=? AND (voucher_code IS NOT NULL OR customer_voucher_instance_id IS NOT NULL)
+                WHERE id=? AND (voucher_code IS NOT NULL OR customer_voucher_instance_id IS NOT NULL OR voucher_campaign_id IS NOT NULL)
                 ON CONFLICT (order_id) DO UPDATE SET next_attempt_at=now()
                 """, orderId);
     }

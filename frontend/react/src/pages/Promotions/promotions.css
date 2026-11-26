@@ -231,3 +231,40 @@
   transform: scale(1.08);
 }
 
+.print-quota-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.print-quota-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e8e2d9;
+  background: #fffaf3;
+}
+
+.print-quota-card .label {
+  font-size: 11px;
+  color: #6b6259;
+  font-weight: 600;
+}
+
+.print-quota-card strong {
+  font-size: 16px;
+  color: #16100d;
+}
+
+.print-quota-card.highlight {
+  border-color: #c9a227;
+  background: #fff8e6;
+}
+
+.print-quota-card.highlight strong {
+  color: #8f1216;
+}
+
+

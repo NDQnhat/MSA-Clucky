@@ -26,6 +26,13 @@ export interface AdminVoucher {
   totalLimit?: number | null;
   usedCount: number;
   reservedCount?: number;
+  printable?: boolean;
+  maxPrintRatio?: number;
+  maxPrintPerStore?: number | null;
+  printedCount?: number;
+  printedUnredeemed?: number;
+  maxPrintableLimit?: number;
+  remainingPrintableQuota?: number;
   version?: number;
   startAt: string;
   endAt: string;
@@ -60,6 +67,65 @@ export interface VoucherPayload {
   scope: VoucherScope;
   storeId?: number | null;
   status?: VoucherStatus;
+  printable?: boolean;
+  maxPrintRatio?: number;
+  maxPrintPerStore?: number | null;
+}
+
+export type PrintBatchStatus = 'ACTIVE' | 'PARTIALLY_REVOKED' | 'REVOKED';
+
+export interface VoucherPrintQuota {
+  campaignId: number;
+  storeId?: number | null;
+  printable: boolean;
+  totalLimit?: number | null;
+  usedCount: number;
+  reservedCount: number;
+  printedCount: number;
+  printedUnredeemed: number;
+  maxPrintableLimit: number;
+  globalPrintableRemaining: number;
+  poolRemaining: number;
+  storePrintLimit?: number | null;
+  storePrintedCount: number;
+  maxPrintableNow: number;
+  multiStoreCampaign: boolean;
+}
+
+export interface VoucherPrintBatch {
+  id: number;
+  batchCode: string;
+  campaignId: number;
+  campaignTitle?: string | null;
+  campaignType?: VoucherType;
+  discountValue?: number;
+  minOrderAmount?: number;
+  maxDiscount?: number | null;
+  campaignStartAt?: string;
+  campaignEndAt?: string;
+  storeId?: number | null;
+  storeName?: string | null;
+  quantity: number;
+  allowedChannels: string;
+  status: PrintBatchStatus;
+  note?: string | null;
+  issuedCount: number;
+  reservedCount: number;
+  redeemedCount: number;
+  expiredCount: number;
+  revokedCount: number;
+  createdBy: number;
+  createdByRole: string;
+  createdAt: string;
+  revokedBy?: number | null;
+  revokedAt?: string | null;
+  revokeReason?: string | null;
+}
+
+export interface CreatePrintBatchPayload {
+  storeId?: number | null;
+  quantity: number;
+  note?: string | null;
 }
 
 export interface VoucherProposal {

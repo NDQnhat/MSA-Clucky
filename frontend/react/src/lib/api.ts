@@ -2,7 +2,15 @@ import axios, { AxiosError } from 'axios';
 import { signIn, endSession, loadSession, refreshSession, expireSession, isSessionExpired, getSessionState, type SessionUser } from './session';
 import { getBrowserLocale, getErrorMessage as resolveError, getTranslator } from '../i18n/core';
 import type { StoreStatus } from '../types/store';
-import type { AdminVoucher, BannerPayload, PromoBanner, VoucherPayload } from '../types/promotion';
+import type {
+  AdminVoucher,
+  BannerPayload,
+  CreatePrintBatchPayload,
+  PromoBanner,
+  VoucherPayload,
+  VoucherPrintBatch,
+  VoucherPrintQuota,
+} from '../types/promotion';
 
 export interface ProductOptionGroup {
   id: string;
@@ -634,6 +642,54 @@ export const promotionsApi = {
     api.put<AdminVoucher>(`/api/promotions/vouchers/${id}`, data, { signal }).then((r) => r.data),
   deleteVoucher: (id: number | string, signal?: AbortSignal) =>
     api.delete(`/api/promotions/vouchers/${id}`, { signal }).then((r) => r.data),
+  getPrintQuota: (campaignId: number | string, storeId?: number | null, signal?: AbortSignal) =>
+    api.get<VoucherPrintQuota>(`/api/promotions/vouchers/${campaignId}/print-quota`, {
+      params: storeId ? { storeId } : undefined,
+      signal,
+    }).then((r) => r.data),
+  createPrintBatch: (campaignId: number | string, data: CreatePrintBatchPayload, signal?: AbortSignal) =>
+    api.post<VoucherPrintBatch>(`/api/promotions/vouchers/${campaignId}/print-batches`, data, { signal }).then((r) => r.data),
+  listPrintBatches: (
+    params?: { campaignId?: number; storeId?: number; status?: string },
+    signal?: AbortSignal
+  ) => api.get<VoucherPrintBatch[]>('/api/promotions/vouchers/print-batches', { params, signal }).then((r) => r.data),
+  revokePrintBatch: (batchId: number | string, reason?: string, signal?: AbortSignal) =>
+    api.post<VoucherPrintBatch>(`/api/promotions/vouchers/print-batches/${batchId}/revoke`, { reason }, { signal }).then((r) => r.data),
+  downloadPrintBatchPdf: async (batchId: number | string, signal?: AbortSignal): Promise<ReportExportResult> => {
+    try {
+      const response = await api.get<Blob>(`/api/promotions/vouchers/print-batches/${batchId}/pdf`, {
+        signal,
+        responseType: 'blob',
+        timeout: 30000,
+      });
+      const blob = response.data;
+      const headers = response.headers as Record<string, unknown> | undefined;
+      const rawContentType = String(headers?.['content-type'] ?? blob?.type ?? '').toLowerCase();
+      if (!blob || blob.size === 0) {
+        throw { code: 'UPSTREAM_ERROR' };
+      }
+      if (rawContentType.includes('application/json')) {
+        try {
+          const parsed = JSON.parse(await blob.text());
+          throw { response: { status: response.status, data: parsed } };
+        } catch (jsonErr) {
+          if ((jsonErr as { response?: unknown })?.response) throw jsonErr;
+          throw { code: 'UPSTREAM_ERROR' };
+        }
+      }
+      const filename = parseDownloadFilename(
+        headers?.['content-disposition'],
+        `clucky-vouchers-batch-${batchId}.pdf`
+      );
+      return {
+        blob,
+        filename,
+        contentType: rawContentType || 'application/pdf',
+      };
+    } catch (error) {
+      return decodeBlobError(error);
+    }
+  },
   listBanners: (
     params?: { position?: string; isActive?: boolean; keyword?: string },
     signal?: AbortSignal

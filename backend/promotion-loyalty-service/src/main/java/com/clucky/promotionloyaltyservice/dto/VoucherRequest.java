@@ -63,6 +63,16 @@ public class VoucherRequest {
 
     private VoucherStatus status = VoucherStatus.ACTIVE;
 
+    private Boolean printable = Boolean.FALSE;
+
+    @DecimalMin(value = "0.01", message = "Tỷ lệ in tối đa phải lớn hơn 0")
+    @DecimalMax(value = "1.0000", message = "Tỷ lệ in tối đa không được vượt quá 100%")
+    @Digits(integer = 1, fraction = 4)
+    private BigDecimal maxPrintRatio;
+
+    @Min(value = 1, message = "Giới hạn in mỗi chi nhánh tối thiểu là 1")
+    private Integer maxPrintPerStore;
+
     public VoucherRequest() {
     }
 
@@ -173,6 +183,30 @@ public class VoucherRequest {
 
     public void setStatus(VoucherStatus status) {
         this.status = status;
+    }
+
+    public Boolean getPrintable() {
+        return printable;
+    }
+
+    public void setPrintable(Boolean printable) {
+        this.printable = printable;
+    }
+
+    public BigDecimal getMaxPrintRatio() {
+        return maxPrintRatio;
+    }
+
+    public void setMaxPrintRatio(BigDecimal maxPrintRatio) {
+        this.maxPrintRatio = maxPrintRatio;
+    }
+
+    public Integer getMaxPrintPerStore() {
+        return maxPrintPerStore;
+    }
+
+    public void setMaxPrintPerStore(Integer maxPrintPerStore) {
+        this.maxPrintPerStore = maxPrintPerStore;
     }
 }
 

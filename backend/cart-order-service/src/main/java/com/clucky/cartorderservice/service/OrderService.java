@@ -147,9 +147,7 @@ public class OrderService {
             throw new ApiException(ErrorCode.VALIDATION_ERROR, "Món hoặc chi nhánh không còn khả dụng");
         }
         BigDecimal subtotal = catalog.subtotal();
-        var voucher = promotionClient.validateVoucher(request.voucherCode(), request.voucherInstanceId(), storeId, subtotal);
-        if ((request.voucherCode() != null && !request.voucherCode().isBlank() || request.voucherInstanceId() != null)
-                && !voucher.valid()) throw new ApiException(ErrorCode.VOUCHER_INACTIVE);
+        var voucher = promotionClient.validateVoucher(request.voucherCode(), request.voucherInstanceId(), storeId, subtotal, "COUNTER");
         BigDecimal afterVoucher = subtotal.subtract(voucher.discountAmount()).max(BigDecimal.ZERO);
         int counterPointsRequested = afterVoucher.compareTo(BigDecimal.ZERO) <= 0 ? 0 : request.pointsUsed();
         LoyaltyClient.CounterQuote points = request.loyaltySubject() != null
@@ -319,7 +317,7 @@ public class OrderService {
 
         // Validate voucher with Promotion Service (P1-02)
         PromotionClient.VoucherResult voucherCalc = promotionClient.validateVoucher(
-                request.voucherCode(), request.voucherInstanceId(), storeId, subtotal);
+                request.voucherCode(), request.voucherInstanceId(), storeId, subtotal, "WEB");
         BigDecimal discountAmount = voucherCalc.discountAmount();
 
         // Check merchandise amount remaining after voucher. If voucher covers all merchandise, points cannot be used.
@@ -450,7 +448,7 @@ public class OrderService {
 
         // Validate voucher with Promotion Service (P1-02: No hardcoded voucher strings)
         PromotionClient.VoucherResult voucherCalc = promotionClient.validateVoucher(
-                request.voucherCode(), request.voucherInstanceId(), request.storeId(), subtotal);
+                request.voucherCode(), request.voucherInstanceId(), request.storeId(), subtotal, "WEB");
         if ((request.voucherCode() != null && !request.voucherCode().isBlank()
                 || request.voucherInstanceId() != null) && !voucherCalc.valid()) {
             throw new ApiException(ErrorCode.VOUCHER_INACTIVE);
@@ -782,7 +780,7 @@ public class OrderService {
         BigDecimal subtotal = catalogValidation.subtotal();
         String draftHash = counterDraftHash(request, effectiveStoreId);
         PromotionClient.VoucherResult counterVoucher = promotionClient.validateVoucher(
-                request.voucherCode(), request.voucherInstanceId(), effectiveStoreId, subtotal);
+                request.voucherCode(), request.voucherInstanceId(), effectiveStoreId, subtotal, "COUNTER");
         boolean wantsVoucher = (request.voucherCode() != null && !request.voucherCode().isBlank())
                 || request.voucherInstanceId() != null;
         if (wantsVoucher && !counterVoucher.valid())
