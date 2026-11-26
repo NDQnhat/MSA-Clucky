@@ -2,11 +2,26 @@ x-java-build: &java-build
   context: ./backend
   dockerfile: ../deploy/backend/Dockerfile
 
+x-local-env: &local-env
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-local}
+
+x-local-light: &local-light
+  mem_limit: 448m
+  environment:
+    <<: *local-env
+    JAVA_TOOL_OPTIONS: "-Xms48m -Xmx160m -XX:MaxMetaspaceSize=144m -XX:ReservedCodeCacheSize=48m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+
+x-local-heavy: &local-heavy
+  mem_limit: 528m
+  environment:
+    <<: *local-env
+    JAVA_TOOL_OPTIONS: "-Xms64m -Xmx192m -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=64m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+
 services:
   kafka-ui:
     image: ghcr.io/kafbat/kafka-ui:v1.5.0
     restart: unless-stopped
-    mem_limit: 512m
+    mem_limit: 384m
     security_opt:
       - no-new-privileges:true
     logging:
@@ -19,7 +34,7 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: clucky-local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-      JAVA_OPTS: -Xms128m -Xmx256m
+      JAVA_OPTS: -Xms64m -Xmx160m
     depends_on:
       kafka:
         condition: service_healthy
@@ -31,17 +46,26 @@ services:
       retries: 12
 
   config-server:
+    mem_limit: 288m
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms48m -Xmx128m -XX:MaxMetaspaceSize=112m -XX:ReservedCodeCacheSize=48m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
     build:
       <<: *java-build
       args:
         SERVICE_NAME: config-server
   discovery-server:
+    mem_limit: 336m
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms64m -Xmx160m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
     build:
       <<: *java-build
       args:
         SERVICE_NAME: discovery-server
   identity-service:
+    <<: *local-heavy
     environment:
+      <<: *local-env
+      JAVA_TOOL_OPTIONS: "-Xms64m -Xmx192m -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=64m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
       BRIDGE_API_KEY: ${BRIDGE_API_KEY:-}
       AUTH_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173
     build:
@@ -49,51 +73,69 @@ services:
       args:
         SERVICE_NAME: identity-service
   catalog-store-service:
+    <<: *local-heavy
     build:
       <<: *java-build
       args:
         SERVICE_NAME: catalog-store-service
   cart-order-service:
+    <<: *local-heavy
     build:
       <<: *java-build
       args:
         SERVICE_NAME: cart-order-service
   payment-service:
+    <<: *local-light
     build:
       <<: *java-build
       args:
         SERVICE_NAME: payment-service
     environment:
+      <<: *local-env
+      JAVA_TOOL_OPTIONS: "-Xms48m -Xmx160m -XX:MaxMetaspaceSize=144m -XX:ReservedCodeCacheSize=48m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
       PAYMENT_LOCAL_SIMULATION_ENABLED: "true"
   promotion-loyalty-service:
+    <<: *local-heavy
     build:
       <<: *java-build
       args:
         SERVICE_NAME: promotion-loyalty-service
   shipping-service:
+    <<: *local-light
     environment:
+      <<: *local-env
+      JAVA_TOOL_OPTIONS: "-Xms48m -Xmx160m -XX:MaxMetaspaceSize=144m -XX:ReservedCodeCacheSize=48m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
       SHIPPING_MOCK_ENABLED: "true"
     build:
       <<: *java-build
       args:
         SERVICE_NAME: shipping-service
   notification-service:
+    <<: *local-light
     build:
       <<: *java-build
       args:
         SERVICE_NAME: notification-service
   review-report-service:
+    <<: *local-heavy
     build:
       <<: *java-build
       args:
         SERVICE_NAME: review-report-service
   audit-service:
+    mem_limit: 448m
+    environment:
+      <<: *local-env
+      JAVA_TOOL_OPTIONS: "-Xms48m -Xmx176m -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=48m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
     build:
       <<: *java-build
       args:
         SERVICE_NAME: audit-service
   api-gateway:
+    mem_limit: 368m
     environment:
+      <<: *local-env
+      JAVA_TOOL_OPTIONS: "-Xms64m -Xmx192m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=48m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
       AUTH_CUSTOMER_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
       AUTH_ADMIN_ORIGINS: http://localhost:3001,http://127.0.0.1:3001,http://localhost:5173,http://127.0.0.1:5173
     build:

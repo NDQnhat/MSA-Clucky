@@ -1,0 +1,41 @@
+# Local Docker profile overrides — applied when services run with
+# `SPRING_PROFILES_ACTIVE=local` (default for local Docker via start-docker.ps1).
+# Keeps connection pools, thread pools, and logs lean to minimize local RAM usage.
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:3}
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
+      idle-timeout: 120000
+      max-lifetime: 600000
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+  kafka:
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:1}
+
+server:
+  tomcat:
+    threads:
+      max: ${TOMCAT_THREADS_MAX:24}
+      min-spare: ${TOMCAT_THREADS_MIN_SPARE:2}
+
+logging:
+  level:
+    root: warn
+    com.clucky: ${APP_LOG_LEVEL:INFO}
+
+cloudinary:
+  enabled: ${CLOUDINARY_ENABLED:false}
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
+  api-key: ${CLOUDINARY_API_KEY:}
+  api-secret: ${CLOUDINARY_API_SECRET:}
+  folder: ${CLOUDINARY_FOLDER:clucky}
+
+mail:
+  sender:
+    enabled: ${MAIL_SENDER_ENABLED:false}
+    username: ${MAIL_SENDER_USERNAME:}
+    app-password: ${MAIL_SENDER_APP_PASSWORD:}

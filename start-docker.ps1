@@ -1,6 +1,7 @@
 param(
     [ValidateSet('up', 'stop', 'status', 'check')][string]$Action = 'up',
-    [string[]]$Services = @()
+    [string[]]$Services = @(),
+    [ValidateSet('', 'local', 'dev', 'prod')][string]$Profile = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,9 +51,16 @@ if (!(Test-Path -LiteralPath $localEnv)) {
         'FRONTEND_CUSTOMER_URL=http://localhost:3000'
         'FRONTEND_ADMIN_URL=http://localhost:3001'
         'AUTH_COOKIE_SECURE=false'
+        'SPRING_PROFILES_ACTIVE=local'
     )
     [IO.File]::WriteAllLines($localEnv, $values, [Text.UTF8Encoding]::new($false))
     Write-Host 'Created private .env.docker; keep it for subsequent starts (database credentials must stay unchanged).'
+}
+$previousSpringProfile = $env:SPRING_PROFILES_ACTIVE
+$hadSpringProfile = Test-Path Env:SPRING_PROFILES_ACTIVE
+try {
+if ($Profile) {
+    $env:SPRING_PROFILES_ACTIVE = $Profile
 }
 $composeArgs = @('--project-name', 'clucky-local', '--project-directory', $PSScriptRoot,
     '--env-file', $frontendEnv, '--env-file', $localEnv,
@@ -60,6 +68,8 @@ $composeArgs = @('--project-name', 'clucky-local', '--project-directory', $PSScr
 $rendered = & docker compose @composeArgs config --format json
 if ($LASTEXITCODE -ne 0) { throw 'Docker Compose configuration failed.' }
 $configuration = ($rendered -join "`n") | ConvertFrom-Json
+$activeProfile = $configuration.services.'identity-service'.environment.SPRING_PROFILES_ACTIVE
+Write-Host "Active backend profile: $activeProfile"
 if ($configuration.services.customer.build.args.NEXT_PUBLIC_FIREBASE_PROJECT_ID -ne $credential.project_id -or
     $configuration.services.'identity-service'.environment.FIREBASE_PROJECT_ID -ne $credential.project_id) {
     throw 'Firebase project must match in frontend/nextjs/.env, .env.docker and the service account.'
@@ -106,4 +116,11 @@ if ($Action -eq 'up') {
 } else {
     & docker compose @composeArgs ps --all @Services
     if ($LASTEXITCODE -ne 0) { throw 'Docker Compose status failed.' }
+}
+} finally {
+    if ($hadSpringProfile) {
+        $env:SPRING_PROFILES_ACTIVE = $previousSpringProfile
+    } else {
+        Remove-Item Env:SPRING_PROFILES_ACTIVE -ErrorAction SilentlyContinue
+    }
 }

@@ -1,6 +1,12 @@
 # Development profile overrides — applied to every service when it requests the
 # `dev` profile. Secrets still come from env vars; never commit real values.
 spring:
+  datasource:
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:3}
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
+      idle-timeout: 120000
+      max-lifetime: 600000
   jpa:
     hibernate:
       ddl-auto: validate
@@ -11,6 +17,14 @@ spring:
       port: ${REDIS_PORT:6379}
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      concurrency: ${KAFKA_LISTENER_CONCURRENCY:1}
+
+server:
+  tomcat:
+    threads:
+      max: ${TOMCAT_THREADS_MAX:24}
+      min-spare: ${TOMCAT_THREADS_MIN_SPARE:2}
 
 logging:
   level:

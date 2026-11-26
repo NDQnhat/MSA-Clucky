@@ -6,7 +6,7 @@ x-logging: &logging
 
 x-environment: &environment
   SERVER_PORT: "8080"
-  SPRING_PROFILES_ACTIVE: prod
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
   CONFIG_SERVER_URL: http://config-server:8888
   EUREKA_URL: http://discovery-server:8761/eureka/
   POSTGRES_HOST: postgres

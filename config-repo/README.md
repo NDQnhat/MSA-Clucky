@@ -13,8 +13,9 @@ monorepo so each environment's config ships alongside the code it configures.
 ```
 config-repo/
   application.yml                    # shared defaults for every service
-  application-dev.yml                # overrides for the `dev` profile
-  application-prod.yml               # overrides for the `prod` profile
+  application-local.yml              # overrides for the `local` Docker profile (lean pools & logs)
+  application-dev.yml                # overrides for the `dev` profile (lean pools, SQL/DEBUG logs)
+  application-prod.yml               # overrides for the `prod` profile (production pools)
   <service-name>.yml                 # per-service config (api-gateway, identity-service, ...)
 ```
 
