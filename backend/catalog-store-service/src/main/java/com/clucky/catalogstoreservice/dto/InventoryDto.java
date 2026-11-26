@@ -1,6 +1,7 @@
 package com.clucky.catalogstoreservice.dto;
 
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Min;
 import java.math.BigDecimal;
 
@@ -16,6 +17,7 @@ public class InventoryDto {
         private Boolean isAvailable;
         private Boolean isSoldOut;
         @DecimalMin(value = "0.0")
+        @Digits(integer = 12, fraction = 0)
         private BigDecimal storePrice;
         private Boolean clearStorePrice;
 
@@ -47,6 +49,9 @@ public class InventoryDto {
         private Integer quantityAvailable;
         private Integer lowStockThreshold;
         private Boolean isSoldOut;
+        private BigDecimal basePrice;
+        private BigDecimal storePrice;
+        private BigDecimal effectivePrice;
         private String updatedAt;
         private String updatedBy;
 
@@ -88,6 +93,15 @@ public class InventoryDto {
 
         public Boolean getIsSoldOut() { return isSoldOut; }
         public void setIsSoldOut(Boolean isSoldOut) { this.isSoldOut = isSoldOut; }
+
+        public BigDecimal getBasePrice() { return basePrice; }
+        public void setBasePrice(BigDecimal basePrice) { this.basePrice = basePrice; }
+
+        public BigDecimal getStorePrice() { return storePrice; }
+        public void setStorePrice(BigDecimal storePrice) { this.storePrice = storePrice; }
+
+        public BigDecimal getEffectivePrice() { return effectivePrice; }
+        public void setEffectivePrice(BigDecimal effectivePrice) { this.effectivePrice = effectivePrice; }
 
         public String getUpdatedAt() { return updatedAt; }
         public void setUpdatedAt(String updatedAt) { this.updatedAt = updatedAt; }

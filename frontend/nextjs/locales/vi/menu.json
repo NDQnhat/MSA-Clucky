@@ -13,6 +13,13 @@
   "loading": "Đang tải thực đơn...",
   "description": "Chọn món yêu thích của bạn — từ gà rán giòn rụm áp suất, burger brioche thơm lừng, cho tới các combo tiết kiệm trọn gói.",
   "storePrefix": "📍 Đang xem thực đơn giao hàng từ Chi nhánh #",
+  "storeFilter": {
+    "label": "Chi nhánh:",
+    "accessibleLabel": "Lọc theo cửa hàng đang mở cửa",
+    "all": "Tất cả cửa hàng (Giá gốc)",
+    "outsideHoursShort": "Ngoài giờ",
+    "clear": "Xem tất cả cửa hàng"
+  },
   "errors": {
     "invalidStoreId": "Mã chi nhánh không hợp lệ. Vui lòng chọn lại chi nhánh."
   },

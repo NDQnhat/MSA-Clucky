@@ -89,6 +89,9 @@ export interface InventoryItem {
   quantityAvailable: number;
   lowStockThreshold: number;
   isSoldOut: boolean;
+  basePrice?: number;
+  storePrice?: number | null;
+  effectivePrice?: number;
   updatedAt?: string | null;
   updatedBy?: string | null;
 }

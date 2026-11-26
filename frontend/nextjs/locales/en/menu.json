@@ -13,6 +13,13 @@
   "loading": "Loading menu...",
   "description": "Choose your favourites, from crispy pressure-fried chicken and brioche burgers to great-value combos.",
   "storePrefix": "📍 Viewing the delivery menu from store #",
+  "storeFilter": {
+    "label": "Store:",
+    "accessibleLabel": "Filter by open store",
+    "all": "All stores (Base price)",
+    "outsideHoursShort": "Outside hours",
+    "clear": "View all stores"
+  },
   "errors": {
     "invalidStoreId": "Invalid store ID. Please select a store again."
   },

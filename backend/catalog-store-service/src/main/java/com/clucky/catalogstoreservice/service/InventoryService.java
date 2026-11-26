@@ -19,10 +19,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -67,10 +69,12 @@ public class InventoryService {
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy chi nhánh với mã: " + storeId));
 
         List<StoreInventory> inventoryList = storeInventoryRepository.findByStoreIdWithProductAndCategory(storeId);
+        Map<Long, StoreProduct> availabilityByProduct = storeProductRepository.findByStoreId(storeId).stream()
+                .collect(Collectors.toMap(sp -> sp.getProduct().getId(), sp -> sp, (first, second) -> first));
         int storeThreshold = store.getLowStockThreshold();
 
         return inventoryList.stream()
-                .map(inv -> toResponse(inv, storeId, storeThreshold))
+                .map(inv -> toResponse(inv, storeId, storeThreshold, Optional.ofNullable(availabilityByProduct.get(inv.getProduct().getId()))))
                 .collect(Collectors.toList());
     }
 
@@ -270,6 +274,9 @@ public class InventoryService {
             }
             sp.setIsSoldOut(request.getIsSoldOut());
         }
+        if (Boolean.TRUE.equals(request.getClearStorePrice()) && request.getStorePrice() != null) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
         if (Boolean.TRUE.equals(request.getClearStorePrice())) {
             sp.setStorePrice(null);
         } else if (request.getStorePrice() != null) {
@@ -337,8 +344,21 @@ public class InventoryService {
     }
 
     private InventoryDto.InventoryResponse toResponse(StoreInventory inv, Long storeId, int storeThreshold) {
+        return toResponse(
+                inv,
+                storeId,
+                storeThreshold,
+                storeProductRepository.findByStoreIdAndProductId(storeId, inv.getProduct().getId())
+        );
+    }
+
+    private InventoryDto.InventoryResponse toResponse(
+            StoreInventory inv,
+            Long storeId,
+            int storeThreshold,
+            Optional<StoreProduct> availability
+    ) {
         Product p = inv.getProduct();
-        Optional<StoreProduct> availability = storeProductRepository.findByStoreIdAndProductId(storeId, p.getId());
         boolean isSoldOut = (inv.getQuantityAvailable() != null && inv.getQuantityAvailable() <= 0)
                 || availability
                         .map(StoreProduct::getIsSoldOut)
@@ -347,6 +367,10 @@ public class InventoryService {
         String updatedByName = inv.getUpdatedBy() != null
                 ? "Tài khoản #" + inv.getUpdatedBy()
                 : "Hệ thống";
+
+        BigDecimal basePrice = p.getBasePrice();
+        BigDecimal storePrice = availability.map(StoreProduct::getStorePrice).orElse(null);
+        BigDecimal effectivePrice = storePrice != null ? storePrice : basePrice;
 
         var response = new InventoryDto.InventoryResponse(
                 storeId,
@@ -360,6 +384,9 @@ public class InventoryService {
                 inv.getUpdatedAt() != null ? inv.getUpdatedAt().format(DATE_FORMAT) : "",
                 updatedByName
         );
+        response.setBasePrice(basePrice);
+        response.setStorePrice(storePrice);
+        response.setEffectivePrice(effectivePrice);
         response.setVersion(inv.getVersion());
         response.setAvailabilityVersion(availability.map(StoreProduct::getVersion).orElse(0L));
         return response;

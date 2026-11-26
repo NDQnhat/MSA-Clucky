@@ -10,11 +10,13 @@ import {
   CheckCircleOutlined,
   StopOutlined,
   InboxOutlined,
+  TagsOutlined,
 } from '@ant-design/icons';
 import { AdminTable } from '../../../components/ui/AdminTable';
 import { StatusBadge } from '../../../components/ui/StatusBadge';
 import { AdminModal } from '../../../components/ui/AdminModal';
 import { useAuth } from '../../../context/AuthContext';
+import { useLocaleTools } from '../../../i18n/hooks';
 import { inventoryApi, storesApi, getErrorMessage, type InventoryItem, type Store } from '../../../lib/api';
 import { CatalogImage } from '../../Catalog/ImageField';
 import { stockState } from './stock-state';
@@ -22,6 +24,7 @@ import './inventory.css';
 
 export const StaffInventoryPage: React.FC = () => {
   const { t } = useTranslation();
+  const { money } = useLocaleTools();
 
   const { user, isAdmin, isStaff } = useAuth();
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -41,15 +44,21 @@ export const StaffInventoryPage: React.FC = () => {
   const thresholdValid = typeof thresholdInput === 'number' && Number.isInteger(thresholdInput) && thresholdInput >= 0 && thresholdInput <= 9999;
   const [savingThreshold, setSavingThreshold] = useState(false);
   const [editingItem, setEditingItem] = useState<InventoryItem | null>(null);
+  const [priceModalOpen, setPriceModalOpen] = useState(false);
+  const [editingPriceItem, setEditingPriceItem] = useState<InventoryItem | null>(null);
+  const [savingPrice, setSavingPrice] = useState(false);
+  const [priceError, setPriceError] = useState('');
   const [stockError, setStockError] = useState('');
   const [thresholdError, setThresholdError] = useState('');
   const mutationLock = useRef(false);
   const [form] = Form.useForm();
+  const [priceForm] = Form.useForm<{ storePrice?: number | null }>();
   const quantityInput = Form.useWatch<number | null>('quantityAvailable', form);
   const quantityValid = typeof quantityInput === 'number' && Number.isInteger(quantityInput) && quantityInput >= 0 && quantityInput <= 9999;
   const quantityDifference = editingItem && quantityValid ? quantityInput! - editingItem.quantityAvailable : null;
   const editingStore = stores.find(store => store.id === editingItem?.storeId);
-  const busy = savingStock || savingThreshold || savingProductId !== null;
+  const editingPriceStore = stores.find(store => store.id === editingPriceItem?.storeId);
+  const busy = savingStock || savingThreshold || savingPrice || savingProductId !== null;
 
   const activeStoreId = isAdmin ? adminSelectedStoreId || stores[0]?.id : user.storeId;
   const currentStore = stores.find((s) => s.id === activeStoreId);
@@ -89,7 +98,7 @@ export const StaffInventoryPage: React.FC = () => {
   }, [fetchInventory]);
 
   useEffect(() => {
-    if (modalOpen || thresholdModalOpen || busy) return;
+    if (modalOpen || thresholdModalOpen || priceModalOpen || busy) return;
     let pending = false;
     const timer = window.setInterval(async () => {
       if (document.hidden || pending) return;
@@ -97,7 +106,7 @@ export const StaffInventoryPage: React.FC = () => {
       try { await fetchInventory(true); } finally { pending = false; }
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [fetchInventory, modalOpen, thresholdModalOpen, busy]);
+  }, [fetchInventory, modalOpen, thresholdModalOpen, priceModalOpen, busy]);
 
   // Store-scoped inventory
   const storeInventory = useMemo(() => {
@@ -175,6 +184,64 @@ export const StaffInventoryPage: React.FC = () => {
     setModalOpen(true);
   };
 
+  const handleOpenPriceModal = (item: InventoryItem) => {
+    if (!isAdmin || busy) return;
+    setPriceError('');
+    priceForm.resetFields();
+    setEditingPriceItem(item);
+    priceForm.setFieldsValue({
+      storePrice: item.storePrice ?? item.basePrice ?? 0,
+    });
+    setPriceModalOpen(true);
+  };
+
+  const handleSaveStorePrice = async () => {
+    if (!isAdmin || !editingPriceItem || savingPrice || mutationLock.current) return;
+    mutationLock.current = true;
+    setPriceError('');
+    try {
+      const values = await priceForm.validateFields();
+      setSavingPrice(true);
+      await inventoryApi.updateAvailability(editingPriceItem.storeId, editingPriceItem.productId, {
+        storePrice: values.storePrice ?? 0,
+        expectedVersion: editingPriceItem.availabilityVersion,
+      });
+      await fetchInventory();
+      message.success(t("admin:ui.branchPriceUpdated", { value1: editingPriceItem.productName }));
+      setPriceModalOpen(false);
+    } catch (err) {
+      if (err && typeof err === 'object' && 'errorFields' in err) {
+        priceForm.scrollToField('storePrice', { focus: true });
+      } else {
+        setPriceError(getErrorMessage(err));
+      }
+    } finally {
+      mutationLock.current = false;
+      setSavingPrice(false);
+    }
+  };
+
+  const handleClearStorePrice = async () => {
+    if (!isAdmin || !editingPriceItem || savingPrice || mutationLock.current) return;
+    mutationLock.current = true;
+    setPriceError('');
+    try {
+      setSavingPrice(true);
+      await inventoryApi.updateAvailability(editingPriceItem.storeId, editingPriceItem.productId, {
+        clearStorePrice: true,
+        expectedVersion: editingPriceItem.availabilityVersion,
+      });
+      await fetchInventory();
+      message.success(t("admin:ui.branchPriceReset", { value1: editingPriceItem.productName }));
+      setPriceModalOpen(false);
+    } catch (err) {
+      setPriceError(getErrorMessage(err));
+    } finally {
+      mutationLock.current = false;
+      setSavingPrice(false);
+    }
+  };
+
   const handleUpdateStockSubmit = async () => {
     if (savingStock || mutationLock.current) return;
     mutationLock.current = true;
@@ -214,7 +281,7 @@ export const StaffInventoryPage: React.FC = () => {
     {
       title: t("business:catalog.dish"),
       key: 'product',
-      width: isAdmin ? 330 : undefined,
+      width: isAdmin ? 310 : undefined,
       render: (_, record) => (
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {isAdmin ? <div className="inventory-thumb"><CatalogImage url={record.imageUrl} name={record.productName} /></div> : <Image
@@ -250,6 +317,41 @@ export const StaffInventoryPage: React.FC = () => {
           </div>
         </div>
       ),
+    },
+    {
+      title: t("admin:ui.branchPrice"),
+      key: 'price',
+      width: 180,
+      render: (_, record) => {
+        const hasCustomPrice = record.storePrice != null;
+        const effective = record.effectivePrice ?? record.basePrice ?? 0;
+        return (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span
+                style={{
+                  fontFamily: 'var(--font-heading)',
+                  fontSize: 15,
+                  fontWeight: 700,
+                  color: hasCustomPrice ? '#8F1216' : '#16100D',
+                }}
+              >
+                {money(effective)}
+              </span>
+              {hasCustomPrice && (
+                <Tag color="gold" style={{ marginInlineEnd: 0, borderRadius: 999, fontSize: 11, fontWeight: 700 }}>
+                  {t("admin:ui.customPrice")}
+                </Tag>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: '#6B6259', marginTop: 2 }}>
+              {hasCustomPrice
+                ? `${t("admin:ui.basePriceLabel")}: ${money(record.basePrice ?? 0)}`
+                : t("admin:ui.usingBasePrice")}
+            </div>
+          </div>
+        );
+      },
     },
     {
       title: t("business:inventory.currentInventory"),
@@ -336,22 +438,40 @@ export const StaffInventoryPage: React.FC = () => {
     {
       title: t("business:catalog.actions"),
       key: 'action',
-      width: 120,
+      width: isAdmin ? 215 : 120,
       fixed: isAdmin ? 'right' : undefined,
       align: 'right',
       render: (_, record) => (
-        <Button
-          size="small"
-          disabled={isStaff || (isAdmin && (busy || loading))}
-          icon={<EditOutlined />}
-          onClick={() => handleOpenUpdateModal(record)}
-          style={{
-            borderRadius: 999,
-            fontFamily: 'Quicksand, sans-serif',
-            fontWeight: 600,
-            borderColor: '#E8E2D9',
-          }}
-        > {t("business:inventory.stocktake")} </Button>
+        <Space size={6}>
+          {isAdmin && (
+            <Button
+              size="small"
+              disabled={busy || loading}
+              icon={<TagsOutlined />}
+              onClick={() => handleOpenPriceModal(record)}
+              style={{
+                borderRadius: 999,
+                fontFamily: 'Quicksand, sans-serif',
+                fontWeight: 600,
+                borderColor: '#E8E2D9',
+              }}
+            >
+              {t("admin:ui.setPrice")}
+            </Button>
+          )}
+          <Button
+            size="small"
+            disabled={isStaff || (isAdmin && (busy || loading))}
+            icon={<EditOutlined />}
+            onClick={() => handleOpenUpdateModal(record)}
+            style={{
+              borderRadius: 999,
+              fontFamily: 'Quicksand, sans-serif',
+              fontWeight: 600,
+              borderColor: '#E8E2D9',
+            }}
+          > {t("business:inventory.stocktake")} </Button>
+        </Space>
       ),
     },
   ];
@@ -533,7 +653,7 @@ export const StaffInventoryPage: React.FC = () => {
         columns={isAdmin ? columns.filter(column => column.key !== 'storeThreshold') : columns}
         loading={loading}
         tableLayout={isAdmin ? 'fixed' : undefined}
-        scroll={isAdmin ? { x: 1020 } : undefined}
+        scroll={isAdmin ? { x: 1220 } : undefined}
         dataSource={filteredItems}
         rowKey="productId"
         searchPlaceholder={t("business:inventory.searchInventoryItems")}
@@ -606,6 +726,67 @@ export const StaffInventoryPage: React.FC = () => {
             }}
           > {t("business:inventory.stocktakeStaff")} <strong>{user.fullName}</strong> ({user.role})<br /> {t("business:inventory.recordedAtTheCurrentTime")} </div>
           </>}
+        </Form>
+      </AdminModal>
+
+      {/* Branch Price Modal (Admin only) */}
+      <AdminModal
+        className="inventory-modal"
+        centered
+        maskClosable={false}
+        open={priceModalOpen}
+        onCancel={() => { if (!savingPrice) { setPriceModalOpen(false); } }}
+        title={t("admin:ui.setBranchPriceTitle")}
+        subtitle={editingPriceStore?.name || t("admin:ui.setBranchPriceSubtitle")}
+        width={540}
+        footer={[
+          ...(editingPriceItem?.storePrice != null ? [
+            <Button key="reset" danger disabled={savingPrice} loading={savingPrice} onClick={() => void handleClearStorePrice()}>
+              {t("admin:ui.resetToBasePrice")}
+            </Button>,
+          ] : []),
+          <Button key="cancel" disabled={savingPrice} onClick={() => setPriceModalOpen(false)}>
+            {t("business:account.cancel")}
+          </Button>,
+          <Button key="submit" type="primary" loading={savingPrice} onClick={() => void handleSaveStorePrice()}>
+            {t("admin:ui.saveBranchPrice")}
+          </Button>,
+        ]}
+      >
+        {editingPriceItem && (
+          <div className="inventory-product-summary">
+            <div className="inventory-thumb"><CatalogImage url={editingPriceItem.imageUrl} name={editingPriceItem.productName} /></div>
+            <div>
+              <strong>{editingPriceItem.productName}</strong>
+              <span>{editingPriceItem.categoryName} {t("admin:ui.dishId")}{editingPriceItem.productId}</span>
+            </div>
+          </div>
+        )}
+        {priceError && <Alert type="error" showIcon message={priceError} description={t("admin:ui.yourInputIsPreservedIfThereIsA")} />}
+        <div className="inventory-recorded">
+          <span>{t("admin:ui.basePriceLabel")}</span>
+          <strong>{money(editingPriceItem?.basePrice ?? 0)}</strong>
+        </div>
+        <Form name="inventory-branch-price" form={priceForm} layout="vertical" disabled={savingPrice} onFinish={() => void handleSaveStorePrice()}>
+          <Form.Item
+            name="storePrice"
+            label={t("admin:ui.branchSalePriceLabel")}
+            rules={[
+              { required: true, message: t("admin:ui.enterBranchPrice") },
+              { type: 'integer', min: 0, max: 999999999999, message: t("admin:ui.enterBranchPrice") },
+            ]}
+            extra={t("admin:ui.branchPriceHint")}
+          >
+            <InputNumber<number>
+              min={0}
+              max={999999999999}
+              precision={0}
+              size="large"
+              style={{ width: '100%' }}
+              formatter={value => `${value ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}
+              parser={value => Number(value?.replace(/\./g, ''))}
+            />
+          </Form.Item>
         </Form>
       </AdminModal>
 

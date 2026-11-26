@@ -6,10 +6,11 @@ import { useTranslations } from "next-intl";
 import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from '@/components/ui-loader/navigation-link';
+import { useNavigationRouter as useRouter } from '@/components/ui-loader/use-navigation-router';
 import { ProductCard } from '@/components/product-card';
 import { CategoryIcon } from '@/components/category-icon';
 import { StyledSelect } from '@/components/styled-select';
-import { catalogApi, getErrorMessage, type CategoryItem, type ProductItem, type StoreItem } from '@/lib/api';
+import { catalogApi, getErrorMessage, request, type CategoryItem, type ProductItem, type StoreItem } from '@/lib/api';
 import {
   Search,
   X,
@@ -19,10 +20,12 @@ import {
   Sparkles,
   ChevronLeft,
   ChevronRight,
+  Store,
 } from 'lucide-react';
 
 function MenuContent() {
   const t = useTranslations();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const initialCategory = Number(searchParams.get('cat')) || 0;
   const storeIdParam = searchParams.get('storeId');
@@ -34,6 +37,7 @@ function MenuContent() {
 
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [currentStore, setCurrentStore] = useState<StoreItem | null>(null);
+  const [openStores, setOpenStores] = useState<StoreItem[]>([]);
   const [categories, setCategories] = useState<{ id: number; name: string; messageKey?: string }[]>([
     { id: 0, name: 'All', messageKey: 'menu.categories.all' },
   ]);
@@ -46,6 +50,22 @@ function MenuContent() {
   const [sortOption, setSortOption] = useState<'DEFAULT' | 'PRICE_ASC' | 'PRICE_DESC'>('DEFAULT');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const ITEMS_PER_PAGE = 12;
+
+  useEffect(() => {
+    let active = true;
+    request<StoreItem[]>('/api/stores?activeOnly=true')
+      .then((data) => {
+        if (!active || !Array.isArray(data)) return;
+        const available = data
+          .filter((s) => s.status === 'OPEN')
+          .sort((a, b) => Number(b.isOpenNow !== false) - Number(a.isOpenNow !== false));
+        setOpenStores(available);
+      })
+      .catch(() => {
+        if (active) setOpenStores([]);
+      });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -131,6 +151,33 @@ function MenuContent() {
     setSortOption('DEFAULT');
     setCurrentPage(1);
   };
+
+  const handleStoreChange = (nextValue: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextValue === 'ALL') {
+      params.delete('storeId');
+    } else {
+      params.set('storeId', nextValue);
+    }
+    const qs = params.toString();
+    router.replace(qs ? `/menu?${qs}` : '/menu', { scroll: false });
+  };
+
+  const storeOptions = useMemo(() => {
+    const options = [
+      { value: 'ALL', label: t("menu.storeFilter.all") },
+      ...openStores.map((s) => ({
+        value: String(s.id),
+        label: s.isOpenNow === false
+          ? `${s.name} (${t("menu.storeFilter.outsideHoursShort")})`
+          : s.name,
+      })),
+    ];
+    if (storeId && currentStore && !openStores.some((s) => s.id === currentStore.id)) {
+      options.push({ value: String(currentStore.id), label: currentStore.name });
+    }
+    return options;
+  }, [openStores, storeId, currentStore, t]);
 
   const errorMessage = hasInvalidStoreId ? t("menu.errors.invalidStoreId") : loadError;
 
@@ -239,6 +286,23 @@ function MenuContent() {
                 </span>
               )
             )}
+            <button
+              type="button"
+              onClick={() => handleStoreChange('ALL')}
+              aria-label={t("menu.storeFilter.clear")}
+              title={t("menu.storeFilter.clear")}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#6B6259',
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: 2,
+              }}
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
       </div>
@@ -323,8 +387,19 @@ function MenuContent() {
             )}
           </div>
 
-          {/* Spicy filter & Sort */}
+          {/* Store filter, Spicy filter & Sort */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: '#6B6259' }}>
+              <Store size={16} className="text-[#8F1216]" />
+              <span>{t("menu.storeFilter.label")}</span>
+              <StyledSelect
+                value={storeId ? String(storeId) : 'ALL'}
+                onChange={handleStoreChange}
+                ariaLabel={t("menu.storeFilter.accessibleLabel")}
+                options={storeOptions}
+              />
+            </div>
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 700, color: '#6B6259' }}>
               <Flame size={16} className="text-[#8F1216]" />
               <span>{t("menu.spice.label")}</span>
