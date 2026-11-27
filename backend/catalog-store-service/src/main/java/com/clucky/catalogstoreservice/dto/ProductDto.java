@@ -260,6 +260,7 @@ public class ProductDto {
         private Integer kcal;
         private Integer spicyLevel;
         private Boolean isActive;
+        private List<String> tags = new ArrayList<>();
         private Boolean isAvailable;
         private Boolean isSoldOut;
         private Boolean isBestSeller;
@@ -336,6 +337,9 @@ public class ProductDto {
         public Boolean getIsActive() { return isActive; }
         public void setIsActive(Boolean isActive) { this.isActive = isActive; }
 
+        public List<String> getTags() { return tags; }
+        public void setTags(List<String> tags) { this.tags = tags != null ? tags : new ArrayList<>(); }
+
         public Boolean getIsAvailable() { return isAvailable; }
         public void setIsAvailable(Boolean isAvailable) { this.isAvailable = isAvailable; }
 
@@ -389,6 +393,7 @@ public class ProductDto {
         @Max(3)
         private Integer spicyLevel;
         private Boolean isActive;
+        private List<String> tags;
 
         @Valid
         private List<@NotNull OptionGroupDto> options;
@@ -434,6 +439,9 @@ public class ProductDto {
         public Boolean getIsActive() { return isActive; }
         public void setIsActive(Boolean isActive) { this.isActive = isActive; }
 
+        public List<String> getTags() { return tags; }
+        public void setTags(List<String> tags) { this.tags = tags; }
+
         public List<OptionGroupDto> getOptions() { return options; }
         public void setOptions(List<OptionGroupDto> options) { this.options = options; }
 
@@ -443,6 +451,22 @@ public class ProductDto {
 
     private static final Pattern NONLATIN = Pattern.compile("[^\\w-]");
     private static final Pattern WHITESPACE = Pattern.compile("[\\s]");
+
+    public static List<String> normalizeTags(List<String> raw) {
+        if (raw == null) return new ArrayList<>();
+        java.util.LinkedHashSet<String> cleaned = new java.util.LinkedHashSet<>();
+        for (String item : raw) {
+            if (item == null) continue;
+            String normalized = item.trim().toLowerCase(Locale.ROOT);
+            if (normalized.isEmpty()) continue;
+            if (normalized.length() > 40) {
+                normalized = normalized.substring(0, 40);
+            }
+            cleaned.add(normalized);
+            if (cleaned.size() >= 20) break;
+        }
+        return new ArrayList<>(cleaned);
+    }
 
     public static String toSlug(String input) {
         if (input == null) return "";

@@ -36,5 +36,27 @@
   "confirm": "Xác nhận",
   "updating": "Đang cập nhật…",
   "signOut": "Đăng xuất",
-  "signedOut": "Đã đăng xuất."
+  "signedOut": "Đã đăng xuất.",
+  "assistant": {
+    "title": "Trợ lý Clucky",
+    "subtitle": "Gợi ý món, ưu đãi & đơn hàng",
+    "openLabel": "Mở trợ lý đặt món Clucky",
+    "closeLabel": "Đóng trợ lý Clucky",
+    "resetLabel": "Cuộc trò chuyện mới",
+    "placeholder": "Hỏi về món ngon, giá chi nhánh, ưu đãi…",
+    "sendLabel": "Gửi tin nhắn",
+    "thinking": "Đang tìm thông tin cho bạn…",
+    "storeAll": "Tất cả chi nhánh",
+    "storePrefix": "Chi nhánh:",
+    "soldOut": "Hết món",
+    "viewDish": "Xem món",
+    "welcome": "Xin chào! Mình là trợ lý Clucky. Bạn muốn tìm món bán chạy, đồ uống mát mùa hè, ưu đãi hay kiểm tra đơn hàng?",
+    "errorFallback": "Trợ lý đang bận hoặc mất kết nối tạm thời. Vui lòng thử lại sau ít phút nhé.",
+    "chipBestSellers": "Món bán chạy nhất?",
+    "chipCheapest": "Món nào giá rẻ nhất?",
+    "chipSummer": "Đồ uống mát mùa hè",
+    "chipStores": "Chi nhánh đang mở",
+    "chipPromos": "Ưu đãi hiện có",
+    "chipMyOrders": "Đơn hàng của tôi"
+  }
 }

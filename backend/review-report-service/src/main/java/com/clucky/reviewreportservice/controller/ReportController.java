@@ -5,6 +5,7 @@ import com.clucky.reviewreportservice.config.LocaleResolverHelper;
 import com.clucky.reviewreportservice.dto.DashboardResponse;
 import com.clucky.reviewreportservice.dto.ItemRevenueReportResponse;
 import com.clucky.reviewreportservice.dto.ItemStoreComparisonResponse;
+import com.clucky.reviewreportservice.dto.PublicBestSellerItemResponse;
 import com.clucky.reviewreportservice.dto.PublicItemHighlightsResponse;
 import com.clucky.reviewreportservice.dto.RevenueReportResponse;
 import com.clucky.reviewreportservice.dto.Role;
@@ -227,5 +228,26 @@ public class ReportController {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.maxAge(60, java.util.concurrent.TimeUnit.SECONDS).cachePublic())
                 .body(reportService.getPublicHighlights());
+    }
+
+    @GetMapping("/public/best-sellers")
+    public ResponseEntity<java.util.List<PublicBestSellerItemResponse>> getPublicBestSellers(
+            @RequestParam(required = false) Long storeId,
+            @RequestParam(defaultValue = "30") int days,
+            @RequestParam(defaultValue = "5") int limit,
+            @RequestParam(defaultValue = "ALL") String itemType,
+            @RequestParam(name = "lang", required = false) String lang,
+            @RequestHeader(value = "Accept-Language", required = false) String acceptLanguage
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(60, java.util.concurrent.TimeUnit.SECONDS).cachePublic())
+                .varyBy("Accept-Language")
+                .body(reportService.getPublicBestSellers(
+                        storeId,
+                        days,
+                        limit,
+                        itemType,
+                        LocaleResolverHelper.resolve(lang, acceptLanguage)
+                ));
     }
 }

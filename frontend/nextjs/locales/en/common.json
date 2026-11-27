@@ -36,5 +36,27 @@
   "confirm": "Confirm",
   "updating": "Updating…",
   "signOut": "Sign out",
-  "signedOut": "Signed out."
+  "signedOut": "Signed out.",
+  "assistant": {
+    "title": "Clucky Assistant",
+    "subtitle": "Menu, offers & order help",
+    "openLabel": "Open Clucky ordering assistant",
+    "closeLabel": "Close Clucky assistant",
+    "resetLabel": "New conversation",
+    "placeholder": "Ask about dishes, store prices, deals…",
+    "sendLabel": "Send message",
+    "thinking": "Checking Clucky for you…",
+    "storeAll": "All branches",
+    "storePrefix": "Branch:",
+    "soldOut": "Sold out",
+    "viewDish": "View",
+    "welcome": "Hi! I'm the Clucky Assistant. Ask me about best sellers, summer drinks, branch prices, promotions, or your recent orders.",
+    "errorFallback": "The assistant is temporarily unavailable. Please try again in a moment.",
+    "chipBestSellers": "Best sellers?",
+    "chipCheapest": "Cheapest items?",
+    "chipSummer": "Refreshing summer drinks",
+    "chipStores": "Open branches",
+    "chipPromos": "Active promotions",
+    "chipMyOrders": "My orders"
+  }
 }

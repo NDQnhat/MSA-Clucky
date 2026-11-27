@@ -69,8 +69,13 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public List<ProductDto.Response> getProducts(Long storeId, Long categoryId, String keyword, Integer spicyLevel, boolean activeOnly, String lang) {
+        return getProducts(storeId, categoryId, keyword, spicyLevel, null, activeOnly, lang);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ProductDto.Response> getProducts(Long storeId, Long categoryId, String keyword, Integer spicyLevel, String tag, boolean activeOnly, String lang) {
         List<ProductDto.Response> all = activeOnly ? getOrLoadStoreProducts(storeId) : loadFullProductsFromDb(storeId);
-        List<ProductDto.Response> filtered = filterProducts(all, categoryId, keyword, spicyLevel, activeOnly);
+        List<ProductDto.Response> filtered = filterProducts(all, categoryId, keyword, spicyLevel, tag, activeOnly);
         return localizeResponses(filtered, lang);
     }
 
@@ -81,8 +86,13 @@ public class ProductService {
 
     @Transactional(readOnly = true)
     public PageResponse<ProductDto.Response> getProductsPaged(Long storeId, Long categoryId, String keyword, Integer spicyLevel, boolean activeOnly, Pageable pageable, String lang) {
+        return getProductsPaged(storeId, categoryId, keyword, spicyLevel, null, activeOnly, pageable, lang);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<ProductDto.Response> getProductsPaged(Long storeId, Long categoryId, String keyword, Integer spicyLevel, String tag, boolean activeOnly, Pageable pageable, String lang) {
         List<ProductDto.Response> all = activeOnly ? getOrLoadStoreProducts(storeId) : loadFullProductsFromDb(storeId);
-        List<ProductDto.Response> filtered = filterProducts(all, categoryId, keyword, spicyLevel, activeOnly);
+        List<ProductDto.Response> filtered = filterProducts(all, categoryId, keyword, spicyLevel, tag, activeOnly);
 
         int totalElements = filtered.size();
         int pageSize = pageable.getPageSize();
@@ -154,8 +164,10 @@ public class ProductService {
                                                      Long categoryId,
                                                      String keyword,
                                                      Integer spicyLevel,
+                                                     String tag,
                                                      boolean activeOnly) {
         String trimmed = keyword != null && !keyword.trim().isEmpty() ? keyword.trim() : null;
+        String cleanTag = tag != null && !tag.trim().isEmpty() ? tag.trim().toLowerCase(Locale.ROOT) : null;
         return list.stream().filter(p -> {
             if (activeOnly && !Boolean.TRUE.equals(p.getIsActive())) {
                 return false;
@@ -165,6 +177,12 @@ public class ProductService {
             }
             if (spicyLevel != null && !spicyLevel.equals(p.getSpicyLevel())) {
                 return false;
+            }
+            if (cleanTag != null) {
+                List<String> tags = p.getTags();
+                if (tags == null || tags.stream().noneMatch(t -> t != null && t.equalsIgnoreCase(cleanTag))) {
+                    return false;
+                }
             }
             if (trimmed != null) {
                 boolean nameMatch = (p.getNameI18n() != null && p.getNameI18n().matches(trimmed))
@@ -231,6 +249,7 @@ public class ProductService {
         product.setKcal(request.getKcal());
         product.setSpicyLevel(request.getSpicyLevel() != null ? request.getSpicyLevel() : 0);
         product.setIsActive(request.getIsActive() != null ? request.getIsActive() : true);
+        product.setTags(ProductDto.normalizeTags(request.getTags()));
 
         applyOptionsAndToppings(product, request.getOptions(), request.getToppings());
 
@@ -271,6 +290,7 @@ public class ProductService {
         if (request.getKcal() != null) product.setKcal(request.getKcal());
         if (request.getSpicyLevel() != null) product.setSpicyLevel(request.getSpicyLevel());
         if (request.getIsActive() != null) product.setIsActive(request.getIsActive());
+        if (request.getTags() != null) product.setTags(ProductDto.normalizeTags(request.getTags()));
 
         if (request.getOptions() != null || request.getToppings() != null) {
             applyOptionsAndToppings(product, request.getOptions(), request.getToppings());
@@ -434,6 +454,7 @@ public class ProductService {
         r.setKcal(p.getKcal());
         r.setSpicyLevel(p.getSpicyLevel());
         r.setIsActive(p.getIsActive());
+        r.setTags(p.getTags() != null ? new ArrayList<>(p.getTags()) : new ArrayList<>());
 
         // Group options by canonical LocalizedText groupName
         Map<LocalizedText, List<ProductOption>> rawGroupMap = new LinkedHashMap<>();
@@ -507,6 +528,7 @@ public class ProductService {
         copy.setKcal(src.getKcal());
         copy.setSpicyLevel(src.getSpicyLevel());
         copy.setIsActive(src.getIsActive());
+        copy.setTags(src.getTags() != null ? new ArrayList<>(src.getTags()) : new ArrayList<>());
         copy.setIsAvailable(src.getIsAvailable());
         copy.setIsSoldOut(src.getIsSoldOut());
         copy.setIsBestSeller(src.getIsBestSeller());

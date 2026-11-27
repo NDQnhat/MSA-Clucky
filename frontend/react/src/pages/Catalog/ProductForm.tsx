@@ -17,6 +17,7 @@ interface ProductFormValues {
   kcal?: number | null;
   spicyLevel?: number | null;
   isActive?: boolean;
+  tags?: string[];
   options?: { id?: string; name: LocalizedText; required?: boolean; choices?: { id?: string; name: LocalizedText; priceAdjustment?: number }[] }[];
   toppings?: { id?: string; name: LocalizedText; price?: number }[];
 }
@@ -44,6 +45,7 @@ export function ProductForm({ open, onClose, initialProduct, categories, onSaveP
         kcal: initialProduct.kcal ?? 0,
         spicyLevel: initialProduct.spicyLevel ?? 0,
         isActive: initialProduct.isActive,
+        tags: initialProduct.tags ?? [],
         options: (initialProduct.options ?? []).map(group => ({
           id: group.id,
           name: toLocalizedInput(group.nameI18n, group.name),
@@ -68,6 +70,7 @@ export function ProductForm({ open, onClose, initialProduct, categories, onSaveP
         basePrice: 0,
         kcal: 0,
         spicyLevel: 0,
+        tags: [],
         options: [],
         toppings: [],
       });
@@ -87,6 +90,7 @@ export function ProductForm({ open, onClose, initialProduct, categories, onSaveP
         kcal: values.kcal ?? 0,
         spicyLevel: values.spicyLevel ?? 0,
         isActive: Boolean(values.isActive),
+        tags: (values.tags ?? []).map(tag => tag.trim().toLowerCase()).filter(Boolean),
         options: (values.options ?? []).map(group => ({
           id: group.id,
           name: toLocalizedPayload(group.name) ?? { vi: '', en: '' },
@@ -130,6 +134,9 @@ export function ProductForm({ open, onClose, initialProduct, categories, onSaveP
           <Form.Item name="kcal" label={t("admin:ui.energyKcal")} rules={[{ type: 'integer', min: 0 }]}><InputNumber min={0} precision={0} /></Form.Item>
           <Form.Item name="spicyLevel" label={t("admin:ui.spiceLevel")} rules={[{ type: 'integer', min: 0, max: 3 }]}><Select options={[{ value: 0, label: t("business:catalog.notSpicy") }, { value: 1, label: t("admin:ui.mild") }, { value: 2, label: t("business:catalog.medium") }, { value: 3, label: t("admin:ui.hot") }]} /></Form.Item>
         </div>
+        <Form.Item name="tags" label="Tags">
+          <Select mode="tags" tokenSeparators={[',']} placeholder="cold, summer, crispy, light-meal, kid-friendly" options={['crispy', 'signature', 'best-seller', 'cold', 'drink', 'summer', 'refreshing', 'light-meal', 'kid-friendly', 'spicy', 'hot', 'cheese', 'burger', 'snack', 'honey'].map(tag => ({ value: tag, label: tag }))} />
+        </Form.Item>
       </section>
       <section className="catalog-section">
       <div className="catalog-section-heading"><span>02</span><h4>{t("admin:ui.dishOptions")}</h4></div>

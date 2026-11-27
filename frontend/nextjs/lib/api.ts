@@ -38,7 +38,7 @@ export async function request<T>(
   if (!headers.has("Accept-Language")) {
     headers.set("Accept-Language", resolvedLang);
   }
-  if (typeof window !== "undefined" && (path.startsWith("/api/cart") || path.startsWith("/api/orders"))) {
+  if (typeof window !== "undefined" && (path.startsWith("/api/cart") || path.startsWith("/api/orders") || path.startsWith("/api/assistant"))) {
     const guestSession = getSessionState().user ? localStorage.getItem("clucky_guest_session_id") : getGuestSessionId();
     if (guestSession) {
       if (!headers.has("X-Guest-Session-Id")) headers.set("X-Guest-Session-Id", guestSession);
@@ -826,6 +826,62 @@ export interface PublicItemHighlightsResponse {
 export const reportPublicApi = {
   getHighlights: () =>
     request<PublicItemHighlightsResponse>("/api/reports/public/highlights"),
+};
+
+export interface AssistantProductCard {
+  id: number;
+  itemType: "PRODUCT" | "COMBO";
+  slug: string;
+  name: string;
+  price: number;
+  imageUrl?: string | null;
+  isSoldOut?: boolean;
+  kcal?: number | null;
+  spicyLevel?: number | null;
+  tags?: string[];
+  rating?: number | null;
+  reviewCount?: number | null;
+  quantitySold?: number | null;
+  storeId?: number | null;
+}
+
+export interface AssistantChatResponse {
+  sessionId: string;
+  reply: string;
+  locale: "vi" | "en";
+  blocked: boolean;
+  reason?: string | null;
+  recommendations: AssistantProductCard[];
+  suggestions: string[];
+  fallback?: boolean;
+}
+
+export interface AssistantHistoryMessage {
+  role: "user" | "assistant";
+  content: string;
+  recommendations?: AssistantProductCard[];
+  timestamp: string;
+}
+
+export interface AssistantHistoryResponse {
+  sessionId: string;
+  messages: AssistantHistoryMessage[];
+}
+
+export const assistantApi = {
+  chat: (payload: { message: string; sessionId?: string; storeId?: number; locale?: "vi" | "en" }) =>
+    request<AssistantChatResponse>("/api/assistant/chat", {
+      method: "POST",
+      lang: payload.locale,
+      body: JSON.stringify(payload),
+    }),
+  getHistory: (sessionId: string, lang?: string) =>
+    request<AssistantHistoryResponse>(`/api/assistant/history?sessionId=${encodeURIComponent(sessionId)}`, { lang }),
+  clearHistory: (sessionId: string, lang?: string) =>
+    request<{ cleared: boolean }>(`/api/assistant/history?sessionId=${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+      lang,
+    }),
 };
 
 export default request;

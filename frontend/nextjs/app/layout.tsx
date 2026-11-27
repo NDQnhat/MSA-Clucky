@@ -14,6 +14,7 @@ import {
 import { OrderProvider } from "@/components/order/order-provider";
 import { SessionBoundary } from "@/components/auth/session-boundary";
 import { OrderDock } from "@/components/order/order-dock";
+import { ChatWidget } from "@/components/assistant/chat-widget";
 import { CustomerHeader } from "@/components/customer-header";
 import { CustomerFooter } from "@/components/customer-footer";
 import loaderStyles from "@/components/ui-loader/navigation-loader.module.css";
@@ -60,6 +61,7 @@ export default async function RootLayout({
               <NavigationContent><SessionBoundary>{children}</SessionBoundary></NavigationContent>
               <CustomerFooter />
               <OrderDock />
+              <ChatWidget />
             </div>
           </OrderProvider></LocationProvider>
         </NavigationLoaderProvider>

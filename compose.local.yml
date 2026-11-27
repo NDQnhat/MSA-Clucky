@@ -131,6 +131,11 @@ services:
       <<: *java-build
       args:
         SERVICE_NAME: audit-service
+  ai-assistant-service:
+    mem_limit: 256m
+    build:
+      context: ./backend/ai-assistant-service
+      dockerfile: Dockerfile
   api-gateway:
     mem_limit: 368m
     environment:

@@ -25,6 +25,7 @@ def validate_environment(raw):
         "SHIPPING_MOCK_ENABLED",
         "BRIDGE_API_KEY",
         "NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN", "VITE_MAPBOX_ACCESS_TOKEN",
+        "LLM_PROVIDER", "LLM_API_KEY", "LLM_MODEL", "EMBEDDING_MODEL", "LLM_BASE_URL",
     }
     if not isinstance(values, dict):
         raise BackendEnvironmentError("BACKEND_ENV_JSON must be a JSON object")

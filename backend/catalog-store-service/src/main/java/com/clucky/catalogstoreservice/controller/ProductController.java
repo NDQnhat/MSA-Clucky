@@ -32,6 +32,7 @@ public class ProductController {
             @RequestParam(name = "categoryId", required = false) Long categoryId,
             @RequestParam(name = "keyword", required = false) String keyword,
             @RequestParam(name = "spicyLevel", required = false) Integer spicyLevel,
+            @RequestParam(name = "tag", required = false) String tag,
             @RequestParam(name = "activeOnly", defaultValue = "false") boolean activeOnly,
             @RequestParam(name = "page", required = false) Integer page,
             @RequestParam(name = "size", required = false) Integer size,
@@ -43,14 +44,14 @@ public class ProductController {
             int pageNum = page != null ? Math.max(0, page) : 0;
             int pageSize = size != null ? Math.max(1, size) : 20;
             PageResponse<ProductDto.Response> pageResponse = productService.getProductsPaged(
-                    storeId, categoryId, keyword, spicyLevel, activeOnly, PageRequest.of(pageNum, pageSize), resolvedLang);
+                    storeId, categoryId, keyword, spicyLevel, tag, activeOnly, PageRequest.of(pageNum, pageSize), resolvedLang);
             return ResponseEntity.ok()
                     .cacheControl(activeOnly ? CacheControl.maxAge(60, TimeUnit.SECONDS).cachePublic() : CacheControl.noStore())
                     .varyBy("Accept-Language")
                     .body(pageResponse);
         }
 
-        List<ProductDto.Response> list = productService.getProducts(storeId, categoryId, keyword, spicyLevel, activeOnly, resolvedLang);
+        List<ProductDto.Response> list = productService.getProducts(storeId, categoryId, keyword, spicyLevel, tag, activeOnly, resolvedLang);
         return ResponseEntity.ok()
                 .cacheControl(activeOnly ? CacheControl.maxAge(60, TimeUnit.SECONDS).cachePublic() : CacheControl.noStore())
                 .varyBy("Accept-Language")

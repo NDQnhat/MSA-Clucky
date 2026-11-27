@@ -5,6 +5,7 @@ import com.clucky.reviewreportservice.dto.DashboardResponse;
 import com.clucky.reviewreportservice.dto.ItemRevenueReportResponse;
 import com.clucky.reviewreportservice.dto.ItemStoreComparisonResponse;
 import com.clucky.reviewreportservice.dto.LocalizedText;
+import com.clucky.reviewreportservice.dto.PublicBestSellerItemResponse;
 import com.clucky.reviewreportservice.dto.PublicItemHighlightsResponse;
 import com.clucky.reviewreportservice.dto.RevenueReportResponse;
 import com.clucky.reviewreportservice.entity.DailyStoreStats;
@@ -520,6 +521,41 @@ public class ReportService {
             }
         }
         return new PublicItemHighlightsResponse(topProducts, topCombos, ratings);
+    }
+
+    @Transactional(readOnly = true)
+    public List<PublicBestSellerItemResponse> getPublicBestSellers(
+            Long storeId,
+            int days,
+            int limit,
+            String itemType,
+            String lang
+    ) {
+        if (storeId != null && storeId <= 0) {
+            throw new IllegalArgumentException("storeId phải là số dương!");
+        }
+        int clampedDays = Math.min(Math.max(1, days), 90);
+        int clampedLimit = Math.min(Math.max(1, limit), 20);
+        String normalizedType = normalizeItemTypeFilter(itemType);
+        LocalDate from = LocalDate.now(ReportProjectionService.VIETNAM_ZONE).minusDays(clampedDays - 1L);
+        if (itemStatsRepository == null) {
+            return List.of();
+        }
+        return itemStatsRepository.findPublicBestSellers(storeId, from, normalizedType, clampedLimit)
+                .stream()
+                .filter(row -> row.getItemRefId() != null)
+                .map(row -> {
+                    LocalizedText i18n = parseItemName(row.getItemNameJson());
+                    long qty = row.getQuantitySold() != null ? row.getQuantitySold() : 0L;
+                    return new PublicBestSellerItemResponse(
+                            row.getItemType(),
+                            row.getItemRefId(),
+                            i18n.resolve(lang),
+                            i18n,
+                            qty
+                    );
+                })
+                .toList();
     }
 
     private void validateRange(LocalDate effectiveFrom, LocalDate effectiveTo) {

@@ -51,6 +51,10 @@ public class Product {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "tags", nullable = false, columnDefinition = "jsonb")
+    private List<String> tags = new ArrayList<>();
+
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ProductOption> options = new ArrayList<>();
 
@@ -109,6 +113,9 @@ public class Product {
 
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+
+    public List<String> getTags() { return tags; }
+    public void setTags(List<String> tags) { this.tags = tags != null ? tags : new ArrayList<>(); }
 
     public List<ProductOption> getOptions() { return options; }
     public void setOptions(List<ProductOption> options) { this.options = options; }

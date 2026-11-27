@@ -40,6 +40,13 @@ public interface DailyItemStatsRepository extends JpaRepository<DailyItemStats, 
         Long getQuantitySold();
     }
 
+    interface PublicBestSellerProjection {
+        String getItemType();
+        Long getItemRefId();
+        String getItemNameJson();
+        Long getQuantitySold();
+    }
+
     @Modifying
     @Query(value = """
         INSERT INTO review_report_service.daily_item_stats
@@ -126,4 +133,25 @@ public interface DailyItemStatsRepository extends JpaRepository<DailyItemStats, 
         ORDER BY COALESCE(SUM(d.quantity_sold), 0) DESC, d.item_ref_id ASC
         """, nativeQuery = true)
     List<PublicTopItemProjection> findTopPublicSellingItems(@Param("from") LocalDate from);
+
+    @Query(value = """
+        SELECT
+            d.item_type AS itemType,
+            d.item_ref_id AS itemRefId,
+            (ARRAY_AGG(d.item_name_i18n::text ORDER BY d.updated_at DESC))[1] AS itemNameJson,
+            COALESCE(SUM(d.quantity_sold), 0) AS quantitySold
+        FROM review_report_service.daily_item_stats d
+        WHERE d.stat_date >= :from
+          AND (:storeId IS NULL OR d.store_id = :storeId)
+          AND (:itemType IS NULL OR d.item_type = :itemType)
+        GROUP BY d.item_type, d.item_ref_id
+        ORDER BY COALESCE(SUM(d.quantity_sold), 0) DESC, d.item_ref_id ASC
+        LIMIT :limit
+        """, nativeQuery = true)
+    List<PublicBestSellerProjection> findPublicBestSellers(
+            @Param("storeId") Long storeId,
+            @Param("from") LocalDate from,
+            @Param("itemType") String itemType,
+            @Param("limit") int limit
+    );
 }

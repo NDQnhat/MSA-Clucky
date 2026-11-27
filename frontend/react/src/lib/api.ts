@@ -45,6 +45,7 @@ export interface Product {
   kcal?: number | null;
   spicyLevel?: number | null;
   isActive: boolean;
+  tags?: string[];
   isAvailable?: boolean | null;
   isSoldOut?: boolean | null;
   isBestSeller?: boolean | null;

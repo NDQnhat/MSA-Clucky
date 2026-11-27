@@ -67,7 +67,13 @@ public class SecurityConfig {
                                 "/api/catalog/combos", "/api/catalog/combos/{id}",
                                 "/api/promotions/banners", "/api/promotions/vouchers/available",
                                 "/api/reviews/products/{id}",
-                                "/api/reports/public/highlights").permitAll()
+                                "/api/reports/public/highlights",
+                                "/api/reports/public/best-sellers",
+                                "/api/assistant/health",
+                                "/api/assistant/history").permitAll()
+                        .pathMatchers(HttpMethod.POST, "/api/assistant/chat").permitAll()
+                        .pathMatchers(HttpMethod.DELETE, "/api/assistant/history").permitAll()
+                        .pathMatchers("/api/assistant/admin/**").hasRole("ADMIN")
                         .pathMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/resend-otp", "/api/auth/verify-otp",
                                 "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/forgot-password",
                                 "/api/auth/reset-password", "/api/auth/google", "/api/auth/google/complete",

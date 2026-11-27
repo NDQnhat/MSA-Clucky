@@ -44,7 +44,7 @@ x-java: &java
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     mem_limit: 512m
     logging: *logging
@@ -218,6 +218,48 @@ services:
   audit-service:
     <<: *java
     image: clucky-audit-service:${IMAGE_TAG:?IMAGE_TAG is required}
+
+  ai-assistant-service:
+    image: clucky-ai-assistant-service:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    init: true
+    mem_limit: 320m
+    security_opt:
+      - no-new-privileges:true
+    logging: *logging
+    environment:
+      SERVER_PORT: "8080"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER:-clucky}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      DB_NAME: ${DB_NAME:-clucky}
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      JWT_ISSUER: ${JWT_ISSUER:-clucky-identity}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-clucky-api}
+      CATALOG_SERVICE_URL: http://catalog-store-service:8080
+      REVIEW_REPORT_SERVICE_URL: http://review-report-service:8080
+      PROMOTION_SERVICE_URL: http://promotion-loyalty-service:8080
+      CART_ORDER_SERVICE_URL: http://cart-order-service:8080
+      IDENTITY_SERVICE_URL: http://identity-service:8080
+      LLM_PROVIDER: ${LLM_PROVIDER:-gemini}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gemini-2.5-flash}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-004}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, 'python -c "import urllib.request; urllib.request.urlopen(''http://127.0.0.1:8080/api/assistant/health'', timeout=3)"']
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 10
 
   api-gateway:
     <<: *java
