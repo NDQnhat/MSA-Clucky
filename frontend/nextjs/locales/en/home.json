@@ -8,9 +8,30 @@
     "titleBottom": "Happy inside.",
     "imageAlt": "Clucky golden crispy fried chicken"
   },
+  "bestSellerBadge": "Best seller",
   "bestSellers": "Best sellers",
-  "favourites": "Clucky favourites",
+  "combosEyebrow": "BEST VALUE",
+  "combosTitle": "Featured combos today",
+  "allCombos": "View all combos →",
+  "favourites": "Popular & Clucky favourites",
   "fullMenu": "View the full menu →",
+  "reorder": {
+    "ariaLabel": "Quick reorder recent order",
+    "prompt": "Reorder your recent order #{code} from {store}?",
+    "action": "Quick reorder",
+    "reordering": "Adding to cart...",
+    "addedToCart": "Added items from order #{code} to your cart."
+  },
+  "strip": {
+    "vouchersTitle": "Today's deals",
+    "vouchersDescAvailable": "{count} active vouchers ready to apply at checkout.",
+    "vouchersDescDefault": "Explore promo codes & Clucky loyalty rewards.",
+    "vouchersCta": "View vouchers",
+    "storesTitle": "Nearby stores",
+    "storesDescOpen": "{count} Clucky branches are open and ready to serve.",
+    "storesDescDefault": "Find your nearest Clucky store for hot, crispy delivery.",
+    "storesCta": "Find stores"
+  },
   "promise": {
     "label": "The Clucky promise",
     "crispyTitle": "Hot and crispy every time",

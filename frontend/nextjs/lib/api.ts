@@ -812,4 +812,20 @@ export const reviewApi = {
     }),
 };
 
+export interface PublicProductRatingSummary {
+  averageRating: number;
+  reviewCount: number;
+}
+
+export interface PublicItemHighlightsResponse {
+  topProductIds: number[];
+  topComboIds: number[];
+  ratings: Record<string, PublicProductRatingSummary>;
+}
+
+export const reportPublicApi = {
+  getHighlights: () =>
+    request<PublicItemHighlightsResponse>("/api/reports/public/highlights"),
+};
+
 export default request;

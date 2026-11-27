@@ -29,6 +29,7 @@ export function LiveHomePromotions({
 
   useEffect(() => {
     setBanners(initialBanners);
+    lastFetchRef.current = Date.now();
   }, [initialBanners]);
 
   const refreshBanners = useCallback(async (force = false) => {
@@ -48,8 +49,6 @@ export function LiveHomePromotions({
   }, [locale]);
 
   useEffect(() => {
-    void refreshBanners(true);
-
     const handleFocus = () => {
       void refreshBanners();
     };

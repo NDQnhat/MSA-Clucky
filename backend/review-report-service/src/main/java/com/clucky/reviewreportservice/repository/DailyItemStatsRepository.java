@@ -34,6 +34,12 @@ public interface DailyItemStatsRepository extends JpaRepository<DailyItemStats, 
         BigDecimal getAllocatedNetRevenue();
     }
 
+    interface PublicTopItemProjection {
+        String getItemType();
+        Long getItemRefId();
+        Long getQuantitySold();
+    }
+
     @Modifying
     @Query(value = """
         INSERT INTO review_report_service.daily_item_stats
@@ -108,4 +114,16 @@ public interface DailyItemStatsRepository extends JpaRepository<DailyItemStats, 
             @Param("from") LocalDate from,
             @Param("to") LocalDate to
     );
+
+    @Query(value = """
+        SELECT
+            d.item_type AS itemType,
+            d.item_ref_id AS itemRefId,
+            COALESCE(SUM(d.quantity_sold), 0) AS quantitySold
+        FROM review_report_service.daily_item_stats d
+        WHERE d.stat_date >= :from
+        GROUP BY d.item_type, d.item_ref_id
+        ORDER BY COALESCE(SUM(d.quantity_sold), 0) DESC, d.item_ref_id ASC
+        """, nativeQuery = true)
+    List<PublicTopItemProjection> findTopPublicSellingItems(@Param("from") LocalDate from);
 }

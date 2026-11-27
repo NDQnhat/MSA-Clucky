@@ -44,7 +44,11 @@ export function useNotifications() {
   useEffect(() => {
     if (!ready || userId === undefined) { setLoading(!ready); return; }
     const controller = new AbortController();
-    setLoading(true); setError(""); setLoaded(null);
+    setError("");
+    if (loaded?.userId !== userId) {
+      setLoading(true);
+      setLoaded(null);
+    }
     const params = new URLSearchParams({ page: String(filter.page), size: "20", unread: String(filter.unread), lang: locale });
     if (filter.type !== "ALL") params.set("type", filter.type);
     request<Inbox>(`/api/notifications/my?${params}`, { signal: controller.signal, lang: locale }).then(data => {
@@ -57,6 +61,7 @@ export function useNotifications() {
     }).catch(failure => { if (!controller.signal.aborted) setError(getErrorMessage(failure)); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, userId, filter, revision, locale]);
 
   async function markRead(id?: string | number) {

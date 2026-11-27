@@ -54,4 +54,20 @@ public interface ReviewRepository extends JpaRepository<Review, Long>, JpaSpecif
 
     @Query("SELECT COUNT(r) FROM Review r WHERE r.storeId = :storeId AND r.status = com.clucky.reviewreportservice.entity.ReviewStatus.VISIBLE AND r.replies IS EMPTY")
     long countUnrepliedVisibleByStoreId(@Param("storeId") Long storeId);
+
+    interface ProductRatingProjection {
+        Long getProductId();
+        Double getAverageRating();
+        Long getReviewCount();
+    }
+
+    @Query("""
+        SELECT r.productId AS productId,
+               COALESCE(AVG(r.rating), 0.0) AS averageRating,
+               COUNT(r) AS reviewCount
+        FROM Review r
+        WHERE r.status = com.clucky.reviewreportservice.entity.ReviewStatus.VISIBLE
+        GROUP BY r.productId
+    """)
+    List<ProductRatingProjection> aggregateVisibleRatingsByProduct();
 }

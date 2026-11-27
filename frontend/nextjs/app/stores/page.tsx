@@ -52,12 +52,12 @@ export default function StoresPage() {
   useEffect(() => {
     let active = true;
     setLoading(true); setError(false);
-    request<StoreItem[]>(`/api/stores?activeOnly=false&lang=${encodeURIComponent(locale)}`, { lang: locale })
+    request<StoreItem[]>(`/api/stores?activeOnly=false`)
       .then(result => { if (active) setStores(result); })
       .catch(() => { if (active) { setStores([]); setError(true); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [reload, locale]);
+  }, [reload]);
   const districtOptions = useMemo(() => Array.from(new Set(
     stores.map(store => pickLocalized(store.districtI18n, store.district, locale).trim()).filter((value): value is string => Boolean(value))
   )).sort((a, b) => a.localeCompare(b, locale)), [stores, locale]);

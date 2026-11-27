@@ -11,6 +11,7 @@ import { ProductCard } from '@/components/product-card';
 import { CategoryIcon } from '@/components/category-icon';
 import { StyledSelect } from '@/components/styled-select';
 import { catalogApi, getErrorMessage, request, type CategoryItem, type ProductItem, type StoreItem } from '@/lib/api';
+import { getBrowserLocale } from '@/lib/i18n/locale';
 import { matchesBilingualSearch, pickLocalized, type LocalizedText } from '@/lib/bilingual';
 import {
   Search,
@@ -55,7 +56,8 @@ function MenuContent() {
 
   useEffect(() => {
     let active = true;
-    request<StoreItem[]>(`/api/stores?activeOnly=true&lang=${encodeURIComponent(locale)}`)
+    const reqLocale = getBrowserLocale();
+    request<StoreItem[]>(`/api/stores?activeOnly=true&lang=${encodeURIComponent(reqLocale)}`)
       .then((data) => {
         if (!active || !Array.isArray(data)) return;
         const available = data
@@ -67,10 +69,11 @@ function MenuContent() {
         if (active) setOpenStores([]);
       });
     return () => { active = false; };
-  }, [locale]);
+  }, []);
 
   useEffect(() => {
     let active = true;
+    const reqLocale = getBrowserLocale();
     const fetchCatalog = async () => {
       setLoading(true);
       setLoadError(null);
@@ -84,9 +87,9 @@ function MenuContent() {
 
       try {
         const [liveProds, liveCats, storeDetail] = await Promise.all([
-          catalogApi.getProducts({ storeId, activeOnly: true, lang: locale }),
-          catalogApi.getCategories(true, locale),
-          storeId ? catalogApi.getStoreById(storeId, locale).catch(() => null) : Promise.resolve(null),
+          catalogApi.getProducts({ storeId, activeOnly: true, lang: reqLocale }),
+          catalogApi.getCategories(true, reqLocale),
+          storeId ? catalogApi.getStoreById(storeId, reqLocale).catch(() => null) : Promise.resolve(null),
         ]);
         if (active) {
           setProducts(liveProds);
@@ -104,7 +107,7 @@ function MenuContent() {
     };
     fetchCatalog();
     return () => { active = false; };
-  }, [storeId, hasInvalidStoreId, locale]);
+  }, [storeId, hasInvalidStoreId]);
 
   // Reset to page 1 on filter changes
   useEffect(() => {

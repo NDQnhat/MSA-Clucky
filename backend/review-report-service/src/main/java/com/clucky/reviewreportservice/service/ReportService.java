@@ -5,12 +5,14 @@ import com.clucky.reviewreportservice.dto.DashboardResponse;
 import com.clucky.reviewreportservice.dto.ItemRevenueReportResponse;
 import com.clucky.reviewreportservice.dto.ItemStoreComparisonResponse;
 import com.clucky.reviewreportservice.dto.LocalizedText;
+import com.clucky.reviewreportservice.dto.PublicItemHighlightsResponse;
 import com.clucky.reviewreportservice.dto.RevenueReportResponse;
 import com.clucky.reviewreportservice.entity.DailyStoreStats;
 import com.clucky.reviewreportservice.exception.ForbiddenException;
 import com.clucky.reviewreportservice.mapper.DomainMapper;
 import com.clucky.reviewreportservice.repository.DailyItemStatsRepository;
 import com.clucky.reviewreportservice.repository.DailyStoreStatsRepository;
+import com.clucky.reviewreportservice.repository.ReviewRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,6 +40,7 @@ public class ReportService {
 
     private final DailyStoreStatsRepository statsRepository;
     private final DailyItemStatsRepository itemStatsRepository;
+    private final ReviewRepository reviewRepository;
     private final ReportExportService exportService;
     private final ObjectMapper objectMapper;
     private final String revenueEventPolicy;
@@ -51,19 +54,21 @@ public class ReportService {
             ReportExportService exportService,
             String revenueEventPolicy
     ) {
-        this(statsRepository, null, exportService, new ObjectMapper(), revenueEventPolicy);
+        this(statsRepository, null, null, exportService, new ObjectMapper(), revenueEventPolicy);
     }
 
     @Autowired
     public ReportService(
             DailyStoreStatsRepository statsRepository,
             DailyItemStatsRepository itemStatsRepository,
+            ReviewRepository reviewRepository,
             ReportExportService exportService,
             ObjectMapper objectMapper,
             @Value("${clucky.reports.revenue-event:false}") String revenueEventPolicy
     ) {
         this.statsRepository = statsRepository;
         this.itemStatsRepository = itemStatsRepository;
+        this.reviewRepository = reviewRepository;
         this.exportService = exportService;
         this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
         this.revenueEventPolicy = (revenueEventPolicy == null || revenueEventPolicy.isBlank()) ? "false" : revenueEventPolicy.trim();
@@ -488,6 +493,33 @@ public class ReportService {
             return exportService.exportItemsToExcel(report);
         }
         return exportService.exportItemsToPdf(report);
+    }
+
+    @Transactional(readOnly = true)
+    public PublicItemHighlightsResponse getPublicHighlights() {
+        LocalDate from = LocalDate.now(ReportProjectionService.VIETNAM_ZONE).minusDays(29);
+        List<Long> topProducts = new java.util.ArrayList<>();
+        List<Long> topCombos = new java.util.ArrayList<>();
+        if (itemStatsRepository != null) {
+            for (var row : itemStatsRepository.findTopPublicSellingItems(from)) {
+                if (row.getItemRefId() == null) continue;
+                if ("COMBO".equalsIgnoreCase(row.getItemType())) {
+                    if (topCombos.size() < 8) topCombos.add(row.getItemRefId());
+                } else {
+                    if (topProducts.size() < 12) topProducts.add(row.getItemRefId());
+                }
+            }
+        }
+        java.util.Map<Long, PublicItemHighlightsResponse.ProductRatingSummary> ratings = new java.util.LinkedHashMap<>();
+        if (reviewRepository != null) {
+            for (var r : reviewRepository.aggregateVisibleRatingsByProduct()) {
+                if (r.getProductId() == null) continue;
+                double avg = r.getAverageRating() != null ? Math.round(r.getAverageRating() * 10.0) / 10.0 : 0.0;
+                long count = r.getReviewCount() != null ? r.getReviewCount() : 0L;
+                ratings.put(r.getProductId(), new PublicItemHighlightsResponse.ProductRatingSummary(avg, count));
+            }
+        }
+        return new PublicItemHighlightsResponse(topProducts, topCombos, ratings);
     }
 
     private void validateRange(LocalDate effectiveFrom, LocalDate effectiveTo) {

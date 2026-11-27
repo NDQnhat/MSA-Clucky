@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
-import { NextIntlClientProvider } from "next-intl";
-import { getLocale, getMessages } from "next-intl/server";
+import { getLocale } from "next-intl/server";
 import { normalizeLocale } from "@/lib/i18n/locale";
 import { resources } from "@/lib/i18n/resources";
+import { RuntimeIntlProvider } from "@/lib/i18n/runtime-intl-provider";
 import "./globals.css";
-import { Toaster } from "@/components/feedback";
 import "mapbox-gl/dist/mapbox-gl.css";
 import { LocationProvider } from "@/components/maps/location-provider";
 import "./order-theme.css";
@@ -37,8 +36,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const locale = await getLocale();
-  const messages = await getMessages();
+  const locale = normalizeLocale(await getLocale());
   return (
     <html lang={locale}>
       <head>
@@ -54,8 +52,7 @@ export default async function RootLayout({
         />
       </head>
       <body>
-        <NextIntlClientProvider locale={locale} messages={messages} timeZone="Asia/Ho_Chi_Minh">
-        <Toaster locale={locale} />
+        <RuntimeIntlProvider initialLocale={locale}>
         <NavigationLoaderProvider>
           <LocationProvider><OrderProvider>
             <div className={loaderStyles.siteLayout}>
@@ -66,7 +63,7 @@ export default async function RootLayout({
             </div>
           </OrderProvider></LocationProvider>
         </NavigationLoaderProvider>
-        </NextIntlClientProvider>
+        </RuntimeIntlProvider>
       </body>
     </html>
   );

@@ -5,6 +5,7 @@ import com.clucky.reviewreportservice.config.LocaleResolverHelper;
 import com.clucky.reviewreportservice.dto.DashboardResponse;
 import com.clucky.reviewreportservice.dto.ItemRevenueReportResponse;
 import com.clucky.reviewreportservice.dto.ItemStoreComparisonResponse;
+import com.clucky.reviewreportservice.dto.PublicItemHighlightsResponse;
 import com.clucky.reviewreportservice.dto.RevenueReportResponse;
 import com.clucky.reviewreportservice.dto.Role;
 import com.clucky.reviewreportservice.service.ItemRevenueBackfillService;
@@ -219,5 +220,12 @@ public class ReportController {
     public ResponseEntity<Map<String, Object>> backfillItemRevenue() {
         int processed = backfillService != null ? backfillService.runBackfill() : 0;
         return ResponseEntity.ok(Map.of("processedOrders", processed));
+    }
+
+    @GetMapping("/public/highlights")
+    public ResponseEntity<PublicItemHighlightsResponse> getPublicHighlights() {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(60, java.util.concurrent.TimeUnit.SECONDS).cachePublic())
+                .body(reportService.getPublicHighlights());
     }
 }

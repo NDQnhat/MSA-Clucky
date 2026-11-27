@@ -605,6 +605,220 @@ select option:hover {
   line-height: 1.65;
 }
 
+/* Home Showcase Sections & Balanced Grids */
+.home-section {
+  width: min(1240px, calc(100% - 64px));
+  margin: 0 auto 64px;
+}
+
+.home-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.home-section-eyebrow {
+  color: var(--wine);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.home-section-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: clamp(28px, 3.6vw, 42px);
+  color: var(--espresso);
+  margin: 6px 0 0;
+  letter-spacing: -0.03em;
+}
+
+.home-section-link {
+  color: var(--wine);
+  font-family: "Quicksand", sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.home-section-link:hover {
+  text-decoration: underline;
+}
+
+.home-featured-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.product-rating-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--espresso);
+}
+
+.product-rating-chip span {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.combo-parts-line {
+  font-weight: 600;
+  color: var(--espresso) !important;
+}
+
+.home-reorder-nudge {
+  width: min(1240px, calc(100% - 64px));
+  margin: -12px auto 40px;
+}
+
+.home-reorder-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  border-radius: 16px;
+  background: var(--paper);
+  border: 1px solid rgba(201, 162, 39, 0.45);
+  box-shadow: 0 4px 16px rgba(22, 16, 13, 0.04);
+}
+
+.home-reorder-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--espresso);
+}
+
+.home-reorder-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  background: var(--wine);
+  color: #fff;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.home-reorder-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.home-reorder-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.home-cta-strip {
+  width: min(1240px, calc(100% - 64px));
+  margin: 0 auto 44px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.home-cta-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  border-radius: 20px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  box-shadow: 0 6px 20px rgba(22, 16, 13, 0.04);
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.home-cta-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(201, 162, 39, 0.55);
+}
+
+.home-cta-main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.home-cta-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: #f5ede0;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.home-cta-card h3 {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--espresso);
+}
+
+.home-cta-card p {
+  margin: 4px 0 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+.home-cta-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--wine);
+}
+
+@media (max-width: 1120px) {
+  .home-featured-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .home-section,
+  .home-cta-strip,
+  .home-reorder-nudge {
+    width: calc(100% - 32px);
+  }
+  .home-cta-strip {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .home-featured-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Skeleton Loading (Warm Shimmer #EFE4D4) */
 @keyframes shimmerWarm {
   0% {

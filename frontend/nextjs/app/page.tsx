@@ -1,176 +1,133 @@
-import { getLocale, getTranslations } from "next-intl/server";
-import Link from "@/components/ui-loader/navigation-link";
-import { LiveHomePromotions } from "@/components/promotion/live-home-promotions";
-import { ProductCard } from "@/components/product-card";
-import { CategoryIcon } from "@/components/category-icon";
-import { pickLocalized } from "@/lib/bilingual";
+import { getLocale } from "next-intl/server";
+import { HomePageContent } from "@/components/home/home-page-content";
 import { normalizeLocale } from "@/lib/i18n/locale";
-import { catalogApi, type CategoryItem } from "@/lib/catalog-and-stores.api";
-import { promotionApi } from "@/lib/api";
-import type { PromoBanner } from "@/lib/types/promotion";
-import { Flame, Award, Truck } from "lucide-react";
+import {
+  catalogApi,
+  comboAsProduct,
+  type CategoryItem,
+  type ComboItem,
+  type ProductItem,
+  type StoreItem,
+} from "@/lib/catalog-and-stores.api";
+import { promotionApi, reportPublicApi, type PublicItemHighlightsResponse } from "@/lib/api";
+import type { PromoBanner, Voucher } from "@/lib/types/promotion";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
+
+function toHomeCardItem(item: ProductItem): ProductItem {
+  return {
+    id: item.id,
+    slug: item.slug,
+    name: item.name,
+    nameI18n: item.nameI18n,
+    description: item.description,
+    descriptionI18n: item.descriptionI18n,
+    price: item.price,
+    basePrice: item.basePrice,
+    image: item.image,
+    imageUrl: item.imageUrl,
+    category: item.category,
+    categoryId: item.categoryId,
+    categoryName: item.categoryName,
+    categoryNameI18n: item.categoryNameI18n,
+    alt: item.alt,
+    spicyLevel: item.spicyLevel,
+    isBestSeller: item.isBestSeller,
+    isActive: item.isActive,
+    isAvailable: item.isAvailable,
+    isSoldOut: item.isSoldOut,
+    rating: item.rating,
+    reviewCount: item.reviewCount,
+    comboItems: item.comboItems,
+  };
+}
 
 export default async function Home() {
-  const [t, rawLocale] = await Promise.all([getTranslations(), getLocale()]);
-  const locale = normalizeLocale(rawLocale);
-  let displayProducts: any[] = [];
-  let activeBanners: PromoBanner[] = [];
-  let categories: CategoryItem[] = [];
+  const locale = normalizeLocale(await getLocale());
 
-  const [prods, banners, liveCategories] = await Promise.all([
-    catalogApi.getProducts({ activeOnly: true, page: 0, size: 9, lang: locale }).catch(() => []),
+  const [prods, combos, banners, liveCategories, highlights, vouchers, stores] = await Promise.all([
+    catalogApi.getProducts({ activeOnly: true, page: 0, size: 100, lang: locale }).catch(() => [] as ProductItem[]),
+    catalogApi.getCombos(undefined, true, locale).catch(() => [] as ComboItem[]),
     promotionApi.getActiveBanners(undefined, locale).catch(() => [] as PromoBanner[]),
     catalogApi.getCategories(true, locale).catch(() => [] as CategoryItem[]),
+    reportPublicApi.getHighlights().catch(() => null as PublicItemHighlightsResponse | null),
+    promotionApi.getAvailableVouchers(locale).catch(() => [] as Voucher[]),
+    catalogApi.getStores(true, locale).catch(() => [] as StoreItem[]),
   ]);
-  displayProducts = prods;
-  activeBanners = banners;
-  categories = liveCategories
-    .filter((category) => category.isActive !== false)
-    .sort((a, b) => a.sortOrder - b.sortOrder);
 
-  const featuredProducts = displayProducts
+  const categories = liveCategories
+    .filter((category) => category.isActive !== false)
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((category) => ({
+      id: category.id,
+      name: category.name,
+      nameI18n: category.nameI18n,
+    }));
+
+  const topProductOrder = new Map<number, number>();
+  (highlights?.topProductIds ?? []).forEach((id, idx) => topProductOrder.set(Number(id), idx));
+
+  const topComboOrder = new Map<number, number>();
+  (highlights?.topComboIds ?? []).forEach((id, idx) => topComboOrder.set(Number(id), idx));
+
+  const featuredProducts: ProductItem[] = prods
     .filter((p) => p.isActive !== false)
-    .slice(0, 9);
+    .map((product) => {
+      const ratingEntry = highlights?.ratings?.[String(product.id)];
+      const rank = topProductOrder.get(product.id);
+      return toHomeCardItem({
+        ...product,
+        isBestSeller: rank !== undefined ? rank < 4 : Boolean(product.isBestSeller),
+        rating: ratingEntry?.averageRating ?? product.rating ?? null,
+        reviewCount: ratingEntry?.reviewCount ?? product.reviewCount ?? null,
+      });
+    })
+    .sort((a, b) => {
+      const rankA = topProductOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const rankB = topProductOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      if (rankA !== rankB) return rankA - rankB;
+      return a.id - b.id;
+    })
+    .slice(0, 8);
+
+  const featuredCombos: ProductItem[] = combos
+    .filter((c) => c.isActive !== false)
+    .sort((a, b) => {
+      const rankA = topComboOrder.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+      const rankB = topComboOrder.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+      if (rankA !== rankB) return rankA - rankB;
+      return a.id - b.id;
+    })
+    .slice(0, 4)
+    .map((combo) => {
+      const rank = topComboOrder.get(combo.id);
+      return toHomeCardItem({
+        ...comboAsProduct(combo),
+        isBestSeller: rank !== undefined && rank < 2,
+      });
+    });
+
+  const availableVoucherCount = Array.isArray(vouchers) ? vouchers.length : 0;
+  const openStoreCount = Array.isArray(stores)
+    ? stores.filter((s) => s.status === "OPEN").length
+    : 0;
+  const comboCategoryId =
+    categories.find(
+      (c) =>
+        /combo/i.test(c.name) ||
+        /combo/i.test(c.nameI18n?.vi ?? "") ||
+        /combo/i.test(c.nameI18n?.en ?? "")
+    )?.id ?? 3;
 
   return (
-    <>
-      <main>
-        {/* Hero Section + Live Synchronized Promotional Banners */}
-        <LiveHomePromotions
-          initialBanners={activeBanners}
-          heroProps={{
-            eyebrow: t("home.hero.eyebrow"),
-            titleTop: t("home.hero.titleTop"),
-            titleBottom: t("home.hero.titleBottom"),
-            description: t("home.hero.description"),
-            actions: [
-              { href: "/menu", label: t("home.hero.order"), variant: "primary" },
-              { href: "/menu", label: t("home.hero.menu"), variant: "secondary" },
-            ],
-            imageSrc: "/images/hero-img.avif",
-            imageAlt: t("home.hero.imageAlt"),
-          }}
-        >
-          {/* Browse categories from the same catalog API used by the menu. */}
-          <section className="category-row-section" aria-label={t("menu.categories.label")}>
-            <div className="category-dock">
-              <Link href="/menu" className="category-pill active">
-                <CategoryIcon id={0} size={18} active />
-                <span>{t("menu.categories.all")}</span>
-              </Link>
-              {categories.map((category) => {
-                const categoryName = pickLocalized(category.nameI18n, category.name, locale);
-                return (
-                  <Link key={category.id} href={`/menu?cat=${category.id}`} className="category-pill">
-                    <CategoryIcon id={category.id} name={categoryName} size={18} />
-                    <span>{categoryName}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </section>
-        </LiveHomePromotions>
-
-        {/* Intro */}
-        <section
-          style={{
-            width: "min(1240px, calc(100% - 64px))",
-            margin: "0 auto 40px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "flex-end",
-            flexWrap: "wrap",
-            gap: 24,
-          }}
-        >
-          <div>
-            <span
-              style={{
-                color: "#8F1216",
-                fontFamily: "Baloo 2, sans-serif",
-                fontWeight: 600,
-                fontSize: 14,
-                letterSpacing: "0.12em",
-                textTransform: "uppercase",
-              }}
-            >
-              {t("menu.title")}{" "}</span>
-            <h2
-              style={{
-                fontFamily: "Baloo 2, sans-serif",
-                fontWeight: 700,
-                fontSize: "clamp(32px, 4vw, 46px)",
-                color: "#16100D",
-                margin: "6px 0 0",
-                letterSpacing: "-0.03em",
-              }}
-            >
-              {t("home.favourites")}{" "}</h2>
-          </div>
-          <Link
-            href="/menu"
-            style={{
-              color: "#8F1216",
-              fontFamily: "Quicksand, sans-serif",
-              fontWeight: 700,
-              fontSize: 15,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            {t("home.fullMenu")}{" "}</Link>
-        </section>
-
-        {/* Featured Product Grid */}
-        <section
-          style={{
-            width: "min(1240px, calc(100% - 64px))",
-            margin: "0 auto 80px",
-          }}
-        >
-          <div className="product-grid">
-            {featuredProducts.map((product) => (
-              <ProductCard key={product.slug} product={product} />
-            ))}
-          </div>
-        </section>
-
-        {/* Brand Promise Section */}
-        <section
-          className="brand-promise"
-          aria-label={t("home.promise.label")}
-        >
-          <div className="promise-card">
-            <div className="promise-icon" style={{ color: "#8F1216" }}>
-              <Flame size={28} />
-            </div>
-            <h3>{t("home.promise.crispyTitle")}</h3>
-            <p>
-              {t("home.promise.crispyDescription")}{" "}</p>
-          </div>
-
-          <div className="promise-card">
-            <div className="promise-icon" style={{ color: "#C9A227" }}>
-              <Award size={28} />
-            </div>
-            <h3>{t("home.promise.recipeTitle")}</h3>
-            <p>
-              {t("home.promise.recipeDescription")}{" "}</p>
-          </div>
-
-          <div className="promise-card">
-            <div className="promise-icon" style={{ color: "#1E7A46" }}>
-              <Truck size={28} />
-            </div>
-            <h3>{t("home.promise.deliveryTitle")}</h3>
-            <p>
-              {t("home.promise.deliveryDescription")}{" "}</p>
-          </div>
-        </section>
-      </main>
-    </>
+    <HomePageContent
+      initialBanners={banners}
+      categories={categories}
+      featuredCombos={featuredCombos}
+      featuredProducts={featuredProducts}
+      comboCategoryId={comboCategoryId}
+      availableVoucherCount={availableVoucherCount}
+      openStoreCount={openStoreCount}
+    />
   );
 }

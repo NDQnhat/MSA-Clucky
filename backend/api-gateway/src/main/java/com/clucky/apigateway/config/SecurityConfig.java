@@ -66,7 +66,8 @@ public class SecurityConfig {
                                 "/api/catalog/products", "/api/catalog/products/{id}",
                                 "/api/catalog/combos", "/api/catalog/combos/{id}",
                                 "/api/promotions/banners", "/api/promotions/vouchers/available",
-                                "/api/reviews/products/{id}").permitAll()
+                                "/api/reviews/products/{id}",
+                                "/api/reports/public/highlights").permitAll()
                         .pathMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/resend-otp", "/api/auth/verify-otp",
                                 "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/forgot-password",
                                 "/api/auth/reset-password", "/api/auth/google", "/api/auth/google/complete",

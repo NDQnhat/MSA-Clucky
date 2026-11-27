@@ -1,6 +1,6 @@
-import { getLocale, getTranslations } from 'next-intl/server';
-import Link from '@/components/ui-loader/navigation-link';
+import { getLocale } from 'next-intl/server';
 import { ProductDetailClient } from '@/components/product-detail-client';
+import { ProductNotFound } from '@/components/menu/product-not-found';
 import { normalizeLocale } from '@/lib/i18n/locale';
 import type { Product } from '@/lib/products';
 import { catalogApi, comboAsProduct } from '@/lib/catalog-and-stores.api';
@@ -72,20 +72,7 @@ export default async function ProductPage({
   }
 
   if (!product) {
-    const t = await getTranslations();
-    return (
-      <main style={{ maxWidth: 1240, margin: '60px auto', padding: '0 24px', textAlign: 'center' }}>
-        <h1 style={{ fontFamily: 'Baloo 2, sans-serif', fontSize: 28, color: '#16100D', marginBottom: 12 }}>
-          {t("menu.empty.title")}
-        </h1>
-        <p style={{ fontFamily: 'Quicksand, sans-serif', color: '#6B6259', marginBottom: 24 }}>
-          {t("menu.empty.description")}
-        </p>
-        <Link href="/menu" className="btn-primary" style={{ display: 'inline-flex', padding: '10px 24px' }}>
-          {t("menu.empty.reset")}
-        </Link>
-      </main>
-    );
+    return <ProductNotFound />;
   }
 
   // Each combo component retains the catalog's own option/topping groups.
@@ -99,7 +86,7 @@ export default async function ProductPage({
 
   return (
     <main>
-      <ProductDetailClient key={`${productIsCombo ? "combo" : "product"}-${product.id}-${storeId ?? "all"}-${locale}`}
+      <ProductDetailClient key={`${productIsCombo ? "combo" : "product"}-${product.id}-${storeId ?? "all"}`}
         product={product} storeId={storeId} itemType={productIsCombo ? "COMBO" : "PRODUCT"} comboComponents={comboComponents} />
     </main>
   );

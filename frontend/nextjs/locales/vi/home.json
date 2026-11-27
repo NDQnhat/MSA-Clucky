@@ -8,9 +8,30 @@
     "titleBottom": "Đậm vị bên trong.",
     "imageAlt": "Đĩa gà rán giòn vàng óng ánh Clucky"
   },
+  "bestSellerBadge": "Bán chạy",
   "bestSellers": "Món ăn bán chạy nhất",
-  "favourites": "Hương vị được yêu thích tại Clucky",
+  "combosEyebrow": "TIẾT KIỆM HƠN",
+  "combosTitle": "Combo nổi bật hôm nay",
+  "allCombos": "Xem tất cả Combo →",
+  "favourites": "Món nổi bật & được yêu thích",
   "fullMenu": "Xem tất cả thực đơn →",
+  "reorder": {
+    "ariaLabel": "Đặt lại đơn hàng gần nhất",
+    "prompt": "Muốn đặt lại đơn #{code} tại {store}?",
+    "action": "Đặt lại nhanh",
+    "reordering": "Đang thêm vào giỏ...",
+    "addedToCart": "Đã thêm các món từ đơn #{code} vào giỏ hàng."
+  },
+  "strip": {
+    "vouchersTitle": "Ưu đãi hôm nay",
+    "vouchersDescAvailable": "Đang có {count} voucher áp dụng khi đặt món.",
+    "vouchersDescDefault": "Khám phá mã giảm giá & đổi quà thành viên Clucky.",
+    "vouchersCta": "Lấy mã ngay",
+    "storesTitle": "Chi nhánh gần bạn",
+    "storesDescOpen": "{count} cửa hàng đang mở cửa sẵn sàng phục vụ.",
+    "storesDescDefault": "Tìm chi nhánh Clucky gần nhất để nhận món nóng giòn.",
+    "storesCta": "Xem chi nhánh"
+  },
   "promise": {
     "label": "Cam kết thương hiệu Clucky",
     "crispyTitle": "Giòn nóng mỗi phần",

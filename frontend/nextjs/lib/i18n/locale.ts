@@ -1,5 +1,6 @@
 export type Locale = "vi" | "en";
 export const localeCookie = "clucky_locale";
+export const localeChangeEvent = "clucky:locale-change";
 
 export function normalizeLocale(value: unknown): Locale { return value === "en" ? "en" : "vi"; }
 
@@ -13,4 +14,7 @@ export function persistLocale(locale: Locale): void {
   const safeLocale = normalizeLocale(locale);
   document.cookie = `${localeCookie}=${safeLocale}; Path=/; Max-Age=31536000; SameSite=Lax${location.protocol === "https:" ? "; Secure" : ""}`;
   document.documentElement.lang = safeLocale;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent<Locale>(localeChangeEvent, { detail: safeLocale }));
+  }
 }
