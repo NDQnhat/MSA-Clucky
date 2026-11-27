@@ -832,7 +832,7 @@ export const storesApi = {
     api.put<Store>(`/api/stores/${id}`, data).then((r) => r.data),
   delete: (id: number) =>
     api.delete(`/api/stores/${id}`).then((r) => r.data),
-  updateOperation: (id: number, data: { openTime?: string; closeTime?: string; status?: string; phone?: string; latitude?: number | null; longitude?: number | null; deliveryArea?: string | LocalizedText; lowStockThreshold?: number }) =>
+  updateOperation: (id: number, data: { expectedVersion?: number; openTime?: string; closeTime?: string; status?: string; phone?: string; latitude?: number | null; longitude?: number | null; deliveryArea?: string | LocalizedText; lowStockThreshold?: number }) =>
     api.put<Store>(`/api/stores/${id}/operation`, data).then((r) => r.data),
 };
 

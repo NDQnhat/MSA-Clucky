@@ -287,7 +287,7 @@ export const PromotionsPage: React.FC = () => {
           storeIds: voucher.storeIds?.length ? voucher.storeIds : voucher.storeId ? [Number(voucher.storeId)] : [],
           title: titlePayload ?? voucher.title,
           titleI18n: titlePayload ?? null,
-          description: descriptionPayload ?? voucher.description,
+          description: descriptionPayload ?? null,
           descriptionI18n: descriptionPayload ?? null,
           type: voucher.type,
           value: voucher.value,

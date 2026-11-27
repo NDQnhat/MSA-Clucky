@@ -1,5 +1,6 @@
 package com.clucky.promotionloyaltyservice.service;
 
+import com.clucky.promotionloyaltyservice.dto.LocalizedText;
 import com.clucky.promotionloyaltyservice.dto.ValidateVoucherRequest;
 import com.clucky.promotionloyaltyservice.dto.ValidateVoucherResponse;
 import com.clucky.promotionloyaltyservice.dto.VoucherRequest;
@@ -247,7 +248,7 @@ class VoucherServiceTest {
 
         VoucherRequest req = new VoucherRequest();
         req.setCode(null);
-        req.setTitle("Giảm 10.000đ");
+        req.setTitle(LocalizedText.ofSingle("Giảm 10.000đ"));
         req.setType(VoucherType.AMOUNT);
         req.setValue(BigDecimal.valueOf(10000));
         req.setStartAt(Instant.now());

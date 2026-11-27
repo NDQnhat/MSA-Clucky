@@ -1,5 +1,6 @@
 package com.clucky.promotionloyaltyservice.dto;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
@@ -21,6 +22,10 @@ public record BannerRequest(
         String imageUrl,
         String imagePublicId
 ) {
+    @JsonCreator(mode = JsonCreator.Mode.PROPERTIES)
+    public BannerRequest {
+    }
+
     public BannerRequest(
             String title,
             String linkUrl,

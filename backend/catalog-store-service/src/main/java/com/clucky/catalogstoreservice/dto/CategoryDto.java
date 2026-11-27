@@ -75,8 +75,6 @@ public class CategoryDto {
 
         public LocalizedText getName() { return name != null ? name : nameI18n; }
         public void setName(LocalizedText name) { this.name = name; }
-        @JsonIgnore
-        public void setName(String name) { this.name = LocalizedText.ofSingle(name); }
 
         public LocalizedText getNameI18n() { return nameI18n; }
         public void setNameI18n(LocalizedText nameI18n) {

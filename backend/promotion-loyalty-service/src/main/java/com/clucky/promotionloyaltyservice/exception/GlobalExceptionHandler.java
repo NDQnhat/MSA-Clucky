@@ -46,6 +46,21 @@ public class GlobalExceptionHandler {
             MethodArgumentTypeMismatchException.class, MissingServletRequestPartException.class,
             MissingServletRequestParameterException.class})
     ResponseEntity<ApiError> invalid(Exception failure, HttpServletRequest request) {
+        if (failure instanceof MethodArgumentNotValidException ex) {
+            var fields = ex.getBindingResult().getFieldErrors().stream()
+                    .map(err -> err.getField() + ":" + err.getCode())
+                    .toList();
+            var globals = ex.getBindingResult().getGlobalErrors().stream()
+                    .map(err -> err.getObjectName() + ":" + err.getCode())
+                    .toList();
+            LOG.warn("event=validation_error correlationId={} uri={} type=MethodArgumentNotValidException fields={} globals={}",
+                    request.getAttribute(CorrelationIdFilter.HEADER), request.getRequestURI(), fields, globals);
+        } else {
+            String causeType = failure.getCause() != null ? failure.getCause().getClass().getSimpleName() : "none";
+            LOG.warn("event=validation_error correlationId={} uri={} type={} cause={}",
+                    request.getAttribute(CorrelationIdFilter.HEADER), request.getRequestURI(),
+                    failure.getClass().getSimpleName(), causeType);
+        }
         return respond(HttpStatus.BAD_REQUEST, request);
     }
 

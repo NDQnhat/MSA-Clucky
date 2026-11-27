@@ -50,7 +50,7 @@ class CatalogRegressionTest {
         when(storeProducts.findByStoreId(2L)).thenReturn(List.of(
                 new StoreProduct(null, store, product, null, true, false)));
         var service = new ProductService(products, null, options, toppings, null,
-                stores, storeProducts, inventory, null, new CatalogCacheService(null), mock(com.clucky.catalogstoreservice.service.CatalogEvents.class));
+                stores, storeProducts, inventory, null, null, new CatalogCacheService(null), mock(com.clucky.catalogstoreservice.service.CatalogEvents.class));
         var result = service.getProducts(2L, null, null, null, false).getFirst();
         assertFalse(result.getIsAvailable());
         assertTrue(result.getIsSoldOut());
@@ -68,7 +68,7 @@ class CatalogRegressionTest {
         var cache = mock(CatalogCacheService.class);
         var products = mock(ProductRepository.class);
         when(products.findAllWithCategory()).thenReturn(List.of());
-        var service = new ProductService(products, null, null, null, null, null, null, null, null, cache,
+        var service = new ProductService(products, null, null, null, null, null, null, null, null, null, cache,
                 mock(com.clucky.catalogstoreservice.service.CatalogEvents.class));
         var result = service.getProductsPaged(null, null, null, null, false,
                 PageRequest.of(Integer.MAX_VALUE, 20));

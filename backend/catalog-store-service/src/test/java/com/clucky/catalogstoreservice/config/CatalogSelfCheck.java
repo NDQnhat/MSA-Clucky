@@ -1,5 +1,6 @@
 package com.clucky.catalogstoreservice.config;
 
+import com.clucky.catalogstoreservice.dto.LocalizedText;
 import com.clucky.catalogstoreservice.dto.ProductDto;
 import com.clucky.catalogstoreservice.entity.Product;
 import com.clucky.catalogstoreservice.entity.ProductOption;
@@ -98,7 +99,7 @@ public final class CatalogSelfCheck {
         ProductOption originalOption = fixture.product.getOptions().getFirst();
         ProductTopping originalTopping = fixture.product.getToppings().getFirst();
         ProductDto.Request request = request("opt-11", "top-21");
-        request.setName("Renamed product");
+        request.setName(LocalizedText.ofSingle("Renamed product"));
         fixture.service.updateProduct(1L, request);
         require(fixture.product.getOptions().getFirst() == originalOption, "Option identity changed");
         require(fixture.product.getToppings().getFirst() == originalTopping, "Topping identity changed");
@@ -181,7 +182,7 @@ public final class CatalogSelfCheck {
             ProductToppingRepository toppings = stub(ProductToppingRepository.class, (method, arguments) -> product.getToppings());
             ComboItemRepository combos = stub(ComboItemRepository.class,
                     (method, arguments) -> optionInCombo && ((List<?>) arguments[0]).contains(11L));
-            service = new ProductService(products, null, options, toppings, combos, null, null, null,
+            service = new ProductService(products, null, options, toppings, combos, null, null, null, null,
                     null, new CatalogCacheService(null), new com.clucky.catalogstoreservice.service.CatalogEvents(null, null, null, null) {
                         @Override public void expect(String table, Long id, Long version) { }
                         @Override public void audit(String action, String target, Long id, Long storeId) { }

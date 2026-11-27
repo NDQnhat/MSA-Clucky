@@ -165,8 +165,6 @@ public class ComboDto {
 
         public LocalizedText getName() { return name != null ? name : nameI18n; }
         public void setName(LocalizedText name) { this.name = name; }
-        @JsonIgnore
-        public void setName(String name) { this.name = LocalizedText.ofSingle(name); }
 
         public LocalizedText getNameI18n() { return nameI18n; }
         public void setNameI18n(LocalizedText nameI18n) {
@@ -176,8 +174,6 @@ public class ComboDto {
 
         public LocalizedText getDescription() { return description != null ? description : descriptionI18n; }
         public void setDescription(LocalizedText description) { this.description = description; }
-        @JsonIgnore
-        public void setDescription(String description) { this.description = LocalizedText.ofSingle(description); }
 
         public LocalizedText getDescriptionI18n() { return descriptionI18n; }
         public void setDescriptionI18n(LocalizedText descriptionI18n) {

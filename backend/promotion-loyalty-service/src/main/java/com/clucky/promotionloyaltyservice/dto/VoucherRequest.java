@@ -100,11 +100,6 @@ public class VoucherRequest {
         this.title = title;
     }
 
-    @JsonIgnore
-    public void setTitle(String title) {
-        this.title = LocalizedText.ofSingle(title);
-    }
-
     public LocalizedText getTitleI18n() {
         return titleI18n;
     }
@@ -120,11 +115,6 @@ public class VoucherRequest {
 
     public void setDescription(LocalizedText description) {
         this.description = description;
-    }
-
-    @JsonIgnore
-    public void setDescription(String description) {
-        this.description = LocalizedText.ofSingle(description);
     }
 
     public LocalizedText getDescriptionI18n() {

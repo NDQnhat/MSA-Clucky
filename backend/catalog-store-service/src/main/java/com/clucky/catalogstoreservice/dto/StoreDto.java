@@ -182,8 +182,6 @@ public class StoreDto {
 
         public LocalizedText getName() { return name != null ? name : nameI18n; }
         public void setName(LocalizedText name) { this.name = name; }
-        @JsonIgnore
-        public void setName(String name) { this.name = LocalizedText.ofSingle(name); }
 
         public LocalizedText getNameI18n() { return nameI18n; }
         public void setNameI18n(LocalizedText nameI18n) {
@@ -210,8 +208,6 @@ public class StoreDto {
 
         public LocalizedText getDeliveryArea() { return deliveryArea != null ? deliveryArea : deliveryAreaI18n; }
         public void setDeliveryArea(LocalizedText deliveryArea) { this.deliveryArea = deliveryArea; }
-        @JsonIgnore
-        public void setDeliveryArea(String deliveryArea) { this.deliveryArea = LocalizedText.ofSingle(deliveryArea); }
 
         public LocalizedText getDeliveryAreaI18n() { return deliveryAreaI18n; }
         public void setDeliveryAreaI18n(LocalizedText deliveryAreaI18n) {
@@ -221,8 +217,6 @@ public class StoreDto {
 
         public LocalizedText getDistrict() { return district != null ? district : districtI18n; }
         public void setDistrict(LocalizedText district) { this.district = district; }
-        @JsonIgnore
-        public void setDistrict(String district) { this.district = LocalizedText.ofSingle(district); }
 
         public LocalizedText getDistrictI18n() { return districtI18n; }
         public void setDistrictI18n(LocalizedText districtI18n) {
@@ -232,8 +226,6 @@ public class StoreDto {
 
         public LocalizedText getCity() { return city != null ? city : cityI18n; }
         public void setCity(LocalizedText city) { this.city = city; }
-        @JsonIgnore
-        public void setCity(String city) { this.city = LocalizedText.ofSingle(city); }
 
         public LocalizedText getCityI18n() { return cityI18n; }
         public void setCityI18n(LocalizedText cityI18n) {
@@ -304,8 +296,6 @@ public class StoreDto {
 
         public LocalizedText getDeliveryArea() { return deliveryArea != null ? deliveryArea : deliveryAreaI18n; }
         public void setDeliveryArea(LocalizedText deliveryArea) { this.deliveryArea = deliveryArea; }
-        @JsonIgnore
-        public void setDeliveryArea(String deliveryArea) { this.deliveryArea = LocalizedText.ofSingle(deliveryArea); }
 
         public LocalizedText getDeliveryAreaI18n() { return deliveryAreaI18n; }
         public void setDeliveryAreaI18n(LocalizedText deliveryAreaI18n) {

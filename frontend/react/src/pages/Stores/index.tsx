@@ -156,6 +156,7 @@ export const StoresPage: React.FC = () => {
         const updated = isAdmin
           ? await catalogAdministration.updateStore(editingStore, storePayload)
           : await storesApi.updateOperation(editingStore.id, {
+              expectedVersion: editingStore.version,
               openTime: storePayload.openTime,
               closeTime: storePayload.closeTime,
               status: storePayload.status ?? undefined,
@@ -190,7 +191,7 @@ export const StoresPage: React.FC = () => {
     mutationLock.current = true; setSaving(true);
     try {
       const saved = isAdmin ? await catalogAdministration.storeOperation(store, { status: newStatus })
-        : await storesApi.updateOperation(store.id, { status: newStatus });
+        : await storesApi.updateOperation(store.id, { expectedVersion: store.version, status: newStatus });
       setStores((prev) =>
         prev.map((store) => (store.id === saved.id ? saved : store))
       );

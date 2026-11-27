@@ -63,14 +63,6 @@ public class ProductDto {
         @JsonGetter("name")
         public String getName() { return name; }
 
-        @JsonIgnore
-        public void setName(String name) {
-            this.name = name;
-            if (this.nameI18n == null && name != null) {
-                this.nameI18n = LocalizedText.ofSingle(name);
-            }
-        }
-
         @JsonSetter("name")
         public void setNameFromJson(JsonNode node) {
             LocalizedText parsed = parseLocalizedJson(node);
@@ -136,14 +128,6 @@ public class ProductDto {
 
         @JsonGetter("name")
         public String getName() { return name; }
-
-        @JsonIgnore
-        public void setName(String name) {
-            this.name = name;
-            if (this.nameI18n == null && name != null) {
-                this.nameI18n = LocalizedText.ofSingle(name);
-            }
-        }
 
         @JsonSetter("name")
         public void setNameFromJson(JsonNode node) {
@@ -212,14 +196,6 @@ public class ProductDto {
 
         @JsonGetter("name")
         public String getName() { return name; }
-
-        @JsonIgnore
-        public void setName(String name) {
-            this.name = name;
-            if (this.nameI18n == null && name != null) {
-                this.nameI18n = LocalizedText.ofSingle(name);
-            }
-        }
 
         @JsonSetter("name")
         public void setNameFromJson(JsonNode node) {
@@ -421,8 +397,6 @@ public class ProductDto {
 
         public LocalizedText getName() { return name != null ? name : nameI18n; }
         public void setName(LocalizedText name) { this.name = name; }
-        @JsonIgnore
-        public void setName(String name) { this.name = LocalizedText.ofSingle(name); }
 
         public LocalizedText getNameI18n() { return nameI18n; }
         public void setNameI18n(LocalizedText nameI18n) {
@@ -435,8 +409,6 @@ public class ProductDto {
 
         public LocalizedText getDescription() { return description != null ? description : descriptionI18n; }
         public void setDescription(LocalizedText description) { this.description = description; }
-        @JsonIgnore
-        public void setDescription(String description) { this.description = LocalizedText.ofSingle(description); }
 
         public LocalizedText getDescriptionI18n() { return descriptionI18n; }
         public void setDescriptionI18n(LocalizedText descriptionI18n) {

@@ -32,6 +32,7 @@ public class ProductService {
     private final StoreRepository storeRepository;
     private final StoreProductRepository storeProductRepository;
     private final StoreInventoryRepository storeInventoryRepository;
+    private final LowStockEpisodeRepository lowStockEpisodeRepository;
     private final CloudinaryMediaAdapter mediaAdapter;
     private final CatalogCacheService cacheService;
     private final CatalogEvents events;
@@ -44,6 +45,7 @@ public class ProductService {
                           StoreRepository storeRepository,
                           StoreProductRepository storeProductRepository,
                           StoreInventoryRepository storeInventoryRepository,
+                          LowStockEpisodeRepository lowStockEpisodeRepository,
                           CloudinaryMediaAdapter mediaAdapter,
                           CatalogCacheService cacheService, CatalogEvents events) {
         this.productRepository = productRepository;
@@ -54,6 +56,7 @@ public class ProductService {
         this.storeRepository = storeRepository;
         this.storeProductRepository = storeProductRepository;
         this.storeInventoryRepository = storeInventoryRepository;
+        this.lowStockEpisodeRepository = lowStockEpisodeRepository;
         this.mediaAdapter = mediaAdapter;
         this.cacheService = cacheService;
         this.events = events;
@@ -294,8 +297,14 @@ public class ProductService {
         events.expect("products", id, expectedVersion);
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy món ăn với mã: " + id));
+        if (comboItemRepository.existsByProductId(id)) {
+            throw new ApiException(ErrorCode.RESOURCE_CONFLICT);
+        }
 
         String oldPublicId = product.getImagePublicId();
+        if (lowStockEpisodeRepository != null) {
+            lowStockEpisodeRepository.deleteByProductId(id);
+        }
         storeInventoryRepository.deleteByProductId(id);
         storeProductRepository.deleteByProductId(id);
         productRepository.delete(product);
