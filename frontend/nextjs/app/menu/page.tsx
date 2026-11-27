@@ -117,15 +117,24 @@ function MenuContent() {
       .filter((p) => {
         // Category Filter
         const selectedCat = categories.find((category) => category.id === selectedCategory);
-        const selectedCategoryName = selectedCat
-          ? pickLocalized(selectedCat.nameI18n, selectedCat.name, locale)
-          : undefined;
-        const productCategoryName = pickLocalized(p.categoryNameI18n, p.categoryName ?? p.category, locale);
+        const isComboCategory = (names: (string | undefined | null)[]) =>
+          names.some((n) => {
+            const normalized = n?.trim().toLocaleLowerCase();
+            return normalized === 'combo' || normalized === 'combos';
+          });
+        const isSelectedComboCategory = Boolean(
+          selectedCat &&
+            (selectedCat.id === 3 ||
+              isComboCategory([selectedCat.nameI18n?.vi, selectedCat.nameI18n?.en, selectedCat.name]))
+        );
+        const isComboItem =
+          p.comboItems !== undefined ||
+          p.slug?.startsWith('combo-') ||
+          isComboCategory([p.categoryNameI18n?.vi, p.categoryNameI18n?.en, p.categoryName, p.category]);
         const matchCat =
           selectedCategory === 0 ||
           p.categoryId === selectedCategory ||
-          (selectedCategoryName?.toLocaleLowerCase() === 'combo' &&
-            productCategoryName.toLocaleLowerCase() === 'combo');
+          (isSelectedComboCategory && isComboItem);
         // Search Term (matches both vi and en fields + diacritic-insensitive)
         const matchSearch = matchesBilingualSearch(
           searchTerm,
