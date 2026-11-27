@@ -2,6 +2,7 @@ package com.clucky.catalogstoreservice.service;
 
 import com.clucky.catalogstoreservice.config.LocaleResolverHelper;
 import com.clucky.catalogstoreservice.dto.InventoryDto;
+import com.clucky.catalogstoreservice.dto.LocalizedText;
 import com.clucky.catalogstoreservice.entity.LowStockEpisode;
 import com.clucky.catalogstoreservice.entity.Product;
 import com.clucky.catalogstoreservice.entity.Store;
@@ -82,6 +83,75 @@ public class InventoryService {
         return inventoryList.stream()
                 .map(inv -> toResponse(inv, storeId, storeThreshold, Optional.ofNullable(availabilityByProduct.get(inv.getProduct().getId())), lang))
                 .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public InventoryDto.InventoryAlertSummaryResponse getInventoryAlerts(Long effectiveStoreId, String lang) {
+        List<StoreInventory> records = storeInventoryRepository.findAllWithStoreAndProduct(effectiveStoreId);
+        List<StoreProduct> storeProducts = effectiveStoreId != null
+                ? storeProductRepository.findByStoreId(effectiveStoreId)
+                : storeProductRepository.findAll();
+
+        Map<String, StoreProduct> spMap = storeProducts.stream()
+                .collect(Collectors.toMap(
+                        sp -> sp.getStore().getId() + ":" + sp.getProduct().getId(),
+                        sp -> sp,
+                        (a, b) -> a
+                ));
+
+        long lowStockCount = 0;
+        long outOfStockCount = 0;
+        List<InventoryDto.InventoryAlertItem> alertItems = new java.util.ArrayList<>();
+
+        for (StoreInventory inv : records) {
+            Store store = inv.getStore();
+            if (store.getStatus() != null && "INACTIVE".equalsIgnoreCase(store.getStatus().name())) {
+                continue;
+            }
+            Product product = inv.getProduct();
+            StoreProduct sp = spMap.get(store.getId() + ":" + product.getId());
+            if (sp != null && Boolean.FALSE.equals(sp.getIsAvailable())) {
+                continue;
+            }
+            int qty = inv.getQuantityAvailable() != null ? inv.getQuantityAvailable() : 0;
+            int threshold = store.getLowStockThreshold();
+            boolean soldOut = qty <= 0 || (sp != null && Boolean.TRUE.equals(sp.getIsSoldOut()));
+            boolean lowStock = !soldOut && qty <= threshold;
+
+            if (soldOut) {
+                outOfStockCount++;
+            } else if (lowStock) {
+                lowStockCount++;
+            } else {
+                continue;
+            }
+
+            LocalizedText storeNameI18n = store.getName();
+            LocalizedText productNameI18n = product.getName();
+            alertItems.add(new InventoryDto.InventoryAlertItem(
+                    store.getId(),
+                    storeNameI18n != null ? storeNameI18n.resolve(lang) : "",
+                    storeNameI18n,
+                    product.getId(),
+                    productNameI18n != null ? productNameI18n.resolve(lang) : "",
+                    productNameI18n,
+                    qty,
+                    threshold,
+                    soldOut
+            ));
+        }
+
+        alertItems.sort(java.util.Comparator
+                .comparing((InventoryDto.InventoryAlertItem item) -> Boolean.TRUE.equals(item.isSoldOut()) ? 0 : 1)
+                .thenComparingInt(item -> item.quantityAvailable() != null ? item.quantityAvailable() : 0)
+                .thenComparing(item -> item.storeId() != null ? item.storeId() : 0L)
+                .thenComparing(item -> item.productId() != null ? item.productId() : 0L));
+
+        List<InventoryDto.InventoryAlertItem> topAlerts = alertItems.size() > 8
+                ? alertItems.subList(0, 8)
+                : alertItems;
+
+        return new InventoryDto.InventoryAlertSummaryResponse(lowStockCount, outOfStockCount, topAlerts);
     }
 
     public InventoryDto.InventoryResponse updateInventory(

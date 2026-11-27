@@ -1,6 +1,7 @@
 package com.clucky.reviewreportservice.service;
 
 import com.clucky.reviewreportservice.dto.DailyStoreStatsResponse;
+import com.clucky.reviewreportservice.dto.ItemRevenueReportResponse;
 import com.clucky.reviewreportservice.dto.RevenueReportResponse;
 import com.clucky.reviewreportservice.exception.ApiException;
 import com.clucky.reviewreportservice.exception.ErrorCode;
@@ -365,6 +366,144 @@ public class ReportExportService {
             }
         }
 
+        return out.toByteArray();
+    }
+
+    public byte[] exportItemsToExcel(ItemRevenueReportResponse report) throws IOException {
+        List<ItemRevenueReportResponse.ItemRevenueEntry> items = report.items() != null ? report.items() : List.of();
+        if (items.size() > MAX_EXPORT_ROWS) {
+            throw new ApiException(ErrorCode.REQUEST_TOO_LARGE);
+        }
+        String[] headers = {
+                "STT", "Loại", "Mã món/Combo", "Tên món", "Số lượng bán",
+                "Số đơn hàng", "Số chi nhánh bán", "Doanh thu gộp (VND)", "Doanh thu sau giảm giá (VND)", "Tỷ trọng (%)"
+        };
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("Doanh Thu Theo Mon");
+            CellStyle headerStyle = workbook.createCellStyle();
+            org.apache.poi.ss.usermodel.Font headerFont = workbook.createFont();
+            headerFont.setBold(true);
+            headerStyle.setFont(headerFont);
+            headerStyle.setFillForegroundColor(IndexedColors.GREY_25_PERCENT.getIndex());
+            headerStyle.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+            headerStyle.setAlignment(HorizontalAlignment.CENTER);
+            applyThinBorders(headerStyle);
+
+            DataFormat dataFormat = workbook.createDataFormat();
+            CellStyle numberStyle = workbook.createCellStyle();
+            numberStyle.setDataFormat(dataFormat.getFormat("#,##0"));
+            numberStyle.setAlignment(HorizontalAlignment.RIGHT);
+            applyThinBorders(numberStyle);
+
+            CellStyle textStyle = workbook.createCellStyle();
+            applyThinBorders(textStyle);
+
+            CellStyle centerStyle = workbook.createCellStyle();
+            centerStyle.setAlignment(HorizontalAlignment.CENTER);
+            applyThinBorders(centerStyle);
+
+            Row titleRow = sheet.createRow(0);
+            titleRow.createCell(0).setCellValue(sanitizeText("BÁO CÁO DOANH THU THEO MÓN & COMBO CLUCKY"));
+            Row subRow = sheet.createRow(1);
+            String scope = report.storeId() == null ? "Toàn chuỗi" : "Quán #" + report.storeId();
+            subRow.createCell(0).setCellValue(sanitizeText("Kỳ: " + report.from().format(DATE_FMT) + " - " + report.to().format(DATE_FMT) + " | Phạm vi: " + scope));
+
+            Row headerRow = sheet.createRow(3);
+            int[] maxChars = new int[headers.length];
+            for (int i = 0; i < headers.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(sanitizeText(headers[i]));
+                cell.setCellStyle(headerStyle);
+                maxChars[i] = headers[i].length();
+            }
+
+            int rowIdx = 4;
+            int stt = 1;
+            for (var item : items) {
+                Row row = sheet.createRow(rowIdx++);
+                Cell c0 = row.createCell(0); c0.setCellValue(stt++); c0.setCellStyle(centerStyle);
+                Cell c1 = row.createCell(1); c1.setCellValue(sanitizeText(item.itemType())); c1.setCellStyle(centerStyle);
+                Cell c2 = row.createCell(2); c2.setCellValue(item.itemRefId() != null ? item.itemRefId() : 0L); c2.setCellStyle(centerStyle);
+                Cell c3 = row.createCell(3);
+                String name = sanitizeText(item.itemName());
+                c3.setCellValue(name);
+                c3.setCellStyle(textStyle);
+                maxChars[3] = Math.max(maxChars[3], name.length());
+                Cell c4 = row.createCell(4); c4.setCellValue(item.quantitySold()); c4.setCellStyle(numberStyle);
+                Cell c5 = row.createCell(5); c5.setCellValue(item.orderCount()); c5.setCellStyle(numberStyle);
+                Cell c6 = row.createCell(6); c6.setCellValue(item.storeCount()); c6.setCellStyle(centerStyle);
+                setCurrencyCell(row, 7, item.grossRevenue(), numberStyle, maxChars);
+                setCurrencyCell(row, 8, item.allocatedNetRevenue(), numberStyle, maxChars);
+                Cell c9 = row.createCell(9); c9.setCellValue(item.revenueSharePct() + "%"); c9.setCellStyle(centerStyle);
+            }
+
+            for (int i = 0; i < headers.length; i++) {
+                sheet.setColumnWidth(i, Math.min(42, Math.max(12, maxChars[i] + 4)) * 256);
+            }
+            workbook.write(out);
+            return out.toByteArray();
+        }
+    }
+
+    public byte[] exportItemsToPdf(ItemRevenueReportResponse report) {
+        List<ItemRevenueReportResponse.ItemRevenueEntry> items = report.items() != null ? report.items() : List.of();
+        if (items.size() > MAX_EXPORT_ROWS) {
+            throw new ApiException(ErrorCode.REQUEST_TOO_LARGE);
+        }
+        String[] headers = {"STT", "Loại", "Tên món", "SL bán", "Số đơn", "Doanh thu gộp", "Sau giảm giá", "Tỷ trọng"};
+        Document document = new Document(PageSize.A4.rotate(), 24, 24, 28, 28);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            PdfWriter.getInstance(document, out);
+            document.open();
+            Font titleFont = Liberation.SANS_BOLD.create(15); titleFont.setColor(CLUCKY_BURGUNDY);
+            Font subFont = Liberation.SANS_ITALIC.create(9); subFont.setColor(CLUCKY_MUTED);
+            Font headerFont = Liberation.SANS_BOLD.create(8); headerFont.setColor(Color.WHITE);
+            Font dataFont = Liberation.SANS.create(8); dataFont.setColor(CLUCKY_DARK);
+            Font boldFont = Liberation.SANS_BOLD.create(8); boldFont.setColor(CLUCKY_DARK);
+
+            Paragraph title = new Paragraph(sanitizeText("BÁO CÁO DOANH THU THEO MÓN & COMBO CLUCKY"), titleFont);
+            title.setAlignment(Element.ALIGN_CENTER);
+            title.setSpacingAfter(4f);
+            document.add(title);
+
+            String scope = report.storeId() == null ? "Toàn chuỗi" : "Quán #" + report.storeId();
+            Paragraph subtitle = new Paragraph(sanitizeText(
+                    "Kỳ: " + report.from().format(DATE_FMT) + " đến " + report.to().format(DATE_FMT) + " | Phạm vi: " + scope), subFont);
+            subtitle.setAlignment(Element.ALIGN_CENTER);
+            subtitle.setSpacingAfter(10f);
+            document.add(subtitle);
+
+            PdfPTable table = new PdfPTable(new float[]{1.0f, 1.8f, 4.8f, 1.6f, 1.6f, 2.8f, 2.8f, 1.6f});
+            table.setWidthPercentage(100f);
+            table.setHeaderRows(1);
+            for (String h : headers) {
+                PdfPCell cell = new PdfPCell(new Phrase(sanitizeText(h), headerFont));
+                cell.setBackgroundColor(CLUCKY_DARK);
+                cell.setBorderColor(CLUCKY_BORDER);
+                cell.setHorizontalAlignment(Element.ALIGN_CENTER);
+                cell.setPadding(5f);
+                table.addCell(cell);
+            }
+            int stt = 1;
+            for (var item : items) {
+                addPdfCell(table, String.valueOf(stt++), dataFont, Element.ALIGN_CENTER);
+                addPdfCell(table, item.itemType(), dataFont, Element.ALIGN_CENTER);
+                addPdfCell(table, item.itemName(), dataFont, Element.ALIGN_LEFT);
+                addPdfCell(table, CURRENCY_FMT.format(item.quantitySold()), dataFont, Element.ALIGN_RIGHT);
+                addPdfCell(table, CURRENCY_FMT.format(item.orderCount()), dataFont, Element.ALIGN_RIGHT);
+                addPdfCell(table, formatCurrency(item.grossRevenue()), dataFont, Element.ALIGN_RIGHT);
+                addPdfCell(table, formatCurrency(item.allocatedNetRevenue()), boldFont, Element.ALIGN_RIGHT);
+                addPdfCell(table, item.revenueSharePct() + "%", dataFont, Element.ALIGN_RIGHT);
+            }
+            document.add(table);
+        } catch (ApiException apiEx) {
+            throw apiEx;
+        } catch (Exception e) {
+            throw new RuntimeException("Lỗi kết xuất PDF theo món: " + e.getMessage(), e);
+        } finally {
+            if (document.isOpen()) document.close();
+        }
         return out.toByteArray();
     }
 

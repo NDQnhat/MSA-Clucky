@@ -1,5 +1,7 @@
 package com.clucky.reviewreportservice.client;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 
 public interface OrderServiceClient {
@@ -28,7 +30,38 @@ public interface OrderServiceClient {
         Long storeId
     ) {}
 
+    record BackfillOrderDto(
+        Long orderId,
+        String orderCode,
+        Long storeId,
+        String status,
+        String paymentMethod,
+        String collectionMethod,
+        String orderSource,
+        String type,
+        BigDecimal subtotal,
+        BigDecimal discountAmount,
+        BigDecimal pointsAmount,
+        BigDecimal totalAmount,
+        BigDecimal collectedCash,
+        BigDecimal declaredTransfer,
+        Instant completedAt,
+        List<BackfillOrderItemDto> items
+    ) {
+        public record BackfillOrderItemDto(
+            Long id,
+            String itemType,
+            Long productId,
+            Long comboId,
+            com.clucky.reviewreportservice.dto.LocalizedText itemName,
+            Integer quantity,
+            BigDecimal lineTotal
+        ) {}
+    }
+
     OrderVerificationDto getOrderForReview(Long orderId, Long customerId);
 
     Long getOrderStoreId(Long orderId);
+
+    List<BackfillOrderDto> getCompletedOrdersForBackfill(long afterOrderId, int limit);
 }

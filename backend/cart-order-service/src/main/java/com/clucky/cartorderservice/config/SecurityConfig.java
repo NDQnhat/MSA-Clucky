@@ -98,6 +98,10 @@ public class SecurityConfig {
                                     && "INTERNAL_SERVICE".equals(token.getToken().getClaimAsString("role"))
                                     && ("catalog-store-service".equals(token.getToken().getClaimAsString("service"))
                                         || "cart-order-service".equals(token.getToken().getClaimAsString("service")))));
+                    auth.requestMatchers(HttpMethod.GET, "/internal/orders/report-backfill").access((authentication, context) ->
+                            new AuthorizationDecision(authentication.get() instanceof JwtAuthenticationToken token
+                                    && "INTERNAL_SERVICE".equals(token.getToken().getClaimAsString("role"))
+                                    && "review-report-service".equals(token.getToken().getClaimAsString("service"))));
                     auth.requestMatchers("/internal/**", "/api/payments/webhook/**").denyAll();
                     auth.anyRequest().authenticated();
                 })

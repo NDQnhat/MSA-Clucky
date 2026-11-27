@@ -140,4 +140,22 @@ public class InventoryDto {
         public Boolean getIsSoldOut() { return isSoldOut; }
         public void setIsSoldOut(Boolean isSoldOut) { this.isSoldOut = isSoldOut; }
     }
+
+    public record InventoryAlertItem(
+            Long storeId,
+            String storeName,
+            LocalizedText storeNameI18n,
+            Long productId,
+            String productName,
+            LocalizedText productNameI18n,
+            Integer quantityAvailable,
+            Integer lowStockThreshold,
+            Boolean isSoldOut
+    ) {}
+
+    public record InventoryAlertSummaryResponse(
+            long lowStockCount,
+            long outOfStockCount,
+            java.util.List<InventoryAlertItem> alerts
+    ) {}
 }

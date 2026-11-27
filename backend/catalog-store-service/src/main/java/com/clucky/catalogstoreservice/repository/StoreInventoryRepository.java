@@ -21,6 +21,9 @@ public interface StoreInventoryRepository extends JpaRepository<StoreInventory, 
     @Query("SELECT si FROM StoreInventory si JOIN FETCH si.product p JOIN FETCH p.category WHERE si.store.id = :storeId")
     List<StoreInventory> findByStoreIdWithProductAndCategory(@Param("storeId") Long storeId);
 
+    @Query("SELECT si FROM StoreInventory si JOIN FETCH si.store s JOIN FETCH si.product p WHERE (:storeId IS NULL OR s.id = :storeId) AND p.isActive = true")
+    List<StoreInventory> findAllWithStoreAndProduct(@Param("storeId") Long storeId);
+
     List<StoreInventory> findByStoreId(Long storeId);
 
     void deleteByProductId(Long productId);

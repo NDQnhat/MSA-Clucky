@@ -49,6 +49,30 @@ public class DailyStoreStats {
     @Column(name = "expired_receipt_amount", nullable = false, precision = 12, scale = 0)
     private BigDecimal expiredReceiptAmount = BigDecimal.ZERO;
 
+    @Column(name = "cancelled_order_count", nullable = false)
+    private Integer cancelledOrderCount = 0;
+
+    @Column(name = "cancelled_amount", nullable = false, precision = 12, scale = 0)
+    private BigDecimal cancelledAmount = BigDecimal.ZERO;
+
+    @Column(name = "total_discount_amount", nullable = false, precision = 12, scale = 0)
+    private BigDecimal totalDiscountAmount = BigDecimal.ZERO;
+
+    @Column(name = "total_points_amount", nullable = false, precision = 12, scale = 0)
+    private BigDecimal totalPointsAmount = BigDecimal.ZERO;
+
+    @Column(name = "delivery_order_count", nullable = false)
+    private Integer deliveryOrderCount = 0;
+
+    @Column(name = "pickup_order_count", nullable = false)
+    private Integer pickupOrderCount = 0;
+
+    @Column(name = "web_order_count", nullable = false)
+    private Integer webOrderCount = 0;
+
+    @Column(name = "counter_order_count", nullable = false)
+    private Integer counterOrderCount = 0;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
@@ -155,6 +179,70 @@ public class DailyStoreStats {
 
     public void setExpiredReceiptAmount(BigDecimal expiredReceiptAmount) {
         this.expiredReceiptAmount = expiredReceiptAmount;
+    }
+
+    public Integer getCancelledOrderCount() {
+        return cancelledOrderCount;
+    }
+
+    public void setCancelledOrderCount(Integer cancelledOrderCount) {
+        this.cancelledOrderCount = cancelledOrderCount;
+    }
+
+    public BigDecimal getCancelledAmount() {
+        return cancelledAmount;
+    }
+
+    public void setCancelledAmount(BigDecimal cancelledAmount) {
+        this.cancelledAmount = cancelledAmount;
+    }
+
+    public BigDecimal getTotalDiscountAmount() {
+        return totalDiscountAmount;
+    }
+
+    public void setTotalDiscountAmount(BigDecimal totalDiscountAmount) {
+        this.totalDiscountAmount = totalDiscountAmount;
+    }
+
+    public BigDecimal getTotalPointsAmount() {
+        return totalPointsAmount;
+    }
+
+    public void setTotalPointsAmount(BigDecimal totalPointsAmount) {
+        this.totalPointsAmount = totalPointsAmount;
+    }
+
+    public Integer getDeliveryOrderCount() {
+        return deliveryOrderCount;
+    }
+
+    public void setDeliveryOrderCount(Integer deliveryOrderCount) {
+        this.deliveryOrderCount = deliveryOrderCount;
+    }
+
+    public Integer getPickupOrderCount() {
+        return pickupOrderCount;
+    }
+
+    public void setPickupOrderCount(Integer pickupOrderCount) {
+        this.pickupOrderCount = pickupOrderCount;
+    }
+
+    public Integer getWebOrderCount() {
+        return webOrderCount;
+    }
+
+    public void setWebOrderCount(Integer webOrderCount) {
+        this.webOrderCount = webOrderCount;
+    }
+
+    public Integer getCounterOrderCount() {
+        return counterOrderCount;
+    }
+
+    public void setCounterOrderCount(Integer counterOrderCount) {
+        this.counterOrderCount = counterOrderCount;
     }
 
     public Instant getUpdatedAt() {

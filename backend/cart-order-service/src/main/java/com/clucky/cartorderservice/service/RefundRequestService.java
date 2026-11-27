@@ -40,6 +40,11 @@ public class RefundRequestService {
         this.profiles = profiles;
     }
 
+    @Transactional(readOnly = true)
+    public long countOpenRefundRequests(Long storeId) {
+        return refunds.countOpen(storeId);
+    }
+
     private CurrentActor role(boolean customerAllowed) {
         var actor = CurrentActor.require();
         if (actor.role() != Role.ADMIN && actor.role() != Role.STORE_MANAGER

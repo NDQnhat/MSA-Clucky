@@ -2,7 +2,9 @@ package com.clucky.reviewreportservice.client;
 
 import com.clucky.reviewreportservice.exception.ApiException;
 import com.clucky.reviewreportservice.exception.ErrorCode;
+import com.clucky.reviewreportservice.service.InternalServiceCredential;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -16,12 +18,19 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.util.List;
+
 @Component
 public class RestOrderServiceClient implements OrderServiceClient {
     private final RestTemplate restTemplate;
+    private final InternalServiceCredential internalCredential;
 
-    public RestOrderServiceClient(@Qualifier("orderRestTemplate") RestTemplate restTemplate) {
+    public RestOrderServiceClient(
+            @Qualifier("orderRestTemplate") RestTemplate restTemplate,
+            InternalServiceCredential internalCredential
+    ) {
         this.restTemplate = restTemplate;
+        this.internalCredential = internalCredential;
     }
 
     @Override
@@ -40,6 +49,27 @@ public class RestOrderServiceClient implements OrderServiceClient {
             throw new ApiException(ErrorCode.UPSTREAM_ERROR);
         }
         return order.storeId();
+    }
+
+    @Override
+    public List<BackfillOrderDto> getCompletedOrdersForBackfill(long afterOrderId, int limit) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(internalCredential.token());
+        try {
+            List<BackfillOrderDto> result = restTemplate.exchange(
+                    "http://cart-order-service/internal/orders/report-backfill?afterOrderId={afterOrderId}&limit={limit}",
+                    HttpMethod.GET,
+                    new HttpEntity<>(headers),
+                    new ParameterizedTypeReference<List<BackfillOrderDto>>() {},
+                    afterOrderId,
+                    limit
+            ).getBody();
+            return result != null ? result : List.of();
+        } catch (ResourceAccessException | HttpServerErrorException.ServiceUnavailable | IllegalStateException failure) {
+            throw new ApiException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        } catch (RestClientException failure) {
+            throw new ApiException(ErrorCode.UPSTREAM_ERROR);
+        }
     }
 
     private <Response> Response get(String path, Class<Response> responseType, Object... parameters) {

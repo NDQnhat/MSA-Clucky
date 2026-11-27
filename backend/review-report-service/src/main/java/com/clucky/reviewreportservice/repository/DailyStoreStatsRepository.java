@@ -68,4 +68,38 @@ public interface DailyStoreStatsRepository extends JpaRepository<DailyStoreStats
             @Param("excessDelta") BigDecimal excessDelta,
             @Param("expiredReceiptDelta") BigDecimal expiredReceiptDelta
     );
+
+    @Modifying
+    @Query(value = """
+        INSERT INTO review_report_service.daily_store_stats
+            (store_id, stat_date, order_count, revenue, cod_amount, transfer_amount,
+             cancelled_order_count, cancelled_amount, total_discount_amount, total_points_amount,
+             delivery_order_count, pickup_order_count, web_order_count, counter_order_count, updated_at)
+        VALUES (:storeId, :statDate, 0, 0, 0, 0,
+                :cancelledCountDelta, :cancelledAmountDelta, :discountDelta, :pointsDelta,
+                :deliveryDelta, :pickupDelta, :webDelta, :counterDelta, now())
+        ON CONFLICT (store_id, stat_date)
+        DO UPDATE SET
+            cancelled_order_count = review_report_service.daily_store_stats.cancelled_order_count + EXCLUDED.cancelled_order_count,
+            cancelled_amount = review_report_service.daily_store_stats.cancelled_amount + EXCLUDED.cancelled_amount,
+            total_discount_amount = review_report_service.daily_store_stats.total_discount_amount + EXCLUDED.total_discount_amount,
+            total_points_amount = review_report_service.daily_store_stats.total_points_amount + EXCLUDED.total_points_amount,
+            delivery_order_count = review_report_service.daily_store_stats.delivery_order_count + EXCLUDED.delivery_order_count,
+            pickup_order_count = review_report_service.daily_store_stats.pickup_order_count + EXCLUDED.pickup_order_count,
+            web_order_count = review_report_service.daily_store_stats.web_order_count + EXCLUDED.web_order_count,
+            counter_order_count = review_report_service.daily_store_stats.counter_order_count + EXCLUDED.counter_order_count,
+            updated_at = now()
+        """, nativeQuery = true)
+    int upsertBreakdownDelta(
+            @Param("storeId") Long storeId,
+            @Param("statDate") LocalDate statDate,
+            @Param("cancelledCountDelta") int cancelledCountDelta,
+            @Param("cancelledAmountDelta") BigDecimal cancelledAmountDelta,
+            @Param("discountDelta") BigDecimal discountDelta,
+            @Param("pointsDelta") BigDecimal pointsDelta,
+            @Param("deliveryDelta") int deliveryDelta,
+            @Param("pickupDelta") int pickupDelta,
+            @Param("webDelta") int webDelta,
+            @Param("counterDelta") int counterDelta
+    );
 }

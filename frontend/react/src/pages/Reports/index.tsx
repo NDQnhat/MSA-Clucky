@@ -8,6 +8,8 @@ import {
   DatePicker,
   Empty,
   Flex,
+  Input,
+  Progress,
   Result,
   Row,
   Segmented,
@@ -16,6 +18,7 @@ import {
   Space,
   Statistic,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -29,11 +32,14 @@ import {
   DollarOutlined,
   FileExcelOutlined,
   FilePdfOutlined,
+  FireOutlined,
   PieChartOutlined,
   ReloadOutlined,
   RiseOutlined,
+  SearchOutlined,
   ShopOutlined,
   ShoppingOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -42,13 +48,20 @@ import { PageIntro } from '../Dashboard';
 import { useAuth } from '../../context/AuthContext';
 import { useLocaleTools } from '../../i18n/hooks';
 import { getBrowserLocale, getErrorMessage } from '../../i18n/core';
+import { pickLocalized } from '../../lib/bilingual';
 import {
   reportsApi,
   storesApi,
   type DailyStoreStatsItem,
+  type ItemRevenueEntry,
+  type ItemRevenueReportResponse,
   type RevenueReportResponse,
   type Store,
 } from '../../lib/api';
+import {
+  ItemStoreBreakdownDrawer,
+  type SelectedReportItem,
+} from '../../components/reports/ItemStoreBreakdownDrawer';
 
 const { RangePicker } = DatePicker;
 const { Text } = Typography;
@@ -79,7 +92,7 @@ function triggerFileDownload(blob: Blob, filename: string) {
 
 export const ReportsPage: React.FC = () => {
   const { t } = useTranslation();
-  const { money, number, date } = useLocaleTools();
+  const { money, number, date, locale } = useLocaleTools();
   const { user, isAdmin } = useAuth();
 
   const isStaff = user.role === 'STAFF';
@@ -87,6 +100,7 @@ export const ReportsPage: React.FC = () => {
   const managerStoreId = isManager && user.storeId && user.storeId > 0 ? user.storeId : null;
   const managerMissingStore = isManager && !managerStoreId;
 
+  const [activeTab, setActiveTab] = useState<'stores' | 'items'>('stores');
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>(() => {
     const today = getVietnamTodayDayjs();
     return [today.startOf('month'), today];
@@ -98,12 +112,18 @@ export const ReportsPage: React.FC = () => {
   });
 
   const [chartView, setChartView] = useState<'revenue' | 'orders'>('revenue');
+  const [itemTypeFilter, setItemTypeFilter] = useState<'ALL' | 'PRODUCT' | 'COMBO'>('ALL');
+  const [itemSortBy, setItemSortBy] = useState<'revenue' | 'quantity'>('revenue');
+  const [itemKeyword, setItemKeyword] = useState('');
   const [report, setReport] = useState<RevenueReportResponse | null>(null);
+  const [itemReport, setItemReport] = useState<ItemRevenueReportResponse | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [storeError, setStoreError] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [exportingFormat, setExportingFormat] = useState<'xlsx' | 'pdf' | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
+  const [drawerItem, setDrawerItem] = useState<SelectedReportItem | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
   const loadedScope = useRef('');
   useEffect(() => {
@@ -172,6 +192,19 @@ export const ReportsPage: React.FC = () => {
         },
         controller.signal
       ),
+      reportsApi
+        .getItemRevenue(
+          {
+            storeId: effectiveStoreId,
+            from: fromIso,
+            to: toIso,
+            itemType: itemTypeFilter,
+            sortBy: itemSortBy,
+            limit: 200,
+          },
+          controller.signal
+        )
+        .catch(() => null),
       storesApi.list(isAdmin ? false : undefined, controller.signal).then(result => {
         if (!controller.signal.aborted) setStoreError('');
         return result;
@@ -180,9 +213,10 @@ export const ReportsPage: React.FC = () => {
         return [] as Store[];
       }),
     ])
-      .then(([revData, storeList]) => {
+      .then(([revData, itemData, storeList]) => {
         if (controller.signal.aborted) return;
         setReport(revData);
+        setItemReport(itemData);
         if (Array.isArray(storeList)) {
           setStores(storeList);
         }
@@ -198,15 +232,15 @@ export const ReportsPage: React.FC = () => {
       });
 
     return () => controller.abort();
-  }, [effectiveStoreId, fromIso, isAdmin, isRangeTooLarge, isStaff, managerMissingStore, reloadNonce, t, toIso, user.id, user.role]);
+  }, [effectiveStoreId, fromIso, isAdmin, isRangeTooLarge, isStaff, itemSortBy, itemTypeFilter, managerMissingStore, reloadNonce, t, toIso, user.id, user.role]);
 
   const storeNameMap = useMemo(() => {
     const map = new Map<number, string>();
     for (const store of stores) {
-      map.set(store.id, store.name);
+      map.set(store.id, pickLocalized(store.nameI18n, store.name, locale));
     }
     return map;
-  }, [stores]);
+  }, [locale, stores]);
 
   const resolveStoreName = useCallback(
     (storeId: number) =>
@@ -225,10 +259,24 @@ export const ReportsPage: React.FC = () => {
       { value: 'ALL', label: t('business:stores.allStores') },
     ];
     for (const store of stores) {
-      opts.push({ value: store.id, label: store.name });
+      opts.push({ value: store.id, label: pickLocalized(store.nameI18n, store.name, locale) });
     }
     return opts;
-  }, [isManager, managerStoreId, resolveStoreName, stores, t]);
+  }, [isManager, locale, managerStoreId, resolveStoreName, stores, t]);
+
+  const handleBackfill = async () => {
+    if (!isAdmin || backfilling) return;
+    setBackfilling(true);
+    try {
+      const res = await reportsApi.backfillItems();
+      message.success(t('business:dashboard.backfillSuccess', { value1: number(res.processedOrders) }));
+      setReloadNonce((n) => n + 1);
+    } catch (error: unknown) {
+      message.error(getErrorMessage(error, getBrowserLocale()));
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   const handleExport = async (format: 'xlsx' | 'pdf') => {
     if (isStaff || managerMissingStore || isRangeTooLarge || loading || !report || exportingFormat) {
@@ -246,15 +294,27 @@ export const ReportsPage: React.FC = () => {
     });
 
     try {
-      const result = await reportsApi.exportReport(
-        {
-          format,
-          storeId: effectiveStoreId,
-          from: fromIso,
-          to: toIso,
-        },
-        controller.signal
-      );
+      const result =
+        activeTab === 'items'
+          ? await reportsApi.exportItemReport(
+              {
+                format,
+                storeId: effectiveStoreId,
+                from: fromIso,
+                to: toIso,
+                itemType: itemTypeFilter,
+              },
+              controller.signal
+            )
+          : await reportsApi.exportReport(
+              {
+                format,
+                storeId: effectiveStoreId,
+                from: fromIso,
+                to: toIso,
+              },
+              controller.signal
+            );
       if (controller.signal.aborted) return;
       triggerFileDownload(result.blob, result.filename);
       message.success({
@@ -554,18 +614,28 @@ export const ReportsPage: React.FC = () => {
                 />
               </Space>
 
-              {!isAdmin && <Button
+              <Button
                 icon={<ReloadOutlined />}
                 onClick={() => setReloadNonce((n) => n + 1)}
                 loading={loading}
               >
                 {t('business:dashboard.refresh')}
-              </Button>}
+              </Button>
             </Flex>
           </Col>
 
           <Col xs={24} lg={8}>
             <Flex justify="end" gap={8} wrap="wrap">
+              {isAdmin && activeTab === 'items' && (
+                <Button
+                  icon={<SyncOutlined />}
+                  onClick={() => void handleBackfill()}
+                  loading={backfilling}
+                  style={{ height: 40, borderRadius: 10 }}
+                >
+                  {t('business:dashboard.syncHistoricalItems')}
+                </Button>
+              )}
               <Button
                 icon={<FileExcelOutlined style={{ color: '#1E7A46' }} />}
                 onClick={() => void handleExport('xlsx')}
@@ -626,7 +696,20 @@ export const ReportsPage: React.FC = () => {
       ) : !report ? (
         <Empty description={t("admin:ui.noReportDataForTheCurrentFilters")} />
       ) : (
-        <>
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => setActiveTab(k as 'stores' | 'items')}
+          items={[
+            {
+              key: 'stores',
+              label: (
+                <Space>
+                  <BarChartOutlined />
+                  <span>{t('business:reports.tabStoreDaily')}</span>
+                </Space>
+              ),
+              children: (
+                <>
           <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
             <Col xs={24} sm={12} xl={6}>
               <Card style={{ background: '#FFFAF3', border: '1px solid #E8E2D9', borderRadius: 16 }}>
@@ -918,8 +1001,247 @@ export const ReportsPage: React.FC = () => {
               scroll={{ x: 1320 }}
             />
           </Card>
-        </>
+                </>
+              ),
+            },
+            {
+              key: 'items',
+              label: (
+                <Space>
+                  <FireOutlined />
+                  <span>{t('business:reports.tabItemRevenue')}</span>
+                </Space>
+              ),
+              children: (() => {
+                const rawItemRows = itemReport?.items ?? [];
+                const q = itemKeyword.trim().toLowerCase();
+                const filteredItemRows = q
+                  ? rawItemRows.filter((row) => {
+                      const vi = (row.itemNameI18n?.vi ?? row.itemName ?? '').toLowerCase();
+                      const en = (row.itemNameI18n?.en ?? row.itemName ?? '').toLowerCase();
+                      return vi.includes(q) || en.includes(q);
+                    })
+                  : rawItemRows;
+
+                const itemCols: TableColumnsType<ItemRevenueEntry> = [
+                  {
+                    title: t('business:reports.itemTypeCol'),
+                    dataIndex: 'itemType',
+                    key: 'itemType',
+                    width: 100,
+                    render: (val: string) => (
+                      <Tag color={val === 'COMBO' ? 'gold' : 'volcano'} variant="filled">
+                        {val === 'COMBO'
+                          ? t('business:dashboard.combosOnly')
+                          : t('business:dashboard.singleProducts')}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    title: t('business:reports.itemNameCol'),
+                    dataIndex: 'itemName',
+                    key: 'itemName',
+                    render: (_val: string, record: ItemRevenueEntry) => (
+                      <Text strong style={{ color: '#16100D' }}>
+                        {pickLocalized(record.itemNameI18n, record.itemName, locale)}
+                      </Text>
+                    ),
+                  },
+                  {
+                    title: t('business:dashboard.quantitySold'),
+                    dataIndex: 'quantitySold',
+                    key: 'quantitySold',
+                    align: 'right',
+                    width: 120,
+                    render: (val: number) => <Text strong>{number(val)}</Text>,
+                  },
+                  {
+                    title: t('business:reports.orderCount'),
+                    dataIndex: 'orderCount',
+                    key: 'orderCount',
+                    align: 'right',
+                    width: 110,
+                    render: (val: number) => <span>{number(val)}</span>,
+                  },
+                  {
+                    title: t('business:reports.storesSellingCol'),
+                    dataIndex: 'storeCount',
+                    key: 'storeCount',
+                    align: 'center',
+                    width: 120,
+                    render: (val: number) => <Tag>{number(val)}</Tag>,
+                  },
+                  {
+                    title: t('business:reports.itemGrossRevenueCol'),
+                    dataIndex: 'grossRevenue',
+                    key: 'grossRevenue',
+                    align: 'right',
+                    width: 160,
+                    render: (val: number) => (
+                      <Text strong style={{ color: '#8F1216', fontFamily: 'Baloo 2, sans-serif' }}>
+                        {money(Number(val || 0))}
+                      </Text>
+                    ),
+                  },
+                  {
+                    title: t('business:reports.itemAllocatedNetCol'),
+                    dataIndex: 'allocatedNetRevenue',
+                    key: 'allocatedNetRevenue',
+                    align: 'right',
+                    width: 160,
+                    render: (val: number) => (
+                      <Text strong style={{ color: '#1E7A46' }}>
+                        {money(Number(val || 0))}
+                      </Text>
+                    ),
+                  },
+                  {
+                    title: t('business:reports.shareCol'),
+                    dataIndex: 'revenueSharePct',
+                    key: 'revenueSharePct',
+                    width: 140,
+                    render: (pct: number) => (
+                      <Progress
+                        percent={Math.min(100, Math.round(pct))}
+                        size="small"
+                        strokeColor="#8F1216"
+                        format={() => `${pct}%`}
+                      />
+                    ),
+                  },
+                  {
+                    title: '',
+                    key: 'inspect',
+                    width: 120,
+                    align: 'right',
+                    render: (_val: unknown, record: ItemRevenueEntry) => (
+                      <Button
+                        size="small"
+                        onClick={() =>
+                          setDrawerItem({
+                            itemType: record.itemType,
+                            itemRefId: record.itemRefId,
+                            itemName: record.itemName,
+                            itemNameI18n: record.itemNameI18n,
+                          })
+                        }
+                      >
+                        {t('business:reports.inspectByStore')}
+                      </Button>
+                    ),
+                  },
+                ];
+
+                return (
+                  <>
+                    <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                      <Col xs={24} sm={12} xl={6}>
+                        <Card style={{ background: '#FFFAF3', border: '1px solid #E8E2D9', borderRadius: 16 }}>
+                          <Statistic
+                            title={t('business:reports.totalDistinctItems')}
+                            value={number(itemReport?.totalDistinctItems ?? 0)}
+                          />
+                        </Card>
+                      </Col>
+                      <Col xs={24} sm={12} xl={6}>
+                        <Card style={{ background: '#FFFAF3', border: '1px solid #E8E2D9', borderRadius: 16 }}>
+                          <Statistic
+                            title={t('business:reports.totalUnitsSold')}
+                            value={number(itemReport?.totalQuantitySold ?? 0)}
+                          />
+                        </Card>
+                      </Col>
+                      <Col xs={24} sm={12} xl={6}>
+                        <Card style={{ background: '#FFFAF3', border: '1px solid #E8E2D9', borderRadius: 16 }}>
+                          <Statistic
+                            title={t('business:reports.itemGrossRevenueCol')}
+                            value={money(Number(itemReport?.totalGrossRevenue ?? 0))}
+                            styles={{ content: { color: '#8F1216', fontFamily: 'Baloo 2, sans-serif' } }}
+                          />
+                        </Card>
+                      </Col>
+                      <Col xs={24} sm={12} xl={6}>
+                        <Card style={{ background: '#FFFAF3', border: '1px solid #E8E2D9', borderRadius: 16 }}>
+                          <Statistic
+                            title={t('business:reports.itemAllocatedNetCol')}
+                            value={money(Number(itemReport?.totalAllocatedNetRevenue ?? 0))}
+                            styles={{ content: { color: '#1E7A46', fontFamily: 'Baloo 2, sans-serif' } }}
+                          />
+                        </Card>
+                      </Col>
+                    </Row>
+
+                    <Card
+                      style={{
+                        borderRadius: 20,
+                        background: '#FFFAF3',
+                        border: '1px solid #E8E2D9',
+                      }}
+                    >
+                      <Flex justify="space-between" align="center" wrap="wrap" gap={12} style={{ marginBottom: 14 }}>
+                        <Flex gap={10} wrap="wrap" align="center">
+                          <Segmented
+                            value={itemTypeFilter}
+                            onChange={(val) => setItemTypeFilter(val as 'ALL' | 'PRODUCT' | 'COMBO')}
+                            options={[
+                              { value: 'ALL', label: t('business:dashboard.allItems') },
+                              { value: 'PRODUCT', label: t('business:dashboard.singleProducts') },
+                              { value: 'COMBO', label: t('business:dashboard.combosOnly') },
+                            ]}
+                          />
+                          <Segmented
+                            value={itemSortBy}
+                            onChange={(val) => setItemSortBy(val as 'revenue' | 'quantity')}
+                            options={[
+                              { value: 'revenue', label: t('business:dashboard.sortByRevenue') },
+                              { value: 'quantity', label: t('business:dashboard.sortByQuantity') },
+                            ]}
+                          />
+                        </Flex>
+                        <Input
+                          allowClear
+                          prefix={<SearchOutlined style={{ color: '#6B6259' }} />}
+                          placeholder={t('business:reports.searchDishPlaceholder')}
+                          value={itemKeyword}
+                          onChange={(e) => setItemKeyword(e.target.value)}
+                          style={{ width: 260 }}
+                        />
+                      </Flex>
+
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={t('business:reports.itemAccountingNote')}
+                        style={{ marginBottom: 14, borderRadius: 12 }}
+                      />
+
+                      <Table
+                        rowKey={(r) => `${r.itemType}-${r.itemRefId}`}
+                        columns={itemCols}
+                        dataSource={filteredItemRows}
+                        loading={loading}
+                        locale={{ emptyText: t('business:reports.noItemRecords') }}
+                        pagination={{ pageSize: 15 }}
+                        scroll={{ x: 1120 }}
+                      />
+                    </Card>
+                  </>
+                );
+              })(),
+            },
+          ]}
+        />
       )}
+
+      <ItemStoreBreakdownDrawer
+        open={drawerItem !== null}
+        onClose={() => setDrawerItem(null)}
+        selectedItem={drawerItem}
+        fromIso={fromIso}
+        toIso={toIso}
+        storeId={effectiveStoreId}
+        resolveStoreName={resolveStoreName}
+      />
     </div>
   );
 };

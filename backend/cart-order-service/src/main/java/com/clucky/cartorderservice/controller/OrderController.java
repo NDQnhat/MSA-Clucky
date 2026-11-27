@@ -98,6 +98,15 @@ public class OrderController {
         return ResponseEntity.ok(response);
     }
 
+    @GetMapping("/dashboard-summary")
+    public ResponseEntity<OrderDashboardSummaryResponse> getDashboardSummary(
+            @RequestParam(value = "storeId", required = false) Long storeId
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(orderService.getDashboardSummary(storeId, refundRequestService::countOpenRefundRequests));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<OrderResponse> getOrderById(@PathVariable("id") @Positive Long id) {
         return ResponseEntity.ok(orderService.getOrderDetails(id));

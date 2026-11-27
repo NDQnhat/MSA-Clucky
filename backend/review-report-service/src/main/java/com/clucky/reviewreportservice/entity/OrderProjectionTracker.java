@@ -61,6 +61,9 @@ public class OrderProjectionTracker {
     @Column(name = "contributed", nullable = false)
     private boolean contributed = false;
 
+    @Column(name = "items_contributed", nullable = false)
+    private boolean itemsContributed = false;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -215,6 +218,14 @@ public class OrderProjectionTracker {
 
     public void setContributed(boolean contributed) {
         this.contributed = contributed;
+    }
+
+    public boolean isItemsContributed() {
+        return itemsContributed;
+    }
+
+    public void setItemsContributed(boolean itemsContributed) {
+        this.itemsContributed = itemsContributed;
     }
 
     public Instant getCreatedAt() {

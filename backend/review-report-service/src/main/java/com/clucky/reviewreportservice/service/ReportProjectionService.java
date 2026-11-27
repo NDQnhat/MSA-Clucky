@@ -1,20 +1,30 @@
 package com.clucky.reviewreportservice.service;
 
 import com.clucky.reviewreportservice.dto.DomainEvent;
+import com.clucky.reviewreportservice.dto.LocalizedText;
+import com.clucky.reviewreportservice.entity.OrderProjectionTracker;
+import com.clucky.reviewreportservice.repository.DailyItemStatsRepository;
 import com.clucky.reviewreportservice.repository.DailyStoreStatsRepository;
 import com.clucky.reviewreportservice.repository.OrderProjectionTrackerRepository;
 import com.clucky.reviewreportservice.repository.ProcessedEventRepository;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -28,19 +38,32 @@ public class ReportProjectionService {
             "PENDING_RECONCILIATION", "MANUAL_ACCEPTED", "COUNTER_DECLARED", "UNRECONCILED", "PENDING");
 
     private final DailyStoreStatsRepository statsRepository;
+    private final DailyItemStatsRepository itemStatsRepository;
     private final OrderProjectionTrackerRepository trackerRepository;
     private final ProcessedEventRepository processedEventRepository;
+    private final ObjectMapper objectMapper;
     private final String revenueEvent;
 
     public ReportProjectionService(DailyStoreStatsRepository statsRepository,
             OrderProjectionTrackerRepository trackerRepository, ProcessedEventRepository processedEventRepository,
             @Value("${clucky.reports.revenue-event:false}") String revenueEvent) {
+        this(statsRepository, null, trackerRepository, processedEventRepository, new ObjectMapper(), revenueEvent);
+    }
+
+    @Autowired
+    public ReportProjectionService(DailyStoreStatsRepository statsRepository,
+            DailyItemStatsRepository itemStatsRepository,
+            OrderProjectionTrackerRepository trackerRepository, ProcessedEventRepository processedEventRepository,
+            ObjectMapper objectMapper,
+            @Value("${clucky.reports.revenue-event:false}") String revenueEvent) {
         if (!Set.of("false", "order.completed", "payment.confirmed").contains(revenueEvent)) {
             throw new IllegalArgumentException("Unsupported report revenue policy");
         }
         this.statsRepository = statsRepository;
+        this.itemStatsRepository = itemStatsRepository;
         this.trackerRepository = trackerRepository;
         this.processedEventRepository = processedEventRepository;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
         this.revenueEvent = revenueEvent;
     }
 
@@ -187,8 +210,158 @@ public class ReportProjectionService {
                     reconciledTransfer, pendingReconciliation, trackerExcess, trackerExpired);
         }
 
+        if (itemStatsRepository != null && !tracker.isItemsContributed()) {
+            projectOrderBreakdownAndItemsFromPayload(tracker, payload);
+        }
+
         tracker.setContributed(true);
         return true;
+    }
+
+    public record ItemLineInput(
+            String itemType,
+            Long itemRefId,
+            LocalizedText itemName,
+            int quantity,
+            BigDecimal lineTotal
+    ) {}
+
+    public void projectOrderBreakdownAndItems(
+            OrderProjectionTracker tracker,
+            BigDecimal discountAmount,
+            BigDecimal pointsAmount,
+            String orderSource,
+            String orderType,
+            List<ItemLineInput> rawItems
+    ) {
+        if (tracker == null || tracker.isItemsContributed()) {
+            return;
+        }
+        BigDecimal safeDiscount = nonNull(discountAmount).max(BigDecimal.ZERO);
+        BigDecimal safePoints = nonNull(pointsAmount).max(BigDecimal.ZERO);
+        int deliveryDelta = "DELIVERY".equalsIgnoreCase(orderType) ? 1 : 0;
+        int pickupDelta = (orderType != null && !"DELIVERY".equalsIgnoreCase(orderType)) ? 1 : 0;
+        int webDelta = "WEB".equalsIgnoreCase(orderSource) ? 1 : 0;
+        int counterDelta = "COUNTER".equalsIgnoreCase(orderSource) ? 1 : 0;
+
+        if (safeDiscount.signum() != 0 || safePoints.signum() != 0
+                || deliveryDelta != 0 || pickupDelta != 0 || webDelta != 0 || counterDelta != 0) {
+            statsRepository.upsertBreakdownDelta(
+                    tracker.getStoreId(),
+                    tracker.getStatDate(),
+                    0,
+                    BigDecimal.ZERO,
+                    safeDiscount,
+                    safePoints,
+                    deliveryDelta,
+                    pickupDelta,
+                    webDelta,
+                    counterDelta
+            );
+        }
+
+        if (itemStatsRepository != null && rawItems != null && !rawItems.isEmpty()) {
+            Map<String, ItemLineInput> grouped = new LinkedHashMap<>();
+            BigDecimal totalGross = BigDecimal.ZERO;
+            for (ItemLineInput raw : rawItems) {
+                if (raw == null || raw.itemRefId() == null || raw.itemRefId() <= 0 || raw.quantity() <= 0) {
+                    continue;
+                }
+                String normalizedType = "COMBO".equalsIgnoreCase(raw.itemType()) ? "COMBO" : "PRODUCT";
+                BigDecimal gross = nonNull(raw.lineTotal()).max(BigDecimal.ZERO);
+                totalGross = totalGross.add(gross);
+                String key = normalizedType + ":" + raw.itemRefId();
+                grouped.merge(key,
+                        new ItemLineInput(normalizedType, raw.itemRefId(), raw.itemName(), raw.quantity(), gross),
+                        (a, b) -> new ItemLineInput(
+                                a.itemType(),
+                                a.itemRefId(),
+                                b.itemName() != null ? b.itemName() : a.itemName(),
+                                a.quantity() + b.quantity(),
+                                a.lineTotal().add(b.lineTotal())
+                        ));
+            }
+
+            List<ItemLineInput> merged = new ArrayList<>(grouped.values());
+            BigDecimal totalOrderDiscounts = safeDiscount.add(safePoints);
+            BigDecimal netGoodsTarget = totalGross.subtract(totalOrderDiscounts).max(BigDecimal.ZERO);
+            BigDecimal allocatedSoFar = BigDecimal.ZERO;
+
+            for (int i = 0; i < merged.size(); i++) {
+                ItemLineInput line = merged.get(i);
+                BigDecimal allocatedNet;
+                if (totalGross.signum() <= 0 || netGoodsTarget.signum() <= 0) {
+                    allocatedNet = BigDecimal.ZERO;
+                } else if (i == merged.size() - 1) {
+                    allocatedNet = netGoodsTarget.subtract(allocatedSoFar).max(BigDecimal.ZERO);
+                } else {
+                    allocatedNet = netGoodsTarget.multiply(line.lineTotal())
+                            .divide(totalGross, 0, RoundingMode.HALF_UP);
+                    allocatedSoFar = allocatedSoFar.add(allocatedNet);
+                }
+
+                String nameJson = serializeLocalizedName(line.itemName());
+                itemStatsRepository.upsertItemDelta(
+                        tracker.getStoreId(),
+                        tracker.getStatDate(),
+                        line.itemType(),
+                        line.itemRefId(),
+                        nameJson,
+                        line.quantity(),
+                        1,
+                        line.lineTotal(),
+                        allocatedNet
+                );
+            }
+        }
+        tracker.setItemsContributed(true);
+    }
+
+    private void projectOrderBreakdownAndItemsFromPayload(OrderProjectionTracker tracker, JsonNode payload) {
+        if (payload == null) return;
+        BigDecimal discount = nonNull(resolveOptionalAmountUnchecked(payload, "discountAmount"));
+        BigDecimal points = nonNull(resolveOptionalAmountUnchecked(payload, "pointsAmount"));
+        String orderSource = payload.path("orderSource").asText(null);
+        String orderType = payload.path("type").asText(null);
+        List<ItemLineInput> itemInputs = new ArrayList<>();
+        JsonNode itemsNode = payload.get("items");
+        if (itemsNode != null && itemsNode.isArray()) {
+            for (JsonNode node : itemsNode) {
+                String itemType = node.path("itemType").asText("PRODUCT");
+                Long productId = node.hasNonNull("productId") ? node.get("productId").asLong() : null;
+                Long comboId = node.hasNonNull("comboId") ? node.get("comboId").asLong() : null;
+                Long refId = "COMBO".equalsIgnoreCase(itemType) ? comboId : productId;
+                if (refId == null || refId <= 0) continue;
+                LocalizedText i18n = node.hasNonNull("itemNameI18n")
+                        ? LocalizedText.fromJsonNode(node.get("itemNameI18n"))
+                        : null;
+                if (i18n == null && node.hasNonNull("itemName")) {
+                    i18n = LocalizedText.ofSingle(node.get("itemName").asText());
+                }
+                int qty = node.path("quantity").asInt(0);
+                BigDecimal lineTotal = node.hasNonNull("lineTotal") && node.get("lineTotal").isNumber()
+                        ? node.get("lineTotal").decimalValue()
+                        : BigDecimal.ZERO;
+                itemInputs.add(new ItemLineInput(itemType, refId, i18n, qty, lineTotal));
+            }
+        }
+        projectOrderBreakdownAndItems(tracker, discount, points, orderSource, orderType, itemInputs);
+    }
+
+    private String serializeLocalizedName(LocalizedText name) {
+        LocalizedText safe = name != null ? name : LocalizedText.ofSingle("Unknown Item");
+        try {
+            return objectMapper.writeValueAsString(safe);
+        } catch (Exception ex) {
+            return "{\"vi\":\"Unknown Item\",\"en\":\"Unknown Item\"}";
+        }
+    }
+
+    private BigDecimal resolveOptionalAmountUnchecked(JsonNode payload, String field) {
+        if (payload != null && payload.hasNonNull(field) && payload.get(field).isNumber()) {
+            return payload.get(field).decimalValue();
+        }
+        return BigDecimal.ZERO;
     }
 
     private boolean handlePostContributionReconciliation(
@@ -229,6 +402,12 @@ public class ReportProjectionService {
             statsRepository.upsertReconciliationDelta(
                     storeId, statDate,
                     BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, explicitExpired);
+        }
+        if (itemStatsRepository != null && storeId != null) {
+            BigDecimal cancelledAmount = resolveOptionalAmountUnchecked(payload, "totalAmount").max(BigDecimal.ZERO);
+            statsRepository.upsertBreakdownDelta(
+                    storeId, statDate, 1, cancelledAmount,
+                    BigDecimal.ZERO, BigDecimal.ZERO, 0, 0, 0, 0);
         }
     }
 

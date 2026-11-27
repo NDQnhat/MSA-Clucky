@@ -8,6 +8,7 @@ import {
   Col,
   Empty,
   Flex,
+  Progress,
   Result,
   Row,
   Segmented,
@@ -22,6 +23,7 @@ import {
 } from 'antd';
 import type { TableColumnsType } from 'antd';
 import {
+  AlertOutlined,
   ArrowDownOutlined,
   ArrowUpOutlined,
   BarChartOutlined,
@@ -29,22 +31,37 @@ import {
   CoffeeOutlined,
   DollarOutlined,
   FileTextOutlined,
+  FireOutlined,
   InfoCircleOutlined,
+  MessageOutlined,
   MoreOutlined,
   ReloadOutlined,
+  RiseOutlined,
+  RollbackOutlined,
 } from '@ant-design/icons';
-import { getDashboardOrders } from '../../lib/admin-reporting';
+import { getDashboardOrders, type DashboardOrderSnapshot } from '../../lib/admin-reporting';
 import { useAuth } from '../../context/AuthContext';
 import { useLocaleTools } from '../../i18n/hooks';
 import { getBrowserLocale, getErrorMessage } from '../../i18n/core';
+import { pickLocalized } from '../../lib/bilingual';
 import {
+  inventoryApi,
   reportsApi,
+  reviewsApi,
   storesApi,
   type DailyStoreStatsItem,
   type DashboardReportResponse,
+  type InventoryAlertSummaryResponse,
+  type ItemRevenueEntry,
+  type ItemRevenueReportResponse,
   type RevenueReportResponse,
+  type ReviewModerationSummaryDto,
   type Store,
 } from '../../lib/api';
+import {
+  ItemStoreBreakdownDrawer,
+  type SelectedReportItem,
+} from '../../components/reports/ItemStoreBreakdownDrawer';
 import { getStoreStatusMeta, normalizeStoreStatus } from '../../types/store';
 
 export type OrderSummary = {
@@ -237,7 +254,10 @@ export function MetricCard({
         />
         <span className={`metric-icon ${warning ? 'warning' : ''}`}>{icon}</span>
       </Flex>
-      <Typography.Text className={`metric-trend ${warning ? 'warning-text' : ''}`}>
+      <Typography.Text
+        className={`metric-trend ${warning ? 'warning-text' : ''}`}
+        style={!warning && !trendUp ? { color: '#B42318' } : undefined}
+      >
         {warning ? '● ' : trendUp ? <ArrowUpOutlined /> : <ArrowDownOutlined />} {trend}
       </Typography.Text>
     </Card>
@@ -249,19 +269,34 @@ export function StoreHealth({
   status,
   orders,
   warning = false,
+  sharePct,
+  onClick,
 }: {
   name: string;
   status: string;
   orders: string;
   warning?: boolean;
+  sharePct?: number;
+  onClick?: () => void;
 }) {
   return (
-    <div className="store-health">
+    <div
+      className="store-health"
+      onClick={onClick}
+      style={onClick ? { cursor: 'pointer' } : undefined}
+    >
       <span className={`health-dot ${warning ? 'warning' : ''}`} />
-      <div>
-        <Typography.Text strong style={{ color: '#16100D' }}>
-          {name}
-        </Typography.Text>
+      <div style={{ flex: 1 }}>
+        <Flex align="center" gap={6} wrap="wrap">
+          <Typography.Text strong style={{ color: '#16100D' }}>
+            {name}
+          </Typography.Text>
+          {typeof sharePct === 'number' && sharePct > 0 && (
+            <Tag color="volcano" variant="filled" style={{ margin: 0, fontSize: 11, borderRadius: 6 }}>
+              {sharePct}%
+            </Tag>
+          )}
+        </Flex>
         <Typography.Text type="secondary" style={{ color: '#6B6259' }}>
           {orders}
         </Typography.Text>
@@ -331,6 +366,16 @@ function formatShortDayMonth(isoDate: string): string {
   return `${parts[2]}/${parts[1]}`;
 }
 
+function formatPeriodDelta(current: number, previous: number): { label: string; isUp: boolean } | null {
+  if (previous <= 0) return null;
+  const pct = ((current - previous) / previous) * 100;
+  const rounded = pct.toFixed(1);
+  return {
+    label: `${pct >= 0 ? '+' : ''}${rounded}%`,
+    isUp: pct >= 0,
+  };
+}
+
 export interface DashboardProps {
   onNavigate?: (key: string) => void;
   storeFilter?: string;
@@ -347,7 +392,7 @@ export default function Dashboard({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
-  const { money, number, date } = useLocaleTools();
+  const { money, number, date, locale } = useLocaleTools();
 
   const isStaff = user.role === 'STAFF';
   const isManager = user.role === 'STORE_MANAGER';
@@ -355,6 +400,9 @@ export default function Dashboard({
   const managerMissingStore = isManager && !managerStoreId;
 
   const [periodKey, setPeriodKey] = useState<DashboardPeriodKey>('7d');
+  const [chartMetric, setChartMetric] = useState<'revenue' | 'orders'>('revenue');
+  const [itemTypeFilter, setItemTypeFilter] = useState<'ALL' | 'PRODUCT' | 'COMBO'>('ALL');
+  const [itemSortBy, setItemSortBy] = useState<'revenue' | 'quantity'>('revenue');
   const [selectedStore, setSelectedStore] = useState<string>(() => {
     if (isManager && managerStoreId) return String(managerStoreId);
     return storeFilter && storeFilter !== 'all' ? storeFilter : 'all';
@@ -362,16 +410,23 @@ export default function Dashboard({
 
   const [dashboard, setDashboard] = useState<DashboardReportResponse | null>(null);
   const [revenueReport, setRevenueReport] = useState<RevenueReportResponse | null>(null);
-  const [orderSnapshot, setOrderSnapshot] = useState<Awaited<ReturnType<typeof getDashboardOrders>> | null>(null);
+  const [itemReport, setItemReport] = useState<ItemRevenueReportResponse | null>(null);
+  const [orderSnapshot, setOrderSnapshot] = useState<DashboardOrderSnapshot | null>(null);
+  const [inventoryAlerts, setInventoryAlerts] = useState<InventoryAlertSummaryResponse | null>(null);
+  const [reviewSummary, setReviewSummary] = useState<ReviewModerationSummaryDto | null>(null);
   const [orderError, setOrderError] = useState('');
   const [stores, setStores] = useState<Store[]>([]);
   const [storeError, setStoreError] = useState('');
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [drawerItem, setDrawerItem] = useState<SelectedReportItem | null>(null);
   const loadedScope = useRef('');
+
   useEffect(() => {
-    const timer = window.setInterval(() => { if (!document.hidden) setReloadNonce(value => value + 1); }, 30000);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setReloadNonce((value) => value + 1);
+    }, 30000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -414,7 +469,10 @@ export default function Dashboard({
     if (isStaff || managerMissingStore) {
       setDashboard(null);
       setRevenueReport(null);
+      setItemReport(null);
       setOrderSnapshot(null);
+      setInventoryAlerts(null);
+      setReviewSummary(null);
       setLoading(false);
       return;
     }
@@ -423,7 +481,12 @@ export default function Dashboard({
     setLoading(true);
     setLoadError('');
     const scope = `${user.id}:${user.role}:${effectiveStoreId}:${fromIso}:${toIso}`;
-    if (loadedScope.current !== scope) { setDashboard(null); setRevenueReport(null); setStores([]); }
+    if (loadedScope.current !== scope) {
+      setDashboard(null);
+      setRevenueReport(null);
+      setItemReport(null);
+      setStores([]);
+    }
     loadedScope.current = scope;
     setStoreError('');
 
@@ -436,15 +499,27 @@ export default function Dashboard({
     Promise.all([
       reportsApi.getDashboard(reportParams, controller.signal),
       reportsApi.getRevenue(reportParams, controller.signal),
-      storesApi.list(isAdmin ? false : undefined, controller.signal).catch(failure => {
+      reportsApi
+        .getItemRevenue(
+          {
+            ...reportParams,
+            itemType: itemTypeFilter,
+            sortBy: itemSortBy,
+            limit: 8,
+          },
+          controller.signal
+        )
+        .catch(() => null),
+      storesApi.list(isAdmin ? false : undefined, controller.signal).catch((failure) => {
         if (!controller.signal.aborted) setStoreError(getErrorMessage(failure, getBrowserLocale()));
         return [] as Store[];
       }),
     ])
-      .then(([dashData, revData, storeList]) => {
+      .then(([dashData, revData, itemData, storeList]) => {
         if (controller.signal.aborted) return;
         setDashboard(dashData);
         setRevenueReport(revData);
+        if (itemData) setItemReport(itemData);
         if (Array.isArray(storeList)) {
           setStores(storeList);
         }
@@ -460,18 +535,44 @@ export default function Dashboard({
       });
 
     return () => controller.abort();
-  }, [effectiveStoreId, fromIso, toIso, isAdmin, isStaff, managerMissingStore, reloadNonce, user.id, user.role]);
+  }, [
+    effectiveStoreId,
+    fromIso,
+    toIso,
+    itemTypeFilter,
+    itemSortBy,
+    isAdmin,
+    isStaff,
+    managerMissingStore,
+    reloadNonce,
+    user.id,
+    user.role,
+  ]);
 
   useEffect(() => {
     setOrderSnapshot(null);
     setOrderError('');
+    setInventoryAlerts(null);
+    setReviewSummary(null);
     if (isStaff || managerMissingStore) return;
+
     const controller = new AbortController();
-    getDashboardOrders(effectiveStoreId, controller.signal)
-      .then((snapshot) => { if (!controller.signal.aborted) setOrderSnapshot(snapshot); })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) setOrderError(getErrorMessage(error, getBrowserLocale()));
-      });
+    Promise.all([
+      getDashboardOrders(effectiveStoreId, controller.signal).catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setOrderError(getErrorMessage(error, getBrowserLocale()));
+        }
+        return null;
+      }),
+      inventoryApi.getAlerts(effectiveStoreId, controller.signal).catch(() => null),
+      reviewsApi.summaryModeration(effectiveStoreId, controller.signal).catch(() => null),
+    ]).then(([ordersRes, alertsRes, reviewRes]) => {
+      if (controller.signal.aborted) return;
+      if (ordersRes) setOrderSnapshot(ordersRes);
+      if (alertsRes) setInventoryAlerts(alertsRes);
+      if (reviewRes) setReviewSummary(reviewRes);
+    });
+
     return () => controller.abort();
   }, [effectiveStoreId, isStaff, managerMissingStore, reloadNonce, user.id, user.role]);
 
@@ -483,6 +584,16 @@ export default function Dashboard({
     return map;
   }, [stores]);
 
+  const resolveStoreName = useCallback(
+    (storeId: number) => {
+      const st = storeMap.get(storeId);
+      if (st) return pickLocalized(st.nameI18n, st.name, locale);
+      if (isManager && storeId === managerStoreId && user.storeName) return user.storeName;
+      return t('business:dashboard.scopeStoreLabel', { value1: storeId });
+    },
+    [isManager, locale, managerStoreId, storeMap, t, user.storeName]
+  );
+
   const recentOrdersData: OrderSummary[] = useMemo(() => {
     return (orderSnapshot?.recent ?? []).map((order) => ({
       key: String(order.id),
@@ -492,9 +603,9 @@ export default function Dashboard({
       status: order.status as OrderSummary['status'],
       total: order.totalAmount,
       time: order.createdAt,
-      storeName: storeMap.get(order.storeId)?.name ?? `#${order.storeId}`,
+      storeName: resolveStoreName(order.storeId),
     }));
-  }, [orderSnapshot, storeMap]);
+  }, [orderSnapshot, resolveStoreName]);
 
   const activeKitchenCount = orderSnapshot?.activeKitchenCount;
 
@@ -510,16 +621,26 @@ export default function Dashboard({
       });
     }
     const visibleDates: string[] = [];
-    for (const day = new Date(`${fromIso}T00:00:00Z`); day.toISOString().slice(0, 10) <= toIso; day.setUTCDate(day.getUTCDate() + 1)) {
+    for (
+      const day = new Date(`${fromIso}T00:00:00Z`);
+      day.toISOString().slice(0, 10) <= toIso;
+      day.setUTCDate(day.getUTCDate() + 1)
+    ) {
       const iso = day.toISOString().slice(0, 10);
       visibleDates.push(iso);
       if (!byDate.has(iso)) byDate.set(iso, { revenue: 0, orders: 0 });
     }
-    const maxRevenue = Math.max(1, ...visibleDates.map((d) => byDate.get(d)?.revenue ?? 0));
+    const maxVal = Math.max(
+      1,
+      ...visibleDates.map((d) => {
+        const pt = byDate.get(d);
+        return chartMetric === 'revenue' ? (pt?.revenue ?? 0) : (pt?.orders ?? 0);
+      })
+    );
     return visibleDates.map((iso) => {
       const point = byDate.get(iso)!;
-      const heightPct =
-        point.revenue > 0 ? Math.max(10, Math.round((point.revenue / maxRevenue) * 100)) : 4;
+      const metricValue = chartMetric === 'revenue' ? point.revenue : point.orders;
+      const heightPct = metricValue > 0 ? Math.max(10, Math.round((metricValue / maxVal) * 100)) : 4;
       return {
         iso,
         label: formatShortDayMonth(iso),
@@ -528,7 +649,7 @@ export default function Dashboard({
         heightPct,
       };
     });
-  }, [revenueReport, fromIso, toIso]);
+  }, [chartMetric, fromIso, revenueReport, toIso]);
 
   const storeStatsByStore = useMemo(() => {
     const grouped = new Map<number, { orders: number; revenue: number }>();
@@ -542,27 +663,32 @@ export default function Dashboard({
     return grouped;
   }, [revenueReport]);
 
+  const periodTotalRevenue = Number(dashboard?.periodRevenue ?? revenueReport?.totalRevenue ?? 0);
+  const periodOrderCount = Number(dashboard?.periodOrderCount ?? revenueReport?.totalOrderCount ?? 0);
+
   const visibleStores = useMemo(() => {
-    const list = effectiveStoreId != null
-      ? stores.filter((s) => s.id === effectiveStoreId)
-      : stores;
-    return list.slice(0, 6);
-  }, [stores, effectiveStoreId]);
+    const list =
+      effectiveStoreId != null ? stores.filter((s) => s.id === effectiveStoreId) : [...stores];
+    return list.sort((a, b) => {
+      const revA = storeStatsByStore.get(a.id)?.revenue ?? 0;
+      const revB = storeStatsByStore.get(b.id)?.revenue ?? 0;
+      return revB - revA || a.id - b.id;
+    });
+  }, [effectiveStoreId, storeStatsByStore, stores]);
 
   const storeSelectOptions = useMemo<Array<{ value: string; label: string }>>(() => {
     if (isManager && managerStoreId) {
-      const label =
-        storeMap.get(managerStoreId)?.name ||
-        user.storeName ||
-        t('business:dashboard.scopeStoreLabel', { value1: managerStoreId });
-      return [{ value: String(managerStoreId), label }];
+      return [{ value: String(managerStoreId), label: resolveStoreName(managerStoreId) }];
     }
     const opts = [{ value: 'all', label: t('business:dashboard.scopeChain') }];
     for (const store of stores) {
-      opts.push({ value: String(store.id), label: store.name });
+      opts.push({
+        value: String(store.id),
+        label: pickLocalized(store.nameI18n, store.name, locale),
+      });
     }
     return opts;
-  }, [isManager, managerStoreId, storeMap, stores, t, user.storeName]);
+  }, [isManager, locale, managerStoreId, resolveStoreName, stores, t]);
 
   const handleStoreChange = (val: string) => {
     if (isManager) return;
@@ -580,16 +706,10 @@ export default function Dashboard({
             ? t('business:dashboard.staffForbiddenTitle')
             : t('business:dashboard.noStoreAssignedError')
         }
-        extra={
-          <Button type="primary" onClick={() => go(isStaff ? 'orders' : 'stores')}>
-            {isStaff ? t('admin:nav.orders') : t('business:dashboard.stores')}
-          </Button>
-        }
       />
     );
   }
 
-  const periodTotalRevenue = Number(dashboard?.periodRevenue ?? 0);
   const periodCodAmount = Number(dashboard?.periodCodAmount ?? revenueReport?.totalCodAmount ?? 0);
   const periodReconciled = Number(
     dashboard?.periodReconciledTransferAmount ?? revenueReport?.totalReconciledTransferAmount ?? 0
@@ -601,6 +721,23 @@ export default function Dashboard({
   const periodExpired = Number(
     dashboard?.periodExpiredReceiptAmount ?? revenueReport?.totalExpiredReceiptAmount ?? 0
   );
+
+  const prevRevenue = Number(dashboard?.previousPeriodRevenue ?? 0);
+  const revenueDelta = formatPeriodDelta(periodTotalRevenue, prevRevenue);
+  const averageOrderValue = periodOrderCount > 0 ? Math.round(periodTotalRevenue / periodOrderCount) : 0;
+  const periodPromoAndPoints =
+    Number(dashboard?.periodDiscountAmount ?? 0) + Number(dashboard?.periodPointsAmount ?? 0);
+  const periodCancelledCount = Number(dashboard?.periodCancelledOrderCount ?? 0);
+  const todayCancelledCount = Number(orderSnapshot?.todayCancelledCount ?? 0);
+
+  const webOrders = Number(dashboard?.periodWebOrderCount ?? 0);
+  const counterOrders = Number(dashboard?.periodCounterOrderCount ?? 0);
+  const totalSourceOrders = webOrders + counterOrders;
+  const deliveryOrders = Number(dashboard?.periodDeliveryOrderCount ?? 0);
+  const pickupOrders = Number(dashboard?.periodPickupOrderCount ?? 0);
+  const totalFulfillOrders = deliveryOrders + pickupOrders;
+
+  const topItems: ItemRevenueEntry[] = itemReport?.items ?? [];
 
   const lastUpdatedLabel = dashboard?.lastUpdatedAt
     ? t('business:dashboard.lastUpdatedAt', {
@@ -619,6 +756,15 @@ export default function Dashboard({
         description={t('business:dashboard.monitorOperationsBusinessPerformanceAndOrdersThatNeedAttentionToday')}
         action={
           <Flex gap={8} align="center" wrap="wrap">
+            <Segmented
+              options={[
+                { value: '7d', label: t('business:dashboard.days') },
+                { value: '30d', label: t('business:dashboard.daysLabel') },
+                { value: 'month', label: t('business:dashboard.monthToDate') },
+              ]}
+              value={periodKey}
+              onChange={(value) => setPeriodKey(value as DashboardPeriodKey)}
+            />
             <Select
               value={selectedStore}
               onChange={handleStoreChange}
@@ -627,13 +773,13 @@ export default function Dashboard({
               style={{ minWidth: 200 }}
               options={storeSelectOptions}
             />
-            {!isAdmin && <Button
+            <Button
               icon={<ReloadOutlined />}
               onClick={() => setReloadNonce((n) => n + 1)}
               loading={loading}
             >
               {t('business:dashboard.refresh')}
-            </Button>}
+            </Button>
             <Button
               type="primary"
               icon={<BarChartOutlined />}
@@ -660,7 +806,7 @@ export default function Dashboard({
       )}
 
       {orderError && <Alert type="error" showIcon message={orderError} style={{ marginBottom: 16 }} />}
-      {storeError && <Alert type="warning" showIcon message={t("admin:ui.unableToLoadTheBranchList")} description={storeError} style={{ marginBottom: 16 }} />}
+      {storeError && <Alert type="warning" showIcon message={t('admin:ui.unableToLoadTheBranchList')} description={storeError} style={{ marginBottom: 16 }} />}
 
       {dashboard && !dashboard.projectionActive && (
         <Alert
@@ -690,10 +836,13 @@ export default function Dashboard({
               title={t('business:dashboard.todaySOrders')}
               value={orderSnapshot ? number(orderSnapshot.todayOrderCount) : '—'}
               suffix={t('business:dashboard.orders')}
-              trend={t('business:dashboard.periodOrdersSummary', {
-                value1: number(Number(dashboard?.periodOrderCount ?? 0)),
+              trend={`${t('business:dashboard.periodOrdersSummary', {
+                value1: number(periodOrderCount),
                 value2: money(Number(dashboard?.todayCodAmount ?? 0)),
-              })}
+              })} · ${t('business:dashboard.cancelledOrdersSub', {
+                value1: number(todayCancelledCount),
+                value2: number(periodCancelledCount),
+              })}`}
               icon={<FileTextOutlined />}
               trendUp
               tooltip={t('business:dashboard.totalOrdersPlacedTodayAtTheSelectedStore')}
@@ -703,25 +852,31 @@ export default function Dashboard({
             <MetricCard
               title={t('business:dashboard.todayRecognizedRevenue')}
               value={dashboard ? money(Number(dashboard.todayRevenue)) : '—'}
-              trend={t('business:dashboard.periodRecognizedSummary', {
-                value1: money(periodTotalRevenue),
-              })}
+              trend={
+                revenueDelta
+                  ? `${t('business:dashboard.periodRecognizedSummary', {
+                      value1: money(periodTotalRevenue),
+                    })} · ${t('business:dashboard.vsPreviousPeriod', { value1: revenueDelta.label })}`
+                  : `${t('business:dashboard.periodRecognizedSummary', {
+                      value1: money(periodTotalRevenue),
+                    })}`
+              }
               icon={<DollarOutlined />}
-              trendUp
+              trendUp={revenueDelta ? revenueDelta.isUp : true}
               tooltip={t('business:dashboard.estimatedRevenueFromSuccessfulOrders')}
             />
           </Col>
           <Col xs={24} sm={12} xl={6}>
             <MetricCard
-              title={t('business:dashboard.pendingReconciliationKpi')}
-              value={dashboard ? money(periodPending) : '—'}
-              trend={t('business:dashboard.pendingReconciliationSub', {
-                value1: money(periodExcess),
-                value2: money(periodExpired),
+              title={t('business:dashboard.aovKpiTitle')}
+              value={dashboard ? money(averageOrderValue) : '—'}
+              trend={t('business:dashboard.aovSubSummary', {
+                value1: money(periodPromoAndPoints),
+                value2: number(periodCancelledCount),
               })}
-              icon={<ClockCircleOutlined />}
-              warning={periodPending > 0 || periodExcess > 0 || periodExpired > 0}
-              tooltip={t('business:dashboard.pendingReconciliationTooltip')}
+              icon={<RiseOutlined />}
+              trendUp
+              tooltip={t('business:dashboard.aovTooltip')}
             />
           </Col>
           <Col xs={24} sm={12} xl={6}>
@@ -729,95 +884,378 @@ export default function Dashboard({
               title={t('business:orderprogress.preparing')}
               value={activeKitchenCount == null ? '—' : number(activeKitchenCount)}
               suffix={t('business:dashboard.orders')}
-              trend={t('business:dashboard.activeKitchenOrdersSub')}
-              icon={<CoffeeOutlined />}
-              warning={(activeKitchenCount ?? 0) > 0}
+              trend={`${t('business:dashboard.activeKitchenOrdersSub')} · ${t('business:dashboard.pendingReconciliationKpi')}: ${money(periodPending)}`}
+              icon={periodPending > 0 ? <ClockCircleOutlined /> : <CoffeeOutlined />}
+              warning={(activeKitchenCount ?? 0) > 0 || periodPending > 0}
               tooltip={t('business:dashboard.paidOrConfirmedOrdersBeingPrepared')}
             />
           </Col>
         </Row>
       )}
 
-      <Row gutter={[16, 16]} className="dashboard-grid">
-        <Col xs={24} xl={15}>
+      {/* Actionable Operational Alerts Strip */}
+      <Row gutter={[16, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={24} md={8}>
           <Card
-            title={t('business:dashboard.recentOrders')}
-            extra={
-              <Button
-                type="link"
-                onClick={() => go('orders')}
-                style={{ color: '#8F1216', fontWeight: 600 }}
-              >
-                {t('business:dashboard.viewAll')}
-              </Button>
-            }
+            size="small"
+            hoverable
+            onClick={() => go('inventory')}
+            style={{
+              borderRadius: 14,
+              background:
+                (inventoryAlerts?.outOfStockCount ?? 0) > 0 || (inventoryAlerts?.lowStockCount ?? 0) > 0
+                  ? '#FFFBEB'
+                  : '#FFFAF3',
+              borderColor:
+                (inventoryAlerts?.outOfStockCount ?? 0) > 0 ? '#FCD34D' : '#E8E2D9',
+            }}
           >
-            <OrdersTable
-              compact
-              orders={recentOrdersData}
-              loading={!orderSnapshot && !orderError}
-              onViewOrder={() => go('orders')}
-            />
+            <Flex justify="space-between" align="center" gap={8}>
+              <Space>
+                <AlertOutlined
+                  style={{
+                    fontSize: 18,
+                    color: (inventoryAlerts?.outOfStockCount ?? 0) > 0 ? '#D97706' : '#1E7A46',
+                  }}
+                />
+                <div>
+                  <Typography.Text strong style={{ display: 'block', color: '#16100D' }}>
+                    {t('business:dashboard.inventoryAlertLabel')}
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {inventoryAlerts
+                      ? inventoryAlerts.outOfStockCount === 0 && inventoryAlerts.lowStockCount === 0
+                        ? t('business:dashboard.inventoryAllHealthy')
+                        : t('business:dashboard.inventoryAlertDetail', {
+                            value1: number(inventoryAlerts.outOfStockCount),
+                            value2: number(inventoryAlerts.lowStockCount),
+                          })
+                      : '—'}
+                  </Typography.Text>
+                </div>
+              </Space>
+              <Tag color={(inventoryAlerts?.outOfStockCount ?? 0) > 0 ? 'orange' : 'green'} style={{ margin: 0 }}>
+                {inventoryAlerts ? number(inventoryAlerts.outOfStockCount + inventoryAlerts.lowStockCount) : '—'}
+              </Tag>
+            </Flex>
           </Card>
         </Col>
-        <Col xs={24} xl={9}>
+
+        <Col xs={24} md={8}>
           <Card
-            title={t('business:dashboard.revenueOverTime')}
-            extra={
-              <Segmented
-                size="small"
-                options={[
-                  { value: '7d', label: t('business:dashboard.days') },
-                  { value: '30d', label: t('business:dashboard.daysLabel') },
-                  { value: 'month', label: t('business:dashboard.monthToDate') },
-                ]}
-                value={periodKey}
-                onChange={(value) => setPeriodKey(value as DashboardPeriodKey)}
-              />
-            }
+            size="small"
+            hoverable
+            onClick={() => go('orders')}
+            style={{
+              borderRadius: 14,
+              background: (orderSnapshot?.openRefundRequestCount ?? 0) > 0 ? '#FEF2F2' : '#FFFAF3',
+              borderColor: (orderSnapshot?.openRefundRequestCount ?? 0) > 0 ? '#FECACA' : '#E8E2D9',
+            }}
           >
-            {chartSeries.length === 0 ? (
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={t('business:dashboard.noChartData')}
-                style={{ padding: '42px 0' }}
-              />
-            ) : (
-              <div className="revenue-chart">
-                <div className="chart-bars">
-                  {chartSeries.map((item) => (
-                    <Tooltip
-                      key={item.iso}
-                      title={`${date(item.iso)}: ${money(item.revenue)} (${t('business:reports.ordersUnit', { value1: number(item.orders) })})`}
-                    >
-                      <div
-                        className="bar-group"
-                        tabIndex={0}
-                        aria-label={`${date(item.iso)}: ${money(item.revenue)}`}
-                      >
-                        <div className="chart-bar" style={{ height: `${item.heightPct}%` }} />
-                        <span>{item.label}</span>
-                      </div>
-                    </Tooltip>
-                  ))}
+            <Flex justify="space-between" align="center" gap={8}>
+              <Space>
+                <RollbackOutlined
+                  style={{
+                    fontSize: 18,
+                    color: (orderSnapshot?.openRefundRequestCount ?? 0) > 0 ? '#B42318' : '#22577A',
+                  }}
+                />
+                <div>
+                  <Typography.Text strong style={{ display: 'block', color: '#16100D' }}>
+                    {t('business:dashboard.refundAlertLabel')}
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {orderSnapshot
+                      ? t('business:dashboard.refundAlertDetail', {
+                          value1: number(orderSnapshot.openRefundRequestCount),
+                        })
+                      : '—'}
+                  </Typography.Text>
                 </div>
-                <Flex justify="space-between" className="chart-caption" align="center" wrap="wrap" gap={8}>
-                  <Typography.Text type="secondary" style={{ color: '#6B6259', fontSize: 12 }}>
-                    {lastUpdatedLabel}
+              </Space>
+              <Tag color={(orderSnapshot?.openRefundRequestCount ?? 0) > 0 ? 'red' : 'blue'} style={{ margin: 0 }}>
+                {orderSnapshot ? number(orderSnapshot.openRefundRequestCount) : '—'}
+              </Tag>
+            </Flex>
+          </Card>
+        </Col>
+
+        <Col xs={24} md={8}>
+          <Card
+            size="small"
+            hoverable
+            onClick={() => go('reviews')}
+            style={{
+              borderRadius: 14,
+              background: (reviewSummary?.unrepliedVisibleCount ?? 0) > 0 ? '#FFFBEB' : '#FFFAF3',
+              borderColor: '#E8E2D9',
+            }}
+          >
+            <Flex justify="space-between" align="center" gap={8}>
+              <Space>
+                <MessageOutlined style={{ fontSize: 18, color: '#C9A227' }} />
+                <div>
+                  <Typography.Text strong style={{ display: 'block', color: '#16100D' }}>
+                    {t('business:dashboard.reviewAlertLabel')}
                   </Typography.Text>
-                  <Typography.Text
-                    strong
-                    style={{ color: '#8F1216', fontFamily: 'var(--font-heading)', fontSize: 18 }}
-                  >
-                    {money(periodTotalRevenue)}
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {reviewSummary
+                      ? t('business:dashboard.reviewAlertDetail', {
+                          value1: reviewSummary.averageRating.toFixed(1),
+                          value2: number(reviewSummary.unrepliedVisibleCount),
+                        })
+                      : '—'}
                   </Typography.Text>
-                </Flex>
-              </div>
-            )}
+                </div>
+              </Space>
+              <Tag color={(reviewSummary?.unrepliedVisibleCount ?? 0) > 0 ? 'gold' : 'green'} style={{ margin: 0 }}>
+                {reviewSummary ? number(reviewSummary.unrepliedVisibleCount) : '—'}
+              </Tag>
+            </Flex>
           </Card>
         </Col>
       </Row>
 
+      {/* Row: Item & Combo Revenue + Revenue Trend & Channel Mix */}
+      <Row gutter={[16, 16]} className="dashboard-grid">
+        <Col xs={24} xl={14}>
+          <Card
+            title={
+              <Space>
+                <FireOutlined style={{ color: '#8F1216' }} />
+                <span>{t('business:dashboard.topDishesTitle')}</span>
+              </Space>
+            }
+            extra={
+              <Flex gap={8} wrap="wrap">
+                <Segmented
+                  size="small"
+                  value={itemTypeFilter}
+                  onChange={(val) => setItemTypeFilter(val as 'ALL' | 'PRODUCT' | 'COMBO')}
+                  options={[
+                    { value: 'ALL', label: t('business:dashboard.allItems') },
+                    { value: 'PRODUCT', label: t('business:dashboard.singleProducts') },
+                    { value: 'COMBO', label: t('business:dashboard.combosOnly') },
+                  ]}
+                />
+                <Segmented
+                  size="small"
+                  value={itemSortBy}
+                  onChange={(val) => setItemSortBy(val as 'revenue' | 'quantity')}
+                  options={[
+                    { value: 'revenue', label: t('business:dashboard.sortByRevenue') },
+                    { value: 'quantity', label: t('business:dashboard.sortByQuantity') },
+                  ]}
+                />
+              </Flex>
+            }
+          >
+            <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 12 }}>
+              {t('business:dashboard.itemStoreBreakdownSubtitle')}
+            </Typography.Text>
+            {topItems.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={t('business:dashboard.noItemRevenueData')}
+                style={{ padding: '28px 0' }}
+              />
+            ) : (
+              <Space orientation="vertical" size={10} style={{ width: '100%' }}>
+                {topItems.map((entry, idx) => {
+                  const displayName = pickLocalized(entry.itemNameI18n, entry.itemName, locale);
+                  return (
+                    <div
+                      key={`${entry.itemType}-${entry.itemRefId}`}
+                      onClick={() =>
+                        setDrawerItem({
+                          itemType: entry.itemType,
+                          itemRefId: entry.itemRefId,
+                          itemName: entry.itemName,
+                          itemNameI18n: entry.itemNameI18n,
+                        })
+                      }
+                      style={{
+                        cursor: 'pointer',
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        background: '#FFFAF3',
+                        border: '1px solid #E8E2D9',
+                      }}
+                    >
+                      <Flex justify="space-between" align="center" gap={8} wrap="wrap">
+                        <Space size={8}>
+                          <Tag color={idx < 3 ? 'red' : 'default'} style={{ margin: 0, fontWeight: 700 }}>
+                            #{idx + 1}
+                          </Tag>
+                          <Tag color={entry.itemType === 'COMBO' ? 'gold' : 'volcano'} variant="filled" style={{ margin: 0 }}>
+                            {entry.itemType === 'COMBO'
+                              ? t('business:dashboard.combosOnly')
+                              : t('business:dashboard.singleProducts')}
+                          </Tag>
+                          <Typography.Text strong style={{ color: '#16100D' }}>
+                            {displayName}
+                          </Typography.Text>
+                        </Space>
+                        <div style={{ textAlign: 'right' }}>
+                          <Typography.Text strong style={{ color: '#8F1216', fontFamily: 'var(--font-heading)', fontSize: 15 }}>
+                            {money(Number(entry.grossRevenue || 0))}
+                          </Typography.Text>
+                          <Typography.Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
+                            {t('business:dashboard.netAllocatedShort', {
+                              value1: money(Number(entry.allocatedNetRevenue || 0)),
+                            })}
+                          </Typography.Text>
+                        </div>
+                      </Flex>
+                      <Flex justify="space-between" align="center" gap={12} style={{ marginTop: 6 }}>
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          {t('business:dashboard.itemSalesMeta', {
+                            value1: number(entry.quantitySold),
+                            value2: number(entry.orderCount),
+                            value3: entry.revenueSharePct,
+                          })}
+                        </Typography.Text>
+                        <div style={{ width: 120 }}>
+                          <Progress
+                            percent={Math.min(100, Math.round(entry.revenueSharePct))}
+                            size="small"
+                            showInfo={false}
+                            strokeColor="#8F1216"
+                          />
+                        </div>
+                      </Flex>
+                    </div>
+                  );
+                })}
+              </Space>
+            )}
+          </Card>
+        </Col>
+
+        <Col xs={24} xl={10}>
+          <Space orientation="vertical" size={16} style={{ width: '100%' }}>
+            <Card
+              title={t('business:dashboard.revenueOverTime')}
+              extra={
+                <Segmented
+                  size="small"
+                  options={[
+                    { value: 'revenue', label: t('business:dashboard.chartMetricRevenue') },
+                    { value: 'orders', label: t('business:dashboard.chartMetricOrders') },
+                  ]}
+                  value={chartMetric}
+                  onChange={(value) => setChartMetric(value as 'revenue' | 'orders')}
+                />
+              }
+            >
+              {chartSeries.length === 0 ? (
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={t('business:dashboard.noChartData')}
+                  style={{ padding: '42px 0' }}
+                />
+              ) : (
+                <div className="revenue-chart">
+                  <div className="chart-bars">
+                    {chartSeries.map((item) => (
+                      <Tooltip
+                        key={item.iso}
+                        title={`${date(item.iso)}: ${money(item.revenue)} (${t('business:reports.ordersUnit', { value1: number(item.orders) })})`}
+                      >
+                        <div
+                          className="bar-group"
+                          tabIndex={0}
+                          aria-label={`${date(item.iso)}: ${money(item.revenue)}`}
+                        >
+                          <div className="chart-bar" style={{ height: `${item.heightPct}%` }} />
+                          <span>{item.label}</span>
+                        </div>
+                      </Tooltip>
+                    ))}
+                  </div>
+                  <Flex justify="space-between" className="chart-caption" align="center" wrap="wrap" gap={8}>
+                    <Typography.Text type="secondary" style={{ color: '#6B6259', fontSize: 12 }}>
+                      {lastUpdatedLabel}
+                    </Typography.Text>
+                    <Typography.Text
+                      strong
+                      style={{ color: '#8F1216', fontFamily: 'var(--font-heading)', fontSize: 18 }}
+                    >
+                      {chartMetric === 'revenue'
+                        ? money(periodTotalRevenue)
+                        : t('business:reports.ordersUnit', { value1: number(periodOrderCount) })}
+                    </Typography.Text>
+                  </Flex>
+                </div>
+              )}
+            </Card>
+
+            <Card title={t('business:dashboard.channelMixTitle')}>
+              <Space orientation="vertical" size={12} style={{ width: '100%' }}>
+                <div>
+                  <Flex justify="space-between">
+                    <Typography.Text strong>{t('business:dashboard.webOrdersLabel')}</Typography.Text>
+                    <Typography.Text>
+                      {number(webOrders)} / {number(totalSourceOrders)}
+                    </Typography.Text>
+                  </Flex>
+                  <Progress
+                    percent={totalSourceOrders > 0 ? Math.round((webOrders / totalSourceOrders) * 100) : 0}
+                    strokeColor="#8F1216"
+                    size="small"
+                  />
+                </div>
+                <div>
+                  <Flex justify="space-between">
+                    <Typography.Text strong>{t('business:dashboard.counterOrdersLabel')}</Typography.Text>
+                    <Typography.Text>
+                      {number(counterOrders)} / {number(totalSourceOrders)}
+                    </Typography.Text>
+                  </Flex>
+                  <Progress
+                    percent={totalSourceOrders > 0 ? Math.round((counterOrders / totalSourceOrders) * 100) : 0}
+                    strokeColor="#C9A227"
+                    size="small"
+                  />
+                </div>
+                <Flex justify="space-between" style={{ paddingTop: 8, borderTop: '1px solid #E8E2D9' }}>
+                  <Typography.Text type="secondary">
+                    {t('business:dashboard.deliveryOrdersLabel')}: <strong style={{ color: '#16100D' }}>{number(deliveryOrders)}</strong>
+                  </Typography.Text>
+                  <Typography.Text type="secondary">
+                    {t('business:dashboard.pickupOrdersLabel')}: <strong style={{ color: '#16100D' }}>{number(pickupOrders)}</strong>
+                    {totalFulfillOrders > 0 ? ` (${Math.round((pickupOrders / totalFulfillOrders) * 100)}%)` : ''}
+                  </Typography.Text>
+                </Flex>
+              </Space>
+            </Card>
+          </Space>
+        </Col>
+      </Row>
+
+      {/* Recent Orders */}
+      <Card
+        style={{ marginBottom: 16 }}
+        title={t('business:dashboard.recentOrders')}
+        extra={
+          <Button
+            type="link"
+            onClick={() => go('orders')}
+            style={{ color: '#8F1216', fontWeight: 600 }}
+          >
+            {t('business:dashboard.viewAll')}
+          </Button>
+        }
+      >
+        <OrdersTable
+          compact
+          orders={recentOrdersData}
+          loading={!orderSnapshot && !orderError}
+          onViewOrder={() => go('orders')}
+        />
+      </Card>
+
+      {/* Reconciliation Ledger + Full Ranked Stores */}
       <Row gutter={[16, 16]}>
         <Col xs={24} md={12}>
           <Card
@@ -893,7 +1331,15 @@ export default function Dashboard({
 
         <Col xs={24} md={12}>
           <Card
-            title={t('business:dashboard.storeStatus')}
+            title={
+              <div>
+                <span>{t('business:dashboard.storeStatus')}</span>
+                <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, fontWeight: 400 }}>
+                  {t('business:dashboard.allStoresCountLabel', { value1: number(visibleStores.length) })}
+                  {isAdmin ? ` · ${t('business:dashboard.clickStoreToFilter')}` : ''}
+                </Typography.Text>
+              </div>
+            }
             extra={
               <Button
                 type="link"
@@ -914,6 +1360,11 @@ export default function Dashboard({
                 const normalized = normalizeStoreStatus(store.status);
                 const meta = getStoreStatusMeta(store.status);
                 const stats = storeStatsByStore.get(store.id);
+                const storeRevenue = stats?.revenue ?? 0;
+                const sharePct =
+                  periodTotalRevenue > 0
+                    ? Number(((storeRevenue / periodTotalRevenue) * 100).toFixed(1))
+                    : 0;
                 const statusLabel =
                   normalized === 'OPEN'
                     ? t('business:stores.open')
@@ -923,10 +1374,12 @@ export default function Dashboard({
                 return (
                   <StoreHealth
                     key={store.id}
-                    name={store.name}
+                    name={pickLocalized(store.nameI18n, store.name, locale)}
                     status={statusLabel}
                     warning={!meta.isOpen}
-                    orders={`${t('business:dashboard.periodOrdersCount', { value1: number(stats?.orders ?? 0) })} · ${money(stats?.revenue ?? 0)}`}
+                    sharePct={effectiveStoreId == null ? sharePct : undefined}
+                    orders={`${t('business:dashboard.periodOrdersCount', { value1: number(stats?.orders ?? 0) })} · ${money(storeRevenue)}`}
+                    onClick={isAdmin ? () => handleStoreChange(String(store.id)) : undefined}
                   />
                 );
               })
@@ -934,6 +1387,16 @@ export default function Dashboard({
           </Card>
         </Col>
       </Row>
+
+      <ItemStoreBreakdownDrawer
+        open={drawerItem !== null}
+        onClose={() => setDrawerItem(null)}
+        selectedItem={drawerItem}
+        fromIso={fromIso}
+        toIso={toIso}
+        storeId={effectiveStoreId}
+        resolveStoreName={resolveStoreName}
+      />
     </div>
   );
 }

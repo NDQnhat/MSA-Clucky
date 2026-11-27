@@ -84,4 +84,45 @@ public interface OrderRepository extends JpaRepository<Order, Long>, JpaSpecific
         @Param("createdTo") java.time.Instant createdTo
     );
 
+    @Query("""
+        SELECT COUNT(o) FROM Order o
+        WHERE (:storeId IS NULL OR o.storeId = :storeId)
+          AND o.createdAt >= :createdFrom
+          AND o.createdAt < :createdTo
+    """)
+    long countOrdersForDateRange(
+        @Param("storeId") Long storeId,
+        @Param("createdFrom") Instant createdFrom,
+        @Param("createdTo") Instant createdTo
+    );
+
+    @Query("""
+        SELECT COUNT(o) FROM Order o
+        WHERE (:storeId IS NULL OR o.storeId = :storeId)
+          AND o.status = :status
+          AND o.createdAt >= :createdFrom
+          AND o.createdAt < :createdTo
+    """)
+    long countOrdersByStatusForDateRange(
+        @Param("storeId") Long storeId,
+        @Param("status") String status,
+        @Param("createdFrom") Instant createdFrom,
+        @Param("createdTo") Instant createdTo
+    );
+
+    @Query("""
+        SELECT COUNT(o) FROM Order o
+        WHERE (:storeId IS NULL OR o.storeId = :storeId)
+          AND o.status IN ('CONFIRMED', 'PREPARING', 'READY')
+    """)
+    long countActiveKitchenOrders(@Param("storeId") Long storeId);
+
+    @Query("""
+        SELECT o FROM Order o
+        WHERE o.status = 'COMPLETED'
+          AND o.id > :afterOrderId
+        ORDER BY o.id ASC
+    """)
+    List<Order> findCompletedOrdersAfter(@Param("afterOrderId") Long afterOrderId, Pageable pageable);
+
 }

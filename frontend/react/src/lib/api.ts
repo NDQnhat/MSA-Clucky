@@ -457,6 +457,19 @@ export const ordersApi = {
       }),
   getById: (id: string | number, signal?: AbortSignal) =>
     api.get<BackendOrder>(`/api/orders/${id}`, { signal }).then((r) => r.data),
+  getDashboardSummary: (storeId?: number, signal?: AbortSignal) =>
+    api
+      .get<{
+        todayOrderCount: number;
+        activeKitchenCount: number;
+        todayCancelledCount: number;
+        openRefundRequestCount: number;
+        recentOrders: BackendOrder[];
+      }>('/api/orders/dashboard-summary', {
+        params: storeId ? { storeId } : undefined,
+        signal,
+      })
+      .then((r) => r.data),
   changeCounterPaymentMethod: (id: string | number, paymentMethod: 'CASH' | 'BANK_TRANSFER' | 'SPLIT', version?: number) =>
     api.put<BackendOrder>(`/api/orders/${id}/counter/payment-method`, { paymentMethod, version }).then((r) => r.data),
   createCounterOrder: (
@@ -837,9 +850,34 @@ export const storesApi = {
 };
 
 /* ---------- Inventory & Availability ---------- */
+export interface InventoryAlertItem {
+  storeId: number;
+  storeName: string;
+  storeNameI18n?: LocalizedText | null;
+  productId: number;
+  productName: string;
+  productNameI18n?: LocalizedText | null;
+  quantityAvailable: number;
+  lowStockThreshold: number;
+  isSoldOut: boolean;
+}
+
+export interface InventoryAlertSummaryResponse {
+  lowStockCount: number;
+  outOfStockCount: number;
+  alerts: InventoryAlertItem[];
+}
+
 export const inventoryApi = {
   getStoreInventory: (storeId: number) =>
     api.get<InventoryItem[]>(`/api/stores/${storeId}/inventory`).then((r) => r.data),
+  getAlerts: (storeId?: number, signal?: AbortSignal) =>
+    api
+      .get<InventoryAlertSummaryResponse>('/api/stores/inventory/alerts', {
+        params: storeId ? { storeId } : undefined,
+        signal,
+      })
+      .then((r) => r.data),
   updateInventory: (storeId: number, productId: number, data: { quantityAvailable?: number; isSoldOut?: boolean; expectedVersion?: number }) =>
     api.put<InventoryItem>(`/api/stores/${storeId}/inventory/${productId}`, data).then((r) => r.data),
   updateStoreThreshold: (storeId: number, threshold: number, expectedVersion?: number) =>
@@ -1167,6 +1205,64 @@ export interface DashboardReportResponse {
   revenueEventPolicy?: string;
   lastUpdatedAt?: string | null;
   generatedAt: string;
+  previousPeriodRevenue?: number;
+  previousPeriodOrderCount?: number;
+  periodDiscountAmount?: number;
+  periodPointsAmount?: number;
+  periodCancelledOrderCount?: number;
+  periodCancelledAmount?: number;
+  periodDeliveryOrderCount?: number;
+  periodPickupOrderCount?: number;
+  periodWebOrderCount?: number;
+  periodCounterOrderCount?: number;
+}
+
+export interface ItemRevenueEntry {
+  itemType: 'PRODUCT' | 'COMBO' | string;
+  itemRefId: number;
+  itemName: string;
+  itemNameI18n?: LocalizedText | null;
+  quantitySold: number;
+  orderCount: number;
+  grossRevenue: number;
+  allocatedNetRevenue: number;
+  revenueSharePct: number;
+  storeCount: number;
+}
+
+export interface ItemRevenueReportResponse {
+  storeId: number | null;
+  from: string;
+  to: string;
+  itemTypeFilter: string;
+  sortBy: string;
+  totalGrossRevenue: number;
+  totalAllocatedNetRevenue: number;
+  totalQuantitySold: number;
+  totalDistinctItems: number;
+  items: ItemRevenueEntry[];
+}
+
+export interface StoreItemMetric {
+  storeId: number;
+  quantitySold: number;
+  orderCount: number;
+  grossRevenue: number;
+  allocatedNetRevenue: number;
+  sharePct: number;
+}
+
+export interface ItemStoreComparisonResponse {
+  itemType: 'PRODUCT' | 'COMBO' | string;
+  itemRefId: number;
+  itemName: string;
+  itemNameI18n?: LocalizedText | null;
+  from: string;
+  to: string;
+  totalQuantitySold: number;
+  totalGrossRevenue: number;
+  totalAllocatedNetRevenue: number;
+  stores: StoreItemMetric[];
 }
 
 export interface RevenueReportResponse {
@@ -1217,6 +1313,67 @@ async function decodeBlobError(error: unknown): Promise<never> {
   throw error;
 }
 
+async function downloadBlobReport(
+  endpoint: string,
+  params: Record<string, unknown>,
+  format: 'xlsx' | 'pdf',
+  fallbackFilename: string,
+  signal?: AbortSignal
+): Promise<ReportExportResult> {
+  try {
+    const response = await api.get<Blob>(endpoint, {
+      params,
+      signal,
+      responseType: 'blob',
+      timeout: 30000,
+    });
+    const blob = response.data;
+    const headers = response.headers as Record<string, unknown> | undefined;
+    const rawContentType = String(
+      headers?.['content-type'] ?? blob?.type ?? ''
+    ).toLowerCase();
+    const expectedPrefix =
+      format === 'xlsx'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'application/pdf';
+
+    if (!blob || blob.size === 0) {
+      throw { code: 'UPSTREAM_ERROR' };
+    }
+
+    if (rawContentType.includes('application/json')) {
+      try {
+        const parsed = JSON.parse(await blob.text());
+        throw { response: { status: response.status, data: parsed } };
+      } catch (jsonErr) {
+        if ((jsonErr as { response?: unknown })?.response) throw jsonErr;
+        throw { code: 'UPSTREAM_ERROR' };
+      }
+    }
+
+    if (
+      rawContentType &&
+      !rawContentType.includes(expectedPrefix) &&
+      !rawContentType.includes('application/octet-stream')
+    ) {
+      throw { code: 'UPSTREAM_ERROR' };
+    }
+
+    const filename = parseDownloadFilename(
+      headers?.['content-disposition'],
+      fallbackFilename
+    );
+
+    return {
+      blob,
+      filename,
+      contentType: rawContentType || expectedPrefix,
+    };
+  } catch (error) {
+    return decodeBlobError(error);
+  }
+}
+
 export const reportsApi = {
   getDashboard: (
     params?: { storeId?: number; from?: string; to?: string },
@@ -1232,64 +1389,55 @@ export const reportsApi = {
     api
       .get<RevenueReportResponse>('/api/reports/revenue', { params, signal })
       .then((r) => r.data),
+  getItemRevenue: (
+    params?: {
+      storeId?: number;
+      from?: string;
+      to?: string;
+      itemType?: 'ALL' | 'PRODUCT' | 'COMBO';
+      sortBy?: 'revenue' | 'quantity';
+      limit?: number;
+    },
+    signal?: AbortSignal
+  ) =>
+    api
+      .get<ItemRevenueReportResponse>('/api/reports/items', { params, signal })
+      .then((r) => r.data),
+  getItemStoreComparison: (
+    itemType: 'PRODUCT' | 'COMBO' | string,
+    itemRefId: number,
+    params?: { storeId?: number; from?: string; to?: string },
+    signal?: AbortSignal
+  ) =>
+    api
+      .get<ItemStoreComparisonResponse>(
+        `/api/reports/items/${encodeURIComponent(itemType)}/${itemRefId}/stores`,
+        { params, signal }
+      )
+      .then((r) => r.data),
+  backfillItems: () =>
+    api.post<{ processedOrders: number }>('/api/reports/items/backfill').then((r) => r.data),
   exportReport: async (
     params: { format: 'xlsx' | 'pdf'; storeId?: number; from?: string; to?: string },
     signal?: AbortSignal
   ): Promise<ReportExportResult> => {
-    try {
-      const response = await api.get<Blob>('/api/reports/export', {
-        params,
-        signal,
-        responseType: 'blob',
-        timeout: 30000,
-      });
-      const blob = response.data;
-      const headers = response.headers as Record<string, unknown> | undefined;
-      const rawContentType = String(
-        headers?.['content-type'] ?? blob?.type ?? ''
-      ).toLowerCase();
-      const expectedPrefix =
-        params.format === 'xlsx'
-          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-          : 'application/pdf';
-
-      if (!blob || blob.size === 0) {
-        throw { code: 'UPSTREAM_ERROR' };
-      }
-
-      if (rawContentType.includes('application/json')) {
-        try {
-          const parsed = JSON.parse(await blob.text());
-          throw { response: { status: response.status, data: parsed } };
-        } catch (jsonErr) {
-          if ((jsonErr as { response?: unknown })?.response) throw jsonErr;
-          throw { code: 'UPSTREAM_ERROR' };
-        }
-      }
-
-      if (
-        rawContentType &&
-        !rawContentType.includes(expectedPrefix) &&
-        !rawContentType.includes('application/octet-stream')
-      ) {
-        throw { code: 'UPSTREAM_ERROR' };
-      }
-
-      const storePart = params.storeId ? `store${params.storeId}` : 'all-stores';
-      const fallbackFilename = `revenue-report-${storePart}-${params.from ?? 'start'}-${params.to ?? 'end'}.${params.format}`;
-      const filename = parseDownloadFilename(
-        headers?.['content-disposition'],
-        fallbackFilename
-      );
-
-      return {
-        blob,
-        filename,
-        contentType: rawContentType || expectedPrefix,
-      };
-    } catch (error) {
-      return decodeBlobError(error);
-    }
+    const storePart = params.storeId ? `store${params.storeId}` : 'all-stores';
+    const fallbackFilename = `revenue-report-${storePart}-${params.from ?? 'start'}-${params.to ?? 'end'}.${params.format}`;
+    return downloadBlobReport('/api/reports/export', params, params.format, fallbackFilename, signal);
+  },
+  exportItemReport: async (
+    params: {
+      format: 'xlsx' | 'pdf';
+      storeId?: number;
+      from?: string;
+      to?: string;
+      itemType?: 'ALL' | 'PRODUCT' | 'COMBO';
+    },
+    signal?: AbortSignal
+  ): Promise<ReportExportResult> => {
+    const storePart = params.storeId ? `store${params.storeId}` : 'all-stores';
+    const fallbackFilename = `item-revenue-report-${storePart}-${params.from ?? 'start'}-${params.to ?? 'end'}.${params.format}`;
+    return downloadBlobReport('/api/reports/items/export', params, params.format, fallbackFilename, signal);
   },
 };
 

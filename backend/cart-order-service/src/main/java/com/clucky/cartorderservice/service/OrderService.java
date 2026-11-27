@@ -1532,6 +1532,53 @@ public class OrderService {
         return mapToOrderResponsePage(orderPage);
     }
 
+    @Transactional(readOnly = true)
+    public OrderDashboardSummaryResponse getDashboardSummary(
+            Long requestedStoreId,
+            java.util.function.Function<Long, Long> openRefundCounter
+    ) {
+        CurrentActor actor = CurrentActor.require();
+        if (actor.role() != Role.ADMIN && actor.role() != Role.STORE_MANAGER) {
+            throw new ApiException(ErrorCode.FORBIDDEN);
+        }
+        if (requestedStoreId != null && requestedStoreId <= 0) {
+            throw new ApiException(ErrorCode.VALIDATION_ERROR);
+        }
+        Long effectiveStoreId = accessGuard.effectiveStore(requestedStoreId);
+        if (actor.role() == Role.STORE_MANAGER) {
+            if (effectiveStoreId == null || effectiveStoreId <= 0) {
+                throw new ApiException(ErrorCode.FORBIDDEN);
+            }
+            if (requestedStoreId != null && !requestedStoreId.equals(effectiveStoreId)) {
+                throw new ApiException(ErrorCode.FORBIDDEN);
+            }
+        }
+
+        ZoneId vnZone = ZoneId.of("Asia/Ho_Chi_Minh");
+        LocalDate today = LocalDate.now(vnZone);
+        Instant startOfDay = today.atStartOfDay(vnZone).toInstant();
+        Instant endOfDay = today.plusDays(1).atStartOfDay(vnZone).toInstant();
+
+        long todayOrderCount = orderRepository.countOrdersForDateRange(effectiveStoreId, startOfDay, endOfDay);
+        long todayCancelledCount = orderRepository.countOrdersByStatusForDateRange(effectiveStoreId, "CANCELLED", startOfDay, endOfDay);
+        long activeKitchenCount = orderRepository.countActiveKitchenOrders(effectiveStoreId);
+        long openRefundCount = openRefundCounter != null ? openRefundCounter.apply(effectiveStoreId) : 0L;
+
+        Pageable topFive = org.springframework.data.domain.PageRequest.of(
+                0, 5, org.springframework.data.domain.Sort.by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt", "id"));
+        Page<Order> recentPage = orderRepository.findOrdersFiltered(
+                null, effectiveStoreId, null, null, null, null, null, "%", null, topFive);
+        List<OrderResponse> recentOrders = mapToOrderResponsePage(recentPage).content();
+
+        return new OrderDashboardSummaryResponse(
+                todayOrderCount,
+                activeKitchenCount,
+                todayCancelledCount,
+                openRefundCount,
+                recentOrders
+        );
+    }
+
     // P2.3: Extracted common lookup and security verification for order details
     public OrderResponse getOrderDetails(Long id) {
         Order order = orderRepository.findById(id)

@@ -2,11 +2,16 @@ package com.clucky.reviewreportservice.service;
 
 import com.clucky.reviewreportservice.dto.DailyStoreStatsResponse;
 import com.clucky.reviewreportservice.dto.DashboardResponse;
+import com.clucky.reviewreportservice.dto.ItemRevenueReportResponse;
+import com.clucky.reviewreportservice.dto.ItemStoreComparisonResponse;
+import com.clucky.reviewreportservice.dto.LocalizedText;
 import com.clucky.reviewreportservice.dto.RevenueReportResponse;
 import com.clucky.reviewreportservice.entity.DailyStoreStats;
 import com.clucky.reviewreportservice.exception.ForbiddenException;
 import com.clucky.reviewreportservice.mapper.DomainMapper;
+import com.clucky.reviewreportservice.repository.DailyItemStatsRepository;
 import com.clucky.reviewreportservice.repository.DailyStoreStatsRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,10 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 
@@ -30,21 +37,35 @@ public class ReportService {
     public static final long MAX_RANGE_DAYS_INCLUSIVE = 366L;
 
     private final DailyStoreStatsRepository statsRepository;
+    private final DailyItemStatsRepository itemStatsRepository;
     private final ReportExportService exportService;
+    private final ObjectMapper objectMapper;
     private final String revenueEventPolicy;
 
     public ReportService(DailyStoreStatsRepository statsRepository, ReportExportService exportService) {
         this(statsRepository, exportService, "false");
     }
 
-    @Autowired
     public ReportService(
             DailyStoreStatsRepository statsRepository,
             ReportExportService exportService,
+            String revenueEventPolicy
+    ) {
+        this(statsRepository, null, exportService, new ObjectMapper(), revenueEventPolicy);
+    }
+
+    @Autowired
+    public ReportService(
+            DailyStoreStatsRepository statsRepository,
+            DailyItemStatsRepository itemStatsRepository,
+            ReportExportService exportService,
+            ObjectMapper objectMapper,
             @Value("${clucky.reports.revenue-event:false}") String revenueEventPolicy
     ) {
         this.statsRepository = statsRepository;
+        this.itemStatsRepository = itemStatsRepository;
         this.exportService = exportService;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
         this.revenueEventPolicy = (revenueEventPolicy == null || revenueEventPolicy.isBlank()) ? "false" : revenueEventPolicy.trim();
     }
 
@@ -103,6 +124,42 @@ public class ReportService {
         String scope = effectiveStoreId == null ? "CHAIN" : "STORE";
         log.info("Dashboard fetched by {} #{} (scope: {}, store: {})", actorRole, actorUserId, scope, effectiveStoreId);
 
+        List<DailyStoreStats> periodRows = effectiveStoreId != null
+                ? statsRepository.findByStoreIdAndStatDateBetweenOrderByStatDateAsc(effectiveStoreId, period.from(), period.to())
+                : statsRepository.findByStatDateBetweenOrderByStatDateAsc(period.from(), period.to());
+
+        BigDecimal periodDiscountAmount = BigDecimal.ZERO;
+        BigDecimal periodPointsAmount = BigDecimal.ZERO;
+        int periodCancelledOrderCount = 0;
+        BigDecimal periodCancelledAmount = BigDecimal.ZERO;
+        int periodDeliveryOrderCount = 0;
+        int periodPickupOrderCount = 0;
+        int periodWebOrderCount = 0;
+        int periodCounterOrderCount = 0;
+        for (DailyStoreStats s : periodRows) {
+            periodDiscountAmount = periodDiscountAmount.add(amountOrZero(s.getTotalDiscountAmount()));
+            periodPointsAmount = periodPointsAmount.add(amountOrZero(s.getTotalPointsAmount()));
+            periodCancelledOrderCount += countOrZero(s.getCancelledOrderCount());
+            periodCancelledAmount = periodCancelledAmount.add(amountOrZero(s.getCancelledAmount()));
+            periodDeliveryOrderCount += countOrZero(s.getDeliveryOrderCount());
+            periodPickupOrderCount += countOrZero(s.getPickupOrderCount());
+            periodWebOrderCount += countOrZero(s.getWebOrderCount());
+            periodCounterOrderCount += countOrZero(s.getCounterOrderCount());
+        }
+
+        long periodDays = ChronoUnit.DAYS.between(period.from(), period.to()) + 1;
+        LocalDate prevTo = period.from().minusDays(1);
+        LocalDate prevFrom = prevTo.minusDays(periodDays - 1);
+        List<DailyStoreStats> prevRows = effectiveStoreId != null
+                ? statsRepository.findByStoreIdAndStatDateBetweenOrderByStatDateAsc(effectiveStoreId, prevFrom, prevTo)
+                : statsRepository.findByStatDateBetweenOrderByStatDateAsc(prevFrom, prevTo);
+        BigDecimal prevRevenue = BigDecimal.ZERO;
+        int prevOrders = 0;
+        for (DailyStoreStats s : prevRows) {
+            prevRevenue = prevRevenue.add(amountOrZero(s.getRevenue()));
+            prevOrders += countOrZero(s.getOrderCount());
+        }
+
         return new DashboardResponse(
                 scope,
                 effectiveStoreId,
@@ -127,7 +184,17 @@ public class ReportService {
                 period.projectionActive(),
                 period.revenueEventPolicy(),
                 lastUpdatedAt,
-                OffsetDateTime.now(ReportProjectionService.VIETNAM_ZONE)
+                OffsetDateTime.now(ReportProjectionService.VIETNAM_ZONE),
+                prevRevenue,
+                prevOrders,
+                periodDiscountAmount,
+                periodPointsAmount,
+                periodCancelledOrderCount,
+                periodCancelledAmount,
+                periodDeliveryOrderCount,
+                periodPickupOrderCount,
+                periodWebOrderCount,
+                periodCounterOrderCount
         );
     }
 
@@ -238,6 +305,222 @@ public class ReportService {
             return exportService.exportToExcel(report);
         }
         return exportService.exportToPdf(report);
+    }
+
+    @Transactional(readOnly = true)
+    public ItemRevenueReportResponse getItemRevenueReport(
+            Long actorUserId,
+            String actorRole,
+            Long actorStoreId,
+            Long requestedStoreId,
+            LocalDate from,
+            LocalDate to,
+            String itemType,
+            String sortBy,
+            int limit,
+            String lang
+    ) {
+        Long effectiveStoreId = resolveEffectiveStoreId(actorRole, actorStoreId, requestedStoreId, false);
+        LocalDate effectiveTo = to != null ? to : LocalDate.now(ReportProjectionService.VIETNAM_ZONE);
+        LocalDate effectiveFrom = from != null ? from : effectiveTo.withDayOfMonth(1);
+        validateRange(effectiveFrom, effectiveTo);
+
+        String normalizedItemType = normalizeItemTypeFilter(itemType);
+        String normalizedSort = "quantity".equalsIgnoreCase(sortBy) ? "quantity" : "revenue";
+        int clampedLimit = Math.min(Math.max(1, limit), 500);
+
+        List<DailyItemStatsRepository.ItemAggregateProjection> rows = itemStatsRepository == null
+                ? List.of()
+                : itemStatsRepository.aggregateItems(effectiveStoreId, effectiveFrom, effectiveTo, normalizedItemType);
+
+        BigDecimal totalGross = BigDecimal.ZERO;
+        BigDecimal totalAllocatedNet = BigDecimal.ZERO;
+        long totalQty = 0L;
+        for (var r : rows) {
+            totalGross = totalGross.add(amountOrZero(r.getGrossRevenue()));
+            totalAllocatedNet = totalAllocatedNet.add(amountOrZero(r.getAllocatedNetRevenue()));
+            totalQty += r.getQuantitySold() != null ? r.getQuantitySold() : 0L;
+        }
+
+        final BigDecimal denominator = totalGross;
+        Comparator<DailyItemStatsRepository.ItemAggregateProjection> comparator = "quantity".equals(normalizedSort)
+                ? Comparator.comparingLong((DailyItemStatsRepository.ItemAggregateProjection r) -> r.getQuantitySold() != null ? r.getQuantitySold() : 0L).reversed()
+                        .thenComparing(r -> amountOrZero(r.getGrossRevenue()), Comparator.reverseOrder())
+                : Comparator.comparing((DailyItemStatsRepository.ItemAggregateProjection r) -> amountOrZero(r.getGrossRevenue())).reversed()
+                        .thenComparingLong(r -> -(r.getQuantitySold() != null ? r.getQuantitySold() : 0L));
+
+        List<ItemRevenueReportResponse.ItemRevenueEntry> entries = rows.stream()
+                .sorted(comparator)
+                .limit(clampedLimit)
+                .map(r -> {
+                    LocalizedText i18n = parseItemName(r.getItemNameJson());
+                    BigDecimal gross = amountOrZero(r.getGrossRevenue());
+                    double sharePct = denominator.signum() > 0
+                            ? gross.multiply(BigDecimal.valueOf(100))
+                                    .divide(denominator, 1, RoundingMode.HALF_UP)
+                                    .doubleValue()
+                            : 0.0;
+                    return new ItemRevenueReportResponse.ItemRevenueEntry(
+                            r.getItemType(),
+                            r.getItemRefId(),
+                            i18n.resolve(lang),
+                            i18n,
+                            r.getQuantitySold() != null ? r.getQuantitySold() : 0L,
+                            r.getOrderCount() != null ? r.getOrderCount() : 0L,
+                            gross,
+                            amountOrZero(r.getAllocatedNetRevenue()),
+                            sharePct,
+                            r.getStoreCount() != null ? r.getStoreCount() : 0L
+                    );
+                })
+                .toList();
+
+        return new ItemRevenueReportResponse(
+                effectiveStoreId,
+                effectiveFrom,
+                effectiveTo,
+                normalizedItemType != null ? normalizedItemType : "ALL",
+                normalizedSort,
+                totalGross,
+                totalAllocatedNet,
+                totalQty,
+                rows.size(),
+                entries
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public ItemStoreComparisonResponse getItemStoreComparison(
+            Long actorUserId,
+            String actorRole,
+            Long actorStoreId,
+            Long requestedStoreId,
+            String itemType,
+            Long itemRefId,
+            LocalDate from,
+            LocalDate to,
+            String lang
+    ) {
+        Long effectiveStoreId = resolveEffectiveStoreId(actorRole, actorStoreId, requestedStoreId, false);
+        if (itemRefId == null || itemRefId <= 0) {
+            throw new IllegalArgumentException("itemRefId phải là số dương!");
+        }
+        String normalizedType = "COMBO".equalsIgnoreCase(itemType) ? "COMBO"
+                : ("PRODUCT".equalsIgnoreCase(itemType) ? "PRODUCT" : null);
+        if (normalizedType == null) {
+            throw new IllegalArgumentException("itemType phải là PRODUCT hoặc COMBO!");
+        }
+        LocalDate effectiveTo = to != null ? to : LocalDate.now(ReportProjectionService.VIETNAM_ZONE);
+        LocalDate effectiveFrom = from != null ? from : effectiveTo.withDayOfMonth(1);
+        validateRange(effectiveFrom, effectiveTo);
+
+        List<DailyItemStatsRepository.ItemStoreBreakdownProjection> rows = itemStatsRepository == null
+                ? List.of()
+                : itemStatsRepository.aggregateItemByStore(normalizedType, itemRefId, effectiveStoreId, effectiveFrom, effectiveTo);
+
+        long totalQty = 0L;
+        BigDecimal totalGross = BigDecimal.ZERO;
+        BigDecimal totalNet = BigDecimal.ZERO;
+        LocalizedText itemNameI18n = LocalizedText.ofSingle("#" + itemRefId);
+        for (var r : rows) {
+            if (r.getItemNameJson() != null) {
+                itemNameI18n = parseItemName(r.getItemNameJson());
+            }
+            totalQty += r.getQuantitySold() != null ? r.getQuantitySold() : 0L;
+            totalGross = totalGross.add(amountOrZero(r.getGrossRevenue()));
+            totalNet = totalNet.add(amountOrZero(r.getAllocatedNetRevenue()));
+        }
+
+        final BigDecimal denominator = totalGross;
+        List<ItemStoreComparisonResponse.StoreItemMetric> storeMetrics = rows.stream()
+                .map(r -> {
+                    BigDecimal gross = amountOrZero(r.getGrossRevenue());
+                    double sharePct = denominator.signum() > 0
+                            ? gross.multiply(BigDecimal.valueOf(100))
+                                    .divide(denominator, 1, RoundingMode.HALF_UP)
+                                    .doubleValue()
+                            : 0.0;
+                    return new ItemStoreComparisonResponse.StoreItemMetric(
+                            r.getStoreId(),
+                            r.getQuantitySold() != null ? r.getQuantitySold() : 0L,
+                            r.getOrderCount() != null ? r.getOrderCount() : 0L,
+                            gross,
+                            amountOrZero(r.getAllocatedNetRevenue()),
+                            sharePct
+                    );
+                })
+                .toList();
+
+        return new ItemStoreComparisonResponse(
+                normalizedType,
+                itemRefId,
+                itemNameI18n.resolve(lang),
+                itemNameI18n,
+                effectiveFrom,
+                effectiveTo,
+                totalQty,
+                totalGross,
+                totalNet,
+                storeMetrics
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] exportItemReport(
+            Long actorUserId,
+            String actorRole,
+            Long actorStoreId,
+            Long requestedStoreId,
+            LocalDate from,
+            LocalDate to,
+            String itemType,
+            String format,
+            String lang
+    ) throws IOException {
+        resolveEffectiveStoreId(actorRole, actorStoreId, requestedStoreId, false);
+        String normalizedFormat = format == null ? "" : format.trim().toLowerCase(Locale.ROOT);
+        if (!"xlsx".equals(normalizedFormat) && !"pdf".equals(normalizedFormat)) {
+            throw new IllegalArgumentException("Định dạng xuất file không hợp lệ! Chỉ hỗ trợ 'xlsx' hoặc 'pdf'");
+        }
+        ItemRevenueReportResponse report = getItemRevenueReport(
+                actorUserId, actorRole, actorStoreId, requestedStoreId, from, to, itemType, "revenue", 500, lang);
+        if ("xlsx".equals(normalizedFormat)) {
+            return exportService.exportItemsToExcel(report);
+        }
+        return exportService.exportItemsToPdf(report);
+    }
+
+    private void validateRange(LocalDate effectiveFrom, LocalDate effectiveTo) {
+        if (effectiveFrom.isAfter(effectiveTo)) {
+            throw new IllegalArgumentException("Ngày bắt đầu (from) không được lớn hơn ngày kết thúc (to)!");
+        }
+        long rangeDays = ChronoUnit.DAYS.between(effectiveFrom, effectiveTo) + 1;
+        if (rangeDays > MAX_RANGE_DAYS_INCLUSIVE) {
+            throw new IllegalArgumentException("Khoảng thời gian báo cáo tối đa " + MAX_RANGE_DAYS_INCLUSIVE + " ngày!");
+        }
+    }
+
+    private String normalizeItemTypeFilter(String itemType) {
+        if (itemType == null || itemType.isBlank() || "ALL".equalsIgnoreCase(itemType.trim())) {
+            return null;
+        }
+        String upper = itemType.trim().toUpperCase(Locale.ROOT);
+        if ("PRODUCT".equals(upper) || "COMBO".equals(upper)) {
+            return upper;
+        }
+        throw new IllegalArgumentException("Loại món không hợp lệ (chỉ hỗ trợ ALL, PRODUCT, COMBO)!");
+    }
+
+    private LocalizedText parseItemName(String json) {
+        if (json == null || json.isBlank()) {
+            return LocalizedText.ofSingle("");
+        }
+        try {
+            LocalizedText parsed = objectMapper.readValue(json, LocalizedText.class);
+            return parsed != null ? parsed : LocalizedText.ofSingle("");
+        } catch (Exception ex) {
+            return LocalizedText.ofSingle(json);
+        }
     }
 
     /**
